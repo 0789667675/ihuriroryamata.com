@@ -1,0 +1,5 @@
+# Password reset setup
+
+Apply `supabase/migrations/007_password_reset_security.sql` before enabling password resets. Reset and email-change delivery use the SMTP adapter in `lib/services/email-service.js`; configure `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASS`, and `EMAIL_FROM` in the deployment environment. Set `FRONTEND_URL` (or `NEXT_PUBLIC_APP_URL`) to the public app origin so account email-change links can be generated. Keep credentials out of source control.
+
+The reset request endpoint always returns a generic response. A six-digit code is stored only as an HMAC, expires after 10 minutes, and is limited to five verification attempts. Successful verification places a short-lived bearer token in an HttpOnly, SameSite=Strict cookie; it is not returned in the response body. Requests are limited by hashed email and IP, with a 60-second resend cooldown.

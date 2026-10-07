@@ -1,0 +1,23 @@
+# Dependencies
+node_modules/
+
+# Next.js
+.next/
+out/
+
+# Environment / secrets
+.env
+.env.*
+!.env.example
+
+# Supabase local state
+supabase/.temp/
+
+# Generated files
+*.tsbuildinfo
+
+# Local verification/cache
+.next-ui-verify/
+
+# Local safety backups
+*.BEFORE-AUTH-MOCK-FIX-*
