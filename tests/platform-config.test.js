@@ -27,8 +27,8 @@ test('admin tier pricing accepts the five active Collector tier codes', async ()
     ['USAGE_0_5000_MONTHLY', 5000],
     ['USAGE_5001_10000_MONTHLY', 10000],
     ['USAGE_10001_20000_MONTHLY', 17000],
-    ['USAGE_20001_35000_MONTHLY', 20000],
-    ['USAGE_35001_PLUS_MONTHLY', 25000],
+    ['USAGE_20001_40000_MONTHLY', 20000],
+    ['USAGE_40001_PLUS_MONTHLY', 25000],
   ].map(([code, price]) => ({ code, price }));
 
   await Config.updateCollectorTierPrices({
