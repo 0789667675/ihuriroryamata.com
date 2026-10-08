@@ -683,7 +683,7 @@ export default function Workspace() {
     }
     if (tab === 'farmers' && isDairy) loadCollectorAssignments().catch(() => undefined);
     if (tab === 'centers') loadCenters().catch((reason) => setError(reason.message));
-    if (tab === 'milk') loadDaily().catch((reason) => setError(reason.message));
+    if (tab === 'milk' && (!isDairy || selectedCenter)) loadDaily().catch((reason) => setError(reason.message));
     if (tab === 'deductions') {
       loadDeductions().catch((reason) => setError(reason.message));
       loadDeductionFarmers().catch((reason) => setError(reason.message));
@@ -702,7 +702,7 @@ export default function Workspace() {
     if (user && tab === 'farmers' && !isDairy) loadFarmers().catch((reason) => setError(reason.message));
   }, [user, tab, farmerSearch, farmerCenter, farmerCollectorFilter, selectedCenter]);
   useEffect(() => {
-    if (user && tab === 'milk') loadDaily().catch((reason) => setError(reason.message));
+    if (user && tab === 'milk' && (!isDairy || selectedCenter)) loadDaily().catch((reason) => setError(reason.message));
   }, [selectedCenter, collectionDate]);
   useEffect(() => {
     if (user && tab === 'milk' && ifishiOpen) loadIfishiFarmers(ifishiFarmerSearch).catch((reason) => setError(reason.message));
@@ -1655,11 +1655,11 @@ export default function Workspace() {
       <section className="panel subscription-overview" id="account-subscription-status">
         <div className="panel-heading"><div><span className="eyebrow">{publicLanguage.t('accountStatus')}</span><h2>{publicLanguage.t('navSubscription')}</h2></div><ClipboardList size={20} aria-hidden="true" /></div>
         {billingError ? <div className="form-error" role="alert">{billingError}<button type="button" className="text-button" onClick={() => loadBilling().catch(() => undefined)}>{publicLanguage.t('reportsRefresh')}</button></div> : null}
-        {billingLoading && !billing ? <div className="workspace-empty workspace-loading" role="status"><span className="loading-indicator" />{publicLanguage.t('dashboardLoading')}</div> : <div className="subscription-state"><span className={`status-dot status-${billing?.subscription?.effective_status || billing?.subscription?.status || 'pending'}`} />{billing?.subscription?.effective_status || billing?.subscription?.status || publicLanguage.t('subscriptionNoAccount')}</div>}
+        {billingError && !billing ? null : billingLoading && !billing ? <div className="workspace-empty workspace-loading" role="status"><span className="loading-indicator" />{publicLanguage.t('dashboardLoading')}</div> : <div className="subscription-state"><span className={`status-dot status-${billing?.subscription?.effective_status || billing?.subscription?.status || 'pending'}`} />{billing?.subscription?.effective_status || billing?.subscription?.status || publicLanguage.t('subscriptionNoAccount')}</div>}
         {!isCollectionCenterAccount && billing?.usage ? <div className="subscription-usage"><div><span>{publicLanguage.t('subscriptionActualUsage')}</span><b>{liters(billing.usage.actualLiters)} L</b></div><div><span>{publicLanguage.t('subscriptionEstimatedUsage')}</span><b>{liters(pricing?.estimatedMonthlyLiters ?? billing.usage.projectedMonthlyLiters)} L</b></div></div> : null}
         <div className="subscription-calculated">
           <span className="eyebrow">{publicLanguage.t(isCollectionCenterAccount ? 'subscriptionFixedMonthly' : 'subscriptionCalculatedAmount')}</span>
-          {pricing ? <><strong>{money(pricing.amount)} <small>{pricing.currency}</small></strong><span>{pricing.planName}</span></> : billingLoading ? <p>{publicLanguage.t('dashboardLoading')}</p> : <p>{publicLanguage.t('subscriptionUnavailable')}</p>}
+          {pricing ? <><strong>{money(pricing.amount)} <small>{pricing.currency}</small></strong><span>{pricing.planName}</span></> : billingLoading ? <p>{publicLanguage.t('dashboardLoading')}</p> : billingError ? null : <p>{publicLanguage.t('subscriptionUnavailable')}</p>}
         </div>
         <label className="field-block">{publicLanguage.t('subscriptionBillingPeriod')}<select value={billingPeriod} onChange={(event) => { setBilling(null); setBillingPeriod(event.target.value as typeof billingPeriod); }}><option value="monthly">{publicLanguage.t('billingMonthly')}</option><option value="6_months">{publicLanguage.t('billingSixMonths')}</option><option value="yearly">{publicLanguage.t('billingYearly')}</option></select></label>
         <label className="field-block">{publicLanguage.t('subscriptionSavedPhone')}<input inputMode="tel" value={paymentPhone} readOnly aria-readonly="true" /></label>
@@ -1670,12 +1670,12 @@ export default function Workspace() {
           {payment && !payment.ready ? <p className="form-error" role="status">{publicLanguage.t('billingPaymentUnavailable')}</p> : null}
         </div>
         <button type="button" className="dashboard-text-link billing-phone-settings" onClick={() => setTab('settings')}>{publicLanguage.t('accountSettings')} <ArrowRight size={14} aria-hidden="true" /></button>
-        {!paymentPhoneValid ? <p className="form-error" role="status">{publicLanguage.t('billingPhoneMissing')}</p> : null}
+        {billing && !paymentPhoneValid ? <p className="form-error" role="status">{publicLanguage.t('billingPhoneMissing')}</p> : null}
         <button type="button" className="button button-primary subscription-pay" onClick={() => paySubscription()} disabled={busy || billingLoading || !pricing || !payment?.ready || !paymentPhoneValid}>{publicLanguage.t('subscriptionPay')} <ArrowRight size={17} aria-hidden="true" /></button>
       </section>
       <section className="panel panel-wide subscription-history">
         <div className="panel-heading"><div><span className="eyebrow">{publicLanguage.t('dashboardAccounting')}</span><h2>{publicLanguage.t('subscriptionPaymentHistory')}</h2></div></div>
-        {billing?.payments?.length ? <div className="table-scroll"><table><thead><tr><th>{publicLanguage.t('paymentDate')}</th><th>{publicLanguage.t('paymentPlan')}</th><th>{publicLanguage.t('billingPaymentProvider')}</th><th>{publicLanguage.t('paymentReference')}</th><th>{publicLanguage.t('deductionsAmount')}</th><th>{publicLanguage.t('paymentStatus')}</th><th /></tr></thead><tbody>{billing.payments.map((payment: any) => <tr key={payment.id}><td>{String(payment.created_at).slice(0, 10)}</td><td>{payment.plan_name || payment.plan_code}</td><td>{payment.payment_method === 'MTN_MOMO_RWA' || payment.provider === 'mtn_momo' ? 'MTN MoMo Rwanda' : payment.payment_method}</td><td><span>{payment.provider_reference}</span>{payment.provider_transaction_id ? <small className="block-muted">{payment.provider_transaction_id}</small> : null}</td><td>{money(payment.amount)} {payment.currency}</td><td>{payment.status}</td><td>{payment.status === 'PENDING' ? <button type="button" className="text-button" onClick={() => checkCustomerPayment(payment.id)} disabled={busy}>{publicLanguage.t('paymentCheckStatus')}</button> : null}</td></tr>)}</tbody></table></div> : <div className="subscription-history-empty"><ClipboardList size={20} aria-hidden="true" /><p>{publicLanguage.t('subscriptionNoHistory')}</p></div>}
+        {billing?.payments?.length ? <div className="table-scroll"><table><thead><tr><th>{publicLanguage.t('paymentDate')}</th><th>{publicLanguage.t('paymentPlan')}</th><th>{publicLanguage.t('billingPaymentProvider')}</th><th>{publicLanguage.t('paymentReference')}</th><th>{publicLanguage.t('deductionsAmount')}</th><th>{publicLanguage.t('paymentStatus')}</th><th /></tr></thead><tbody>{billing.payments.map((payment: any) => <tr key={payment.id}><td>{String(payment.created_at).slice(0, 10)}</td><td>{payment.plan_name || payment.plan_code}</td><td>{payment.payment_method === 'MTN_MOMO_RWA' || payment.provider === 'mtn_momo' ? 'MTN MoMo Rwanda' : payment.payment_method}</td><td><span>{payment.provider_reference}</span>{payment.provider_transaction_id ? <small className="block-muted">{payment.provider_transaction_id}</small> : null}</td><td>{money(payment.amount)} {payment.currency}</td><td>{payment.status}</td><td>{payment.status === 'PENDING' ? <button type="button" className="text-button" onClick={() => checkCustomerPayment(payment.id)} disabled={busy}>{publicLanguage.t('paymentCheckStatus')}</button> : null}</td></tr>)}</tbody></table></div> : billing ? <div className="subscription-history-empty"><ClipboardList size={20} aria-hidden="true" /><p>{publicLanguage.t('subscriptionNoHistory')}</p></div> : billingLoading ? <div className="workspace-empty workspace-loading" role="status"><span className="loading-indicator" />{publicLanguage.t('dashboardLoading')}</div> : null}
       </section>
     </div>;
   };

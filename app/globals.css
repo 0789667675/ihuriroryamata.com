@@ -618,7 +618,7 @@ code { max-width: 420px; display: block; overflow: hidden; text-overflow: ellips
   .brand-mark { font-size: 10px; letter-spacing: .7px; gap: 6px; }
   .brand-icon { width: 29px; height: 29px; }
   .topbar-right { gap: 9px; }
-  .notification-dropdown { position: fixed; top: 64px; right: 12px; width: min(390px, calc(100vw - 24px)); max-height: min(70vh, 560px); }
+  .notification-dropdown { position: fixed; top: 64px; right: 12px; width: min(390px, calc(100% - 24px)); max-height: min(70vh, 560px); }
   .account-tag { padding: 5px 6px; font-size: 8px; }
   .user-name { max-width: 100px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 10px; }
   .workspace-body { display: block; min-height: calc(100vh - 55px); }

@@ -119,3 +119,16 @@ test('Session startup has a bounded failure state and local assignment and milk 
   assert.match(workspace, /dailyError \? <div className="workspace-empty" role="alert">[\s\S]*?Retry/);
   assert.match(workspace, /register\('\/sw\.js'\)\.catch\(\(\) => undefined\)/);
 });
+
+test('Subscription API failures are not presented as missing subscriptions or empty payment history', () => {
+  const billing = workspace.slice(workspace.indexOf('const renderBilling'), workspace.indexOf('const renderNotifications'));
+
+  assert.match(billing, /billingError && !billing \? null/);
+  assert.match(billing, /billingError \? null : <p>\{publicLanguage\.t\('subscriptionUnavailable'\)\}<\/p>/);
+  assert.match(billing, /billing\?\.payments\?\.length \? [\s\S]*: billing \? <div className="subscription-history-empty"/);
+});
+
+test('Dairy with no active center does not issue a daily milk request', () => {
+  assert.match(workspace, /if \(tab === 'milk' && \(!isDairy \|\| selectedCenter\)\) loadDaily\(\)/);
+  assert.match(workspace, /if \(user && tab === 'milk' && \(!isDairy \|\| selectedCenter\)\) loadDaily\(\)/);
+});
