@@ -97,7 +97,7 @@ type PublicLanguageState = ReturnType<typeof usePublicLanguage>;
 function Login({ onLogin, language, setLanguage, t }: { onLogin: (user: User) => void } & PublicLanguageState) {
   const pathname = usePathname();
   const searchParams = useSearchParams();
-  const registering = pathname === '/register' || searchParams.get('mode') === 'register';
+  const registering = pathname === '/register' || searchParams?.get('mode') === 'register';
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [passwordVisible, setPasswordVisible] = useState(false);
@@ -643,7 +643,6 @@ export default function Workspace() {
     if (!user) return;
     loadCenters().catch((reason) => setError(reason.message));
     loadUnreadCount().catch((reason) => setError(reason.message));
-    if (user.accountType === 'COLLECTION_CENTER') loadCollectorAssignments().catch(() => undefined);
   }, [user]);
 
   useEffect(() => {
@@ -681,7 +680,6 @@ export default function Workspace() {
       Promise.all(requests).catch((reason) => setError(reason.message)).finally(() => setDashboardLoading(false));
       return;
     }
-    if (tab === 'farmers' && isDairy) loadCollectorAssignments().catch(() => undefined);
     if (tab === 'centers') loadCenters().catch((reason) => setError(reason.message));
     if (tab === 'milk' && (!isDairy || selectedCenter)) loadDaily().catch((reason) => setError(reason.message));
     if (tab === 'deductions') {
@@ -699,7 +697,7 @@ export default function Workspace() {
   }, [selectedCenter]);
 
   useEffect(() => {
-    if (user && tab === 'farmers' && !isDairy) loadFarmers().catch((reason) => setError(reason.message));
+    if (user && tab === 'farmers') loadFarmers().catch((reason) => setError(reason.message));
   }, [user, tab, farmerSearch, farmerCenter, farmerCollectorFilter, selectedCenter]);
   useEffect(() => {
     if (user && tab === 'milk' && (!isDairy || selectedCenter)) loadDaily().catch((reason) => setError(reason.message));
@@ -780,11 +778,10 @@ export default function Workspace() {
     event.preventDefault();
     await run(async () => {
       const payload: any = { ...farmerForm };
-      if (isDairy) payload.collectionCenterId = Number(selectedCenter);
+      if (isDairy && selectedCenter) payload.collectionCenterId = Number(selectedCenter);
       if (payload.collectionCenterId) {
         const center = centers.find((candidate) => String(candidate.id) === String(payload.collectionCenterId));
         payload.collectionCenter = center?.name;
-        if (isDairy) payload.location = center?.name || payload.location;
         payload.collectionCenterId = Number(payload.collectionCenterId);
       }
       const created = await api<Farmer>('/api/farmers', json('POST', payload));
@@ -793,7 +790,7 @@ export default function Workspace() {
         userId: user.id,
         selectedCollectorId: farmerCollectorFilter,
         farmerSearch,
-        farmerCenter: isDairy ? centers.find((center) => String(center.id) === selectedCenter)?.name || '' : farmerCenter,
+        farmerCenter: isDairy && selectedCenter ? centers.find((center) => String(center.id) === selectedCenter)?.name || '' : farmerCenter,
         limit: 50,
       });
       const refreshed = await api<Page<Farmer>>(`/api/farmers?${params}`, { cache: 'no-store' });
@@ -837,11 +834,10 @@ export default function Workspace() {
     if (!editingFarmer) return;
     await run(async () => {
       const payload: any = { ...farmerEdit };
-      if (isDairy) payload.collectionCenterId = Number(selectedCenter);
+      if (isDairy && selectedCenter) payload.collectionCenterId = Number(selectedCenter);
       if (payload.collectionCenterId) {
         const center = centers.find((candidate) => String(candidate.id) === String(payload.collectionCenterId));
         payload.collectionCenter = center?.name;
-        if (isDairy) payload.location = center?.name || payload.location;
         payload.collectionCenterId = Number(payload.collectionCenterId);
       }
       await api(`/api/farmers/${editingFarmer.id}`, json('PUT', payload));
@@ -1101,22 +1097,30 @@ export default function Workspace() {
 
   const renderFarmers = () => (
     <div className="screen-grid">
+      {isDairy && !centers.length ? <section className="panel panel-wide">
+        <div className="panel-heading"><div><span className="eyebrow">{publicLanguage.t('configuration')}</span><h2>{publicLanguage.t('centerName')}</h2></div><Building2 size={19} aria-hidden="true" /></div>
+        <form className="toolbar" onSubmit={createCenter}>
+          <label>{publicLanguage.t('centerName')}<input required maxLength={100} value={centerForm.name} onChange={(event) => setCenterForm({ ...centerForm, name: event.target.value })} /></label>
+          <label>{publicLanguage.t('milkPrice')} · RWF/L<input required type="number" min="1" step="0.01" value={centerForm.pricePerLiter} onChange={(event) => setCenterForm({ ...centerForm, pricePerLiter: event.target.value })} /></label>
+          <button className="button button-primary" disabled={busy || !centerForm.name.trim() || !centerForm.pricePerLiter}><Plus size={16} />{publicLanguage.t('addCenter')}</button>
+        </form>
+      </section> : null}
       <section className="panel panel-wide">
-        <div className="panel-heading"><div><span className="eyebrow">{isDairy ? publicLanguage.t('dashboardCenter') : publicLanguage.t('directory')}</span><h2>{isDairy ? publicLanguage.t('navAbacunda') : accountCopy('navFarmers', 'navAbacunda')}</h2></div><span className="count-label">{isDairy ? centers.find((center) => String(center.id) === selectedCenter)?.name || '—' : farmers ? `${farmers.data.length} ${accountCopy('farmersLoaded', 'abacundaLoaded')}` : '…'}{!isDairy ? ` · ${accountCopy('pageSize', 'abacundaPageSize')}` : ''}</span></div>
-        {!isDairy ? <div className="toolbar">
+        <div className="panel-heading"><div><span className="eyebrow">{isDairy ? publicLanguage.t('dashboardCenter') : publicLanguage.t('directory')}</span><h2>{isDairy ? publicLanguage.t('navAbacunda') : accountCopy('navFarmers', 'navAbacunda')}</h2></div><span className="count-label">{farmers ? `${farmers.data.length} ${accountCopy('farmersLoaded', 'abacundaLoaded')}` : '…'}{isDairy && selectedCenter ? ` · ${centers.find((center) => String(center.id) === selectedCenter)?.name || ''}` : !isDairy ? ` · ${accountCopy('pageSize', 'abacundaPageSize')}` : ''}</span></div>
+        <div className="toolbar">
           <form className="search-form" onSubmit={(event) => { event.preventDefault(); setFarmerSearch(farmerQuery.trim()); }}><Search size={17} /><input aria-label={publicLanguage.t('farmersSearchPlaceholder')} placeholder={publicLanguage.t('farmersSearchPlaceholder')} value={farmerQuery} onChange={(event) => setFarmerQuery(event.target.value)} /><button className="button button-secondary">{publicLanguage.t('search')}</button></form>
-          <select aria-label={publicLanguage.t('allCenters')} value={farmerCenter} onChange={(event) => setFarmerCenter(event.target.value)}><option value="">{publicLanguage.t('allCenters')}</option>{centers.map((center) => <option key={center.id} value={center.name}>{center.name}</option>)}</select>
-          {user?.accountType === 'COLLECTION_CENTER' ? <select aria-label={publicLanguage.t('assignedCollector')} value={farmerCollectorFilter} onChange={(event) => setFarmerCollectorFilter(event.target.value)}><option value="">{publicLanguage.t('allCollectors')}</option>{collectorAssignments.map((assignment) => <option key={assignment.collector_user_id} value={String(assignment.collector_user_id)}>{assignment.collector_name}</option>)}</select> : null}
-        </div> : null}
+          {isDairy ? centers.length > 1 ? <select aria-label="Active Ikigo" value={selectedCenter} onChange={(event) => setSelectedCenter(event.target.value)}>{centers.map((center) => <option key={center.id} value={String(center.id)}>{center.name}</option>)}</select> : null : <select aria-label={publicLanguage.t('allCenters')} value={farmerCenter} onChange={(event) => setFarmerCenter(event.target.value)}><option value="">{publicLanguage.t('allCenters')}</option>{centers.map((center) => <option key={center.id} value={center.name}>{center.name}</option>)}</select>}
+          {!isDairy && user?.accountType === 'COLLECTION_CENTER' ? <select aria-label={publicLanguage.t('assignedCollector')} value={farmerCollectorFilter} onChange={(event) => setFarmerCollectorFilter(event.target.value)}><option value="">{publicLanguage.t('allCollectors')}</option>{collectorAssignments.map((assignment) => <option key={assignment.collector_user_id} value={String(assignment.collector_user_id)}>{assignment.collector_name}</option>)}</select> : null}
+        </div>
         {!isCollector && !isDairy ? <div className="assignment-tool">
           <div><span className="eyebrow">{publicLanguage.t('collectorsLinkage')}</span><h3>{publicLanguage.t('assignedCollectors')}</h3></div>
           <form className="assignment-form" onSubmit={linkCollector}><input type="number" min="1" step="1" required placeholder={publicLanguage.t('collectorAccountId')} aria-label={publicLanguage.t('collectorAccountId')} value={collectorLinkId} onChange={(event) => setCollectorLinkId(event.target.value)} /><button className="button button-secondary"><Plus size={15} /> {publicLanguage.t('linkCollector')}</button></form>
           <div className="assignment-list">{collectorAssignments.map((assignment) => <div className="assignment-chip" key={assignment.collector_user_id}><span><b>{assignment.collector_name}</b><small>{assignment.collector_account_number || assignment.collector_user_id} · {assignment.abacunda_count} {accountCopy('navFarmers', 'abacundaLabel').toLowerCase()}</small></span><button className="text-button danger-text" onClick={() => unlinkCollector(assignment.collector_user_id)}>{publicLanguage.t('delete')}</button></div>)}{!collectorAssignments.length ? <span className="muted-note">{publicLanguage.t('noCollectorsLinked')}</span> : null}</div>
         </div> : null}
-        <div className="table-scroll farmers-desktop-table"><table><thead><tr><th>{publicLanguage.t('columnName')}</th><th>{publicLanguage.t('columnLocation')}</th><th>{publicLanguage.t('columnPhone')}</th><th>{publicLanguage.t('columnNationalId')}</th><th>{publicLanguage.t('columnCenter')}</th><th>{publicLanguage.t('assignedCollector')}</th><th>{publicLanguage.t('navIfishi')}</th><th /></tr></thead><tbody>
-          {(farmers?.data || []).map((farmer) => <tr key={farmer.id}><td className="strong-cell">{farmer.name}</td><td>{farmer.location || '—'}</td><td>{farmer.phone || '—'}</td><td>{farmer.nationalId || '—'}</td><td>{farmer.collectionCenter || '—'}</td><td>{getFarmerCollectorName(farmer.collectorUserId)}</td><td><button type="button" className="text-button" onClick={() => openIfishiForFarmer(farmer.id, farmer.name)}>{publicLanguage.t('navIfishi')}</button></td><td className="actions-cell"><button className="text-button" onClick={() => editFarmerStart(farmer)}>{publicLanguage.t('edit')}</button><button className="text-button danger-text" onClick={() => deleteFarmer(farmer)}>{publicLanguage.t('delete')}</button></td></tr>)}
+        <div className="table-scroll farmers-desktop-table"><table><thead><tr><th>{publicLanguage.t('columnName')}</th><th>{publicLanguage.t('columnLocation')}</th><th>{publicLanguage.t('columnPhone')}</th><th>{publicLanguage.t('columnNationalId')}</th><th>{publicLanguage.t('columnCenter')}</th>{!isDairy ? <th>{publicLanguage.t('assignedCollector')}</th> : null}<th>{publicLanguage.t('navIfishi')}</th><th /></tr></thead><tbody>
+          {(farmers?.data || []).map((farmer) => <tr key={farmer.id}><td className="strong-cell">{farmer.name}</td><td>{farmer.location || '—'}</td><td>{farmer.phone || '—'}</td><td>{farmer.nationalId || '—'}</td><td>{farmer.collectionCenter || '—'}</td>{!isDairy ? <td>{getFarmerCollectorName(farmer.collectorUserId)}</td> : null}<td><button type="button" className="text-button" onClick={() => openIfishiForFarmer(farmer.id, farmer.name)}>{publicLanguage.t('navIfishi')}</button></td><td className="actions-cell"><button className="text-button" onClick={() => editFarmerStart(farmer)}>{publicLanguage.t('edit')}</button><button className="text-button danger-text" onClick={() => deleteFarmer(farmer)}>{publicLanguage.t('delete')}</button></td></tr>)}
         </tbody></table></div>
-        {farmers ? farmers.data.length ? <div className="farmer-mobile-list">{farmers.data.map((farmer) => <article className="farmer-mobile-card" key={farmer.id}><header><b>{farmer.name}</b><span>{farmer.collectionCenter || farmer.location || '—'}</span></header><dl><div><dt>{publicLanguage.t('columnLocation')}</dt><dd>{farmer.location || '—'}</dd></div><div><dt>{publicLanguage.t('columnPhone')}</dt><dd>{farmer.phone || '—'}</dd></div><div><dt>{publicLanguage.t('columnNationalId')}</dt><dd>{farmer.nationalId || '—'}</dd></div><div><dt>{publicLanguage.t('columnCenter')}</dt><dd>{farmer.collectionCenter || '—'}</dd></div><div><dt>{publicLanguage.t('assignedCollector')}</dt><dd>{getFarmerCollectorName(farmer.collectorUserId)}</dd></div></dl><footer><button type="button" className="button button-secondary small-button" onClick={() => openIfishiForFarmer(farmer.id, farmer.name)}><BookOpen size={15} />{publicLanguage.t('navIfishi')}</button><button className="button button-secondary small-button" onClick={() => editFarmerStart(farmer)}>{publicLanguage.t('edit')}</button><button className="button button-secondary small-button danger-text" onClick={() => deleteFarmer(farmer)}>{publicLanguage.t('delete')}</button></footer></article>)}</div> : <div className="workspace-empty" role="status"><span className="workspace-empty-icon"><Users size={21} aria-hidden="true" /></span><div><b>{accountCopy('farmersEmptyTitle', 'abacundaEmptyTitle')}</b><p>{accountCopy('farmersEmptyBody', 'abacundaEmptyBody')}</p></div>{farmerSearch || farmerCenter || farmerCollectorFilter ? <button type="button" className="button button-secondary small-button" onClick={() => { setFarmerSearch(''); setFarmerQuery(''); setFarmerCenter(''); setFarmerCollectorFilter(''); }}>{publicLanguage.t('milkClearSearch')}</button> : <button type="button" className="button button-primary small-button" onClick={() => document.getElementById('new-farmer-name')?.focus()}><Plus size={15} />{accountCopy('farmersAdd', 'abacundaAdd')}</button>}</div> : <div className="workspace-empty workspace-loading" role="status"><span className="loading-indicator" />{publicLanguage.t('dashboardLoading')}</div>}
+        {farmers ? farmers.data.length ? <div className="farmer-mobile-list">{farmers.data.map((farmer) => <article className="farmer-mobile-card" key={farmer.id}><header><b>{farmer.name}</b><span>{farmer.collectionCenter || farmer.location || '—'}</span></header><dl><div><dt>{publicLanguage.t('columnLocation')}</dt><dd>{farmer.location || '—'}</dd></div><div><dt>{publicLanguage.t('columnPhone')}</dt><dd>{farmer.phone || '—'}</dd></div><div><dt>{publicLanguage.t('columnNationalId')}</dt><dd>{farmer.nationalId || '—'}</dd></div><div><dt>{publicLanguage.t('columnCenter')}</dt><dd>{farmer.collectionCenter || '—'}</dd></div>{!isDairy ? <div><dt>{publicLanguage.t('assignedCollector')}</dt><dd>{getFarmerCollectorName(farmer.collectorUserId)}</dd></div> : null}</dl><footer><button type="button" className="button button-secondary small-button" onClick={() => openIfishiForFarmer(farmer.id, farmer.name)}><BookOpen size={15} />{publicLanguage.t('navIfishi')}</button><button className="button button-secondary small-button" onClick={() => editFarmerStart(farmer)}>{publicLanguage.t('edit')}</button><button className="button button-secondary small-button danger-text" onClick={() => deleteFarmer(farmer)}>{publicLanguage.t('delete')}</button></footer></article>)}</div> : <div className="workspace-empty" role="status"><span className="workspace-empty-icon"><Users size={21} aria-hidden="true" /></span><div><b>{accountCopy('farmersEmptyTitle', 'abacundaEmptyTitle')}</b><p>{accountCopy('farmersEmptyBody', 'abacundaEmptyBody')}</p></div>{farmerSearch || farmerCenter || farmerCollectorFilter ? <button type="button" className="button button-secondary small-button" onClick={() => { setFarmerSearch(''); setFarmerQuery(''); setFarmerCenter(''); setFarmerCollectorFilter(''); }}>{publicLanguage.t('milkClearSearch')}</button> : <button type="button" className="button button-primary small-button" onClick={() => document.getElementById('new-farmer-name')?.focus()}><Plus size={15} />{accountCopy('farmersAdd', 'abacundaAdd')}</button>}</div> : <div className="workspace-empty workspace-loading" role="status"><span className="loading-indicator" />{publicLanguage.t('dashboardLoading')}</div>}
         {farmers?.hasMore ? <div className="panel-footer"><button className="button button-secondary" onClick={() => loadFarmers(farmers.nextCursor, true)}>{accountCopy('milkLoadMore', 'milkLoadMoreAbacunda')} <ChevronDown size={16} /></button></div> : null}
       </section>
       <section className="panel">
@@ -1127,12 +1131,12 @@ export default function Workspace() {
             <label>{publicLanguage.t('columnLocation')}<select aria-label={publicLanguage.t('columnLocation')} value={farmerForm.collectionCenterId} onChange={(event) => setFarmerForm({ ...farmerForm, collectionCenterId: event.target.value })} required disabled={!centers.length}><option value="">{publicLanguage.t('selectCenter')}</option>{centers.map((center) => <option key={center.id} value={String(center.id)}>{center.name}</option>)}</select></label>
             {!centers.length ? <p className="muted-note" role="status">{publicLanguage.t('farmerNoCenters')}</p> : null}
             <label>{publicLanguage.t('farmerVillage')}<input required value={farmerForm.location} onChange={(event) => setFarmerForm({ ...farmerForm, location: event.target.value })} /></label>
-          </> : isDairy ? <label>Active Ikigo<input readOnly value={centers.find((center) => String(center.id) === selectedCenter)?.name || ''} required /></label> : <label>{publicLanguage.t('columnCenter')}<select value={farmerForm.collectionCenterId} onChange={(event) => { const selectedId = event.target.value; const center = centers.find((candidate) => String(candidate.id) === selectedId); setFarmerForm({ ...farmerForm, collectionCenterId: selectedId, location: center ? center.name : '' }); }} required><option value="">{publicLanguage.t('selectCenter')}</option>{centers.map((center) => <option key={center.id} value={String(center.id)}>{center.name}</option>)}</select></label>}
+          </> : isDairy ? <><label>Active Ikigo<input readOnly value={centers.find((center) => String(center.id) === selectedCenter)?.name || ''} required /></label><label>{publicLanguage.t('farmerVillage')}<input required value={farmerForm.location} onChange={(event) => setFarmerForm({ ...farmerForm, location: event.target.value })} /></label>{!centers.length ? <p className="muted-note" role="status">{publicLanguage.t('farmerNoCenters')}</p> : null}</> : <label>{publicLanguage.t('columnCenter')}<select value={farmerForm.collectionCenterId} onChange={(event) => { const selectedId = event.target.value; const center = centers.find((candidate) => String(candidate.id) === selectedId); setFarmerForm({ ...farmerForm, collectionCenterId: selectedId, location: center ? center.name : '' }); }} required><option value="">{publicLanguage.t('selectCenter')}</option>{centers.map((center) => <option key={center.id} value={String(center.id)}>{center.name}</option>)}</select></label>}
           <label>{publicLanguage.t('columnPhone')}<input inputMode="tel" value={farmerForm.phone} onChange={(event) => setFarmerForm({ ...farmerForm, phone: event.target.value })} /></label>
           <label>{publicLanguage.t('columnNationalId')}<input value={farmerForm.nationalId} onChange={(event) => setFarmerForm({ ...farmerForm, nationalId: event.target.value })} /></label>
           <label>{publicLanguage.t('accountNumber')}<input value={farmerForm.accountNumber} onChange={(event) => setFarmerForm({ ...farmerForm, accountNumber: event.target.value })} /></label>
           <label>{publicLanguage.t('cowType')}<input value={farmerForm.cowType} onChange={(event) => setFarmerForm({ ...farmerForm, cowType: event.target.value })} /></label>
-          {!isCollector ? <label>{publicLanguage.t('assignedCollector')}<select value={farmerForm.collectorUserId} onChange={(event) => setFarmerForm({ ...farmerForm, collectorUserId: event.target.value })}><option value="">{publicLanguage.t('noCollector')}</option>{collectorAssignments.map((assignment) => <option key={assignment.collector_user_id} value={assignment.collector_user_id}>{assignment.collector_name}</option>)}</select></label> : null}
+          {!isCollector && !isDairy ? <label>{publicLanguage.t('assignedCollector')}<select value={farmerForm.collectorUserId} onChange={(event) => setFarmerForm({ ...farmerForm, collectorUserId: event.target.value })}><option value="">{publicLanguage.t('noCollector')}</option>{collectorAssignments.map((assignment) => <option key={assignment.collector_user_id} value={assignment.collector_user_id}>{assignment.collector_name}</option>)}</select></label> : null}
           <button className="button button-primary" disabled={busy || ((isCollector || isDairy) && !selectedCenter)}><Plus size={16} />{accountCopy('farmersAdd', 'abacundaAdd')}</button>
         </form>
       </section>
@@ -1141,12 +1145,12 @@ export default function Workspace() {
         {isCollector ? <>
           <label>{publicLanguage.t('columnLocation')}<select aria-label={publicLanguage.t('columnLocation')} value={farmerEdit.collectionCenterId} onChange={(event) => setFarmerEdit({ ...farmerEdit, collectionCenterId: event.target.value })} required disabled={!centers.length}><option value="">{publicLanguage.t('selectCenter')}</option>{centers.map((center) => <option key={center.id} value={String(center.id)}>{center.name}</option>)}</select></label>
           <label>{publicLanguage.t('farmerVillage')}<input required value={farmerEdit.location} onChange={(event) => setFarmerEdit({ ...farmerEdit, location: event.target.value })} /></label>
-        </> : isDairy ? <label>Active Ikigo<input readOnly value={centers.find((center) => String(center.id) === selectedCenter)?.name || ''} required /></label> : <label>{publicLanguage.t('columnCenter')}<select value={farmerEdit.collectionCenterId} onChange={(event) => { const selectedId = event.target.value; const center = centers.find((candidate) => String(candidate.id) === selectedId); setFarmerEdit({ ...farmerEdit, collectionCenterId: selectedId, location: center ? center.name : '' }); }} required><option value="">{publicLanguage.t('selectCenter')}</option>{centers.map((center) => <option key={center.id} value={String(center.id)}>{center.name}</option>)}</select></label>}
+        </> : isDairy ? <><label>Active Ikigo<input readOnly value={centers.find((center) => String(center.id) === selectedCenter)?.name || ''} required /></label><label>{publicLanguage.t('farmerVillage')}<input required value={farmerEdit.location} onChange={(event) => setFarmerEdit({ ...farmerEdit, location: event.target.value })} /></label></> : <label>{publicLanguage.t('columnCenter')}<select value={farmerEdit.collectionCenterId} onChange={(event) => { const selectedId = event.target.value; const center = centers.find((candidate) => String(candidate.id) === selectedId); setFarmerEdit({ ...farmerEdit, collectionCenterId: selectedId, location: center ? center.name : '' }); }} required><option value="">{publicLanguage.t('selectCenter')}</option>{centers.map((center) => <option key={center.id} value={String(center.id)}>{center.name}</option>)}</select></label>}
         <label>{publicLanguage.t('columnPhone')}<input inputMode="tel" value={farmerEdit.phone} onChange={(event) => setFarmerEdit({ ...farmerEdit, phone: event.target.value })} /></label>
         <label>{publicLanguage.t('columnNationalId')}<input value={farmerEdit.nationalId} onChange={(event) => setFarmerEdit({ ...farmerEdit, nationalId: event.target.value })} /></label>
         <label>{publicLanguage.t('accountNumber')}<input value={farmerEdit.accountNumber} onChange={(event) => setFarmerEdit({ ...farmerEdit, accountNumber: event.target.value })} /></label>
         <label>{publicLanguage.t('cowType')}<input value={farmerEdit.cowType} onChange={(event) => setFarmerEdit({ ...farmerEdit, cowType: event.target.value })} /></label>
-        {!isCollector ? <label>{publicLanguage.t('assignedCollector')}<select value={farmerEdit.collectorUserId} onChange={(event) => setFarmerEdit({ ...farmerEdit, collectorUserId: event.target.value })}><option value="">{publicLanguage.t('noCollector')}</option>{collectorAssignments.map((assignment) => <option key={assignment.collector_user_id} value={assignment.collector_user_id}>{assignment.collector_name}</option>)}</select></label> : null}
+        {!isCollector && !isDairy ? <label>{publicLanguage.t('assignedCollector')}<select value={farmerEdit.collectorUserId} onChange={(event) => setFarmerEdit({ ...farmerEdit, collectorUserId: event.target.value })}><option value="">{publicLanguage.t('noCollector')}</option>{collectorAssignments.map((assignment) => <option key={assignment.collector_user_id} value={assignment.collector_user_id}>{assignment.collector_name}</option>)}</select></label> : null}
         <div className="form-actions"><button type="button" className="button button-secondary" onClick={() => setEditingFarmer(null)}>{publicLanguage.t('cancel')}</button><button className="button button-primary" disabled={busy}>{publicLanguage.t('saveChanges')}</button></div>
       </form></section></div> : null}
     </div>
@@ -1774,8 +1778,7 @@ export default function Workspace() {
         {notice ? <div className="toast toast-success" role="status"><span>{notice}</span><button onClick={() => setNotice('')} aria-label="Dismiss"><X size={16} /></button></div> : null}
         {tab === 'dashboard' && isAdmin ? renderAdminDashboard() : null}
         {tab === 'dashboard' && !isAdmin ? renderDashboard() : null}
-        {tab === 'farmers' && !isAdmin && isDairy ? renderAbacundaDirectory() : null}
-        {tab === 'farmers' && !isAdmin && !isDairy ? renderFarmers() : null}
+        {tab === 'farmers' && !isAdmin ? renderFarmers() : null}
         {tab === 'centers' && !isAdmin ? renderCenters() : null}
         {tab === 'milk' && !isAdmin ? renderMilk() : null}
         {tab === 'deductions' && !isAdmin ? renderDeductions() : null}

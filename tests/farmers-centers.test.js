@@ -351,19 +351,24 @@ test('center create and update carry only authenticated owner identity', async (
   assert.deepEqual(calls[1].input, { eveningEnd: '19:30:00' });
 });
 
-test('collection center customers cannot create or update collection centers', async () => {
+test('Collection Center owners can configure only their own Ikigo without Collector transport', async () => {
+  const calls = [];
   const repository = {
-    createCenter: async () => { throw new Error('must not persist'); },
-    updateCenter: async () => { throw new Error('must not persist'); },
+    createCenter: async (args) => { calls.push(args); return args; },
+    updateCenter: async (args) => { calls.push(args); return args; },
   };
 
+  await Centers.createCenter({ ownerUserId: 88, accountType: 'COLLECTION_CENTER', input: { name: 'Latina', pricePerLiter: 400 }, repository });
+  await Centers.updateCenter({ id: 2, ownerUserId: 88, accountType: 'COLLECTION_CENTER', input: { pricePerLiter: 425 }, repository });
+
+  assert.equal(calls[0].ownerUserId, 88);
+  assert.equal(calls[0].input.name, 'Latina');
+  assert.equal(calls[0].input.transportRatePerLiter, 0);
+  assert.equal(calls[1].ownerUserId, 88);
+  assert.deepEqual(calls[1].input, { pricePerLiter: 425 });
   await assert.rejects(
-    () => Centers.createCenter({ ownerUserId: 88, accountType: 'COLLECTION_CENTER', input: { name: 'Second Ikigo' }, repository }),
-    (error) => error.statusCode === 403 && error.code === 'ACCOUNT_TYPE_FORBIDDEN'
-  );
-  await assert.rejects(
-    () => Centers.updateCenter({ id: 2, ownerUserId: 88, accountType: 'COLLECTION_CENTER', input: { name: 'Second Ikigo' }, repository }),
-    (error) => error.statusCode === 403 && error.code === 'ACCOUNT_TYPE_FORBIDDEN'
+    () => Centers.updateCenter({ id: 2, ownerUserId: 88, accountType: 'COLLECTION_CENTER', input: { transportRatePerLiter: 25 }, repository }),
+    (error) => error.statusCode === 403 && error.code === 'DAIRY_TRANSPORT_FORBIDDEN'
   );
 });
 

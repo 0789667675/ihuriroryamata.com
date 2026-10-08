@@ -376,7 +376,7 @@ test('daily collection requires an owned center and returns a bounded farmer cur
   await assert.rejects(() => Milk.getDailyCollection({ ownerUserId, date: '2026-02-30', center: 'North Site', repository: {} }), /Invalid date/i);
 });
 
-test('Dairy daily collection aggregates linked Abacunda by owned active center with complete summary totals', () => {
+test('Dairy daily collection selects owner-owned Abacunda directly without Collector assignments', () => {
   const query = MilkRepository.buildDairyDailyCollectionQuery({
     dairyUserId: 77,
     date: '2026-10-07',
@@ -385,20 +385,19 @@ test('Dairy daily collection aggregates linked Abacunda by owned active center w
     limit: 25,
   });
 
-  assert.match(query.text, /ca\.dairy_user_id = \$1/);
-  assert.match(query.text, /ca\.revoked_at IS NULL/);
-  assert.match(query.text, /u\.account_type = 'COLLECTOR'/);
-  assert.match(query.text, /f\.owner_user_id = ca\.dairy_user_id/);
-  assert.match(query.text, /f\.collector_user_id = ca\.collector_user_id/);
-  assert.match(query.text, /owned\.owner_user_id = f\.owner_user_id/);
-  assert.match(query.text, /c\.id = \$3/);
+  assert.match(query.text, /f\.owner_user_id = \$1/);
+  assert.match(query.text, /collection_centers/);
+  assert.match(query.text, /selected_center AS/);
+  assert.match(query.text, /c\.owner_user_id = f\.owner_user_id/);
+  assert.match(query.text, /f\.id AS "farmerId"/);
+  assert.match(query.text, /mr\.owner_user_id = f\.owner_user_id/);
+  assert.match(query.text, /SELECT id, name FROM collection_centers WHERE id = \$3 AND owner_user_id = \$1/);
   assert.match(query.text, /summary AS/);
-  assert.match(query.text, /SUM\("totalFarmers"\).*AS "allAbacundaCount"/s);
-  assert.match(query.text, /SUM\("presentCount"\).*AS "presentAbacundaCount"/s);
+  assert.doesNotMatch(query.text, /collector_assignments|collector_user_id/);
   assert.deepEqual(query.values, [77, '2026-10-07', 8, 900, 26]);
 });
 
-test('Dairy daily summary counts Abacunda, not linked collectors', async () => {
+test('Dairy daily summary counts directly owned Abacunda, not linked collectors', async () => {
   let queryCount = 0;
   const result = await MilkRepository.getDairyDailyCollection({
     dairyUserId: 77,
@@ -410,24 +409,25 @@ test('Dairy daily summary counts Abacunda, not linked collectors', async () => {
         return { rows: [{ id: 8, name: 'North Ikigo', pricePerLiter: '400', transportRatePerLiter: '0' }] };
       }
       return { rows: [{
-        collectorUserId: 900,
-        collectorName: 'Abacunda A',
-        totalFarmers: 4,
-        presentCount: 2,
+        farmerId: 33,
+        farmerName: 'Abacunda A',
+        totalFarmers: 6,
+        presentCount: 3,
         totalMorning: 12,
         totalEvening: 8,
         totalVolume: 20,
         totalAmount: 8000,
-        allAbacundaCount: 6,
-        presentAbacundaCount: 3,
+        collectionCenter: 'North Ikigo',
+        pricePerLiter: 400,
       }] };
     },
   });
 
   assert.equal(result.summary.totalFarmers, 6);
   assert.equal(result.summary.presentCount, 3);
-  assert.equal(result.collectors[0].totalFarmers, 4);
-  assert.equal(result.collectors[0].presentCount, 2);
+  assert.equal(result.farmers[0].farmerId, 33);
+  assert.equal(result.summary.totalFarmers, 6);
+  assert.equal(result.summary.presentCount, 3);
 });
 
 test('Dairy daily service returns Abacunda aggregates without farmer rows or owner milk', async () => {
@@ -443,8 +443,8 @@ test('Dairy daily service returns Abacunda aggregates without farmer rows or own
         received = filters;
         return {
           center: { id: 8, name: 'North Ikigo' },
-          collectors: [{ collectorUserId: 900, collectorName: 'Abacunda A', totalFarmers: 4, presentCount: 3, totalMorning: 12, totalEvening: 8, totalVolume: 20, totalAmount: 8000 }],
-          summary: { totalFarmers: 1, presentCount: 1, totalMorning: 12, totalEvening: 8, totalVolume: 20, totalAmount: 8000, pricePerLiter: 400, transportRate: 0 },
+          farmers: [{ farmerId: 33, farmerName: 'Abacunda A', totalFarmers: 4, presentCount: 3, totalMorning: 12, totalEvening: 8, totalVolume: 20, totalAmount: 8000 }],
+          summary: { totalFarmers: 4, presentCount: 3, totalMorning: 12, totalEvening: 8, totalVolume: 20, totalAmount: 8000, pricePerLiter: 400, transportRate: 0 },
           pagination: { pageSize: 10, hasMore: false, nextCursor: null },
         };
       },
@@ -454,7 +454,7 @@ test('Dairy daily service returns Abacunda aggregates without farmer rows or own
   assert.deepEqual(received, { dairyUserId: 77, date: '2026-10-07', centerId: 8, cursor: null, limit: 10 });
   assert.equal(result.farmers[0].farmerName, 'Abacunda A');
   assert.equal(result.farmers[0].abacundaCount, 4);
-  assert.equal(result.summary.totalFarmers, 1);
+  assert.equal(result.summary.totalFarmers, 4);
   assert.deepEqual(result.collectorMilk, []);
 });
 

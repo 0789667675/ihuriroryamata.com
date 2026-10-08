@@ -32,18 +32,27 @@ test('Collector Milk Entry puts the Owner and Owner Ifishi before the separate A
   assert.doesNotMatch(workspace.slice(workspace.indexOf('const renderIfishi ='), workspace.indexOf('const renderDashboard')), /if \(isCollector\) return renderOwnerIfishi/);
 });
 
-test('Collection Center directory lists only active-Ikigo linked Abacunda with milk-history Ifishi', () => {
-  const directory = workspace.slice(workspace.indexOf('const renderAbacundaDirectory'), workspace.indexOf('const renderFarmers'));
+test('Collection Center Abacunda uses owner-scoped farmer management without Collector assignment UI', () => {
+  const listRoute = fs.readFileSync(path.join(__dirname, '..', 'app', 'api', 'farmers', 'route.ts'), 'utf8');
+  const detailRoute = fs.readFileSync(path.join(__dirname, '..', 'app', 'api', 'farmers', '[id]', 'route.js'), 'utf8');
+  const farmerView = workspace.slice(workspace.indexOf('const renderFarmers'), workspace.indexOf('const renderCenters'));
 
-  assert.match(directory, /Active Ikigo/);
-  assert.match(directory, /collectorAssignments\.map/);
-  assert.match(directory, /collectorAssignments\.reduce\(/);
-  assert.match(directory, /openAbacundaIfishi\(assignment\)/);
-  assert.match(workspace, /\/api\/ifishi\/abacunda/);
-  assert.doesNotMatch(directory, /farmers\?\.data|renderFarmers|linkCollector|unlinkCollector/);
-  assert.match(workspace, /tab === 'farmers' && !isAdmin && isDairy \? renderAbacundaDirectory\(\)/);
-  assert.match(workspace, /tab === 'farmers' && !isAdmin && !isDairy \? renderFarmers\(\)/);
-  assert.doesNotMatch(workspace, /renderDairyCollectors/);
+  assert.match(workspace, /tab === 'farmers' && !isAdmin \? renderFarmers\(\)/);
+  assert.doesNotMatch(workspace, /tab === 'farmers' && !isAdmin && isDairy \? renderAbacundaDirectory/);
+  assert.match(farmerView, /isDairy \? publicLanguage\.t\('navAbacunda'\)/);
+  assert.match(farmerView, /<div className="toolbar">/);
+  assert.match(farmerView, /!isCollector && !isDairy \? <div className="assignment-tool">/);
+  assert.match(farmerView, /!isDairy \? <th>\{publicLanguage\.t\('assignedCollector'\)\}<\/th>/);
+  assert.match(farmerView, /!isDairy \? <div><dt>\{publicLanguage\.t\('assignedCollector'\)\}<\/dt>/);
+  assert.match(farmerView, /isDairy \? <><label>Active Ikigo<input readOnly value=\{centers\.find\(\(center\) => String\(center\.id\) === selectedCenter\)\?\.name \|\| ''\} required \/><\/label><label>\{publicLanguage\.t\('farmerVillage'\)\}<input required value=\{farmerForm\.location\} onChange=\{\(event\) => setFarmerForm\(\{ \.\.\.farmerForm, location: event\.target\.value \}\)\} \/><\/label>/);
+  assert.match(farmerView, /isDairy \? <><label>Active Ikigo<input readOnly value=\{centers\.find\(\(center\) => String\(center\.id\) === selectedCenter\)\?\.name \|\| ''\} required \/><\/label><label>\{publicLanguage\.t\('farmerVillage'\)\}<input required value=\{farmerEdit\.location\} onChange=\{\(event\) => setFarmerEdit\(\{ \.\.\.farmerEdit, location: event\.target\.value \}\)\} \/><\/label>/);
+  assert.match(farmerView, /createFarmer/);
+  assert.match(farmerView, /saveFarmer/);
+  for (const route of [listRoute, detailRoute]) {
+    assert.match(route, /requireAccountType\(user, \['COLLECTOR', 'COLLECTION_CENTER'\]\)/);
+    assert.match(route, /ownerUserId: user\.id/);
+    assert.doesNotMatch(route, /ownerUserId: params|ownerUserId: input/);
+  }
 });
 
 test('Dairy navigation excludes Settings and Dairy Amata is read-only Abacunda aggregation', () => {

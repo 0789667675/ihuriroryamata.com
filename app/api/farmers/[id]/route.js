@@ -15,7 +15,7 @@ export async function GET(request, { params }) {
   try {
     const user = await getAuthenticatedUser(request);
     if (!user) return NextResponse.json({ message: 'Not authenticated.' }, { status: 401 });
-    requireAccountType(user, 'COLLECTOR');
+    requireAccountType(user, ['COLLECTOR', 'COLLECTION_CENTER']);
     const farmer = await Farmers.getFarmer({ id: params.id, ownerUserId: user.id });
     if (!farmer) return NextResponse.json({ message: 'Farmer not found.' }, { status: 404 });
     return NextResponse.json(farmer);
@@ -28,7 +28,7 @@ export async function PUT(request, { params }) {
   try {
     const user = await getAuthenticatedUser(request);
     if (!user) return NextResponse.json({ message: 'Not authenticated.' }, { status: 401 });
-    requireAccountType(user, 'COLLECTOR');
+    requireAccountType(user, ['COLLECTOR', 'COLLECTION_CENTER']);
     const farmer = await Farmers.updateFarmer({
       id: params.id,
       ownerUserId: user.id,
@@ -46,7 +46,7 @@ export async function DELETE(request, { params }) {
   try {
     const user = await getAuthenticatedUser(request);
     if (!user) return NextResponse.json({ message: 'Not authenticated.' }, { status: 401 });
-    requireAccountType(user, 'COLLECTOR');
+    requireAccountType(user, ['COLLECTOR', 'COLLECTION_CENTER']);
     const deleted = await Farmers.deleteFarmer({ id: params.id, ownerUserId: user.id, actorId: user.id });
     if (!deleted) return NextResponse.json({ message: 'Farmer not found.' }, { status: 404 });
     return new Response(null, { status: 204 });

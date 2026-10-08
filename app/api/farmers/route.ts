@@ -15,9 +15,9 @@ export async function GET(request: Request) {
   try {
     const user = await getAuthenticatedUser(request);
     if (!user) return NextResponse.json({ message: 'Not authenticated.' }, { status: 401 });
-    requireAccountType(user, 'COLLECTOR');
+    requireAccountType(user, ['COLLECTOR', 'COLLECTION_CENTER']);
     const params = new URL(request.url).searchParams;
-    const collectorUserId = user.accountType === 'COLLECTOR' ? String(user.id) : params.get('collectorUserId') || '';
+    const collectorUserId = user.accountType === 'COLLECTOR' ? String(user.id) : '';
     const result = await Farmers.listFarmers({
       ownerUserId: user.id,
       search: params.get('search') || params.get('q') || '',
@@ -36,7 +36,7 @@ export async function POST(request: Request) {
   try {
     const user = await getAuthenticatedUser(request);
     if (!user) return NextResponse.json({ message: 'Not authenticated.' }, { status: 401 });
-    requireAccountType(user, 'COLLECTOR');
+    requireAccountType(user, ['COLLECTOR', 'COLLECTION_CENTER']);
     const farmer = await Farmers.createFarmer({
       ownerUserId: user.id,
       actorId: user.id,

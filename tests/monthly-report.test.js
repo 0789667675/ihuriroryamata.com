@@ -329,26 +329,29 @@ test('unassigned Collector settlement includes directly owned farmers without as
   assert.equal(summary.farmerPayments.length, 1);
 });
 
-test('Dairy report projects one settlement row per linked Collector and does not expose a farmer ledger', async () => {
-  const profile = { id: 99, name: 'Linked Collector', accountType: 'COLLECTOR' };
+test('Dairy report returns owner-scoped Abacunda rows without Collector settlements', async () => {
+  let collectorQueryCalled = false;
   const summary = await Reports.getSummary({
     ownerUserId: 77,
     query: { startDate: '2026-06-01', endDate: '2026-06-30' },
     repository: reportRepository({
       accountType: 'COLLECTION_CENTER',
-      links: [{ farmerId: 3, farmerName: 'Assigned Farmer', accountNumber: 'A-3', collectorUserId: 99 }],
-      allowed: [99],
-      profiles: [profile],
+      links: [],
+      allowed: [],
+      profiles: [],
+      getFarmerTotals: async () => farmerRows,
+      getDairyCollectorTotals: async () => { collectorQueryCalled = true; return []; },
     }),
   });
-  assert.equal(summary.collectorSettlementRows.length, 1);
-  assert.equal(summary.collectorSettlementRows[0].collectorUserId, 99);
-  assert.equal(summary.collectorSettlementRows[0].name, 'Linked Collector');
-  assert.equal(summary.collectorSettlementRows[0].assignedFarmerCount, 1);
-  assert.deepEqual(summary.farmerPayments, []);
+  assert.equal(collectorQueryCalled, false);
+  assert.deepEqual(summary.collectorSettlementRows, []);
+  assert.equal(summary.farmerPayments.length, 1);
+  assert.equal(summary.farmerPayments[0].farmerId, farmerRows[0].farmerId);
+  assert.equal(summary.farmerPayments[0].totalTransport, 0);
+  assert.equal(summary.farmerPayments[0].netAmount, 32500);
 });
 
-test('Dairy reports scope every farmer and milk aggregate to active assignments and the selected Ikigo', async () => {
+test('Dairy reports scope every farmer and milk aggregate to the authenticated owner and selected Ikigo only', async () => {
   const filters = [];
   const repository = {
     ...reportRepository({ accountType: 'COLLECTION_CENTER' }),
@@ -358,7 +361,7 @@ test('Dairy reports scope every farmer and milk aggregate to active assignments 
     getTodayTotals: async (input) => { filters.push(input); return {}; },
     getFarmerTotals: async (input) => { filters.push(input); return []; },
     getMilkLossRecords: async (input) => { filters.push(input); return []; },
-    getDairyCollectorTotals: async (input) => { filters.push(input); return []; },
+    getDairyCollectorTotals: async () => { throw new Error('Dairy reporting must not query Collector settlements.'); },
   };
 
   await Reports.getSummary({
@@ -367,16 +370,14 @@ test('Dairy reports scope every farmer and milk aggregate to active assignments 
     repository,
   });
 
-  assert.equal(filters.length, 6);
-  for (const input of filters.slice(0, 5)) {
+  assert.equal(filters.length, 5);
+  for (const input of filters) {
     assert.equal(input.ownerUserId, 77);
     assert.equal(input.centerFilter, 'latina');
-    assert.equal(input.assignedCollectorOnly, true);
   }
-  assert.equal(filters[5].ownerUserId, 77);
 });
 
-test('collection-center summary excludes transport from dairy payable math while keeping collector transport separate', async () => {
+test('collection-center summary deducts farmer deductions and excludes transport', async () => {
   const dairyRepository = {
     ...reportRepository({ accountType: 'COLLECTION_CENTER' }),
     getUserProfile: async (id) => ({ id, name: 'Dairy A', accountType: 'COLLECTION_CENTER', nationalId: null, accountNumber: null, phone: null }),
@@ -404,14 +405,18 @@ test('collection-center summary excludes transport from dairy payable math while
 
   assert.equal(summary.totalTransport, 0);
   assert.equal(summary.totalTransportFeesMonth, 0);
-  assert.equal(summary.netAmount, 34000);
+  assert.equal(summary.netAmount, 32500);
   assert.equal(summary.collectorPayable, null);
-  assert.deepEqual(summary.farmerPayments, []);
+  assert.equal(summary.farmerPayments.length, 1);
+  assert.equal(summary.farmerPayments[0].totalTransport, 0);
+  assert.equal(summary.farmerPayments[0].totalDeductions, 1500);
+  assert.equal(summary.farmerPayments[0].netAmount, 32500);
   assert.equal(summary.ownerSettlementRow.name, 'Dairy A');
   assert.equal(summary.ownerSettlementRow.totalVolume, 85);
   assert.equal(summary.ownerSettlementRow.grossAmount, 34000);
   assert.equal(summary.ownerSettlementRow.totalTransport, 0);
-  assert.equal(summary.ownerSettlementRow.netAmount, 34000);
+  assert.equal(summary.ownerSettlementRow.totalDeductions, 1500);
+  assert.equal(summary.ownerSettlementRow.netAmount, 32500);
 });
 
 test('invalid report ranges and filters are rejected before repository reads', async () => {
@@ -449,26 +454,24 @@ test('farmer totals SQL can additionally scope assigned collectors', () => {
   assert.deepEqual(query.values, [42, '2026-06-01', '2026-06-30', 99]);
 });
 
-test('Dairy farmer and loss SQL require a current owner-matched collector assignment', () => {
+test('Dairy farmer and loss SQL are owner- and center-scoped without Collector assignments', () => {
   const farmerQuery = ReportRepository.buildFarmerTotalsQuery({
     ownerUserId: 77,
     rangeStart: '2026-10-01',
     rangeEnd: '2026-10-15',
     centerFilter: 'latina',
-    assignedCollectorOnly: true,
   });
   const lossQuery = ReportRepository.buildMilkLossRecordsQuery({
     ownerUserId: 77,
     rangeStart: '2026-10-01',
     rangeEnd: '2026-10-15',
     centerFilter: 'latina',
-    assignedCollectorOnly: true,
   });
 
   for (const query of [farmerQuery, lossQuery]) {
-    assert.match(query.text, /ca\.dairy_user_id = f\.owner_user_id/);
-    assert.match(query.text, /ca\.collector_user_id = f\.collector_user_id/);
-    assert.match(query.text, /ca\.revoked_at IS NULL/);
+    assert.match(query.text, /f\.owner_user_id = \$1/);
+    assert.match(query.text, /LOWER\(BTRIM\(\$\d+\)\)/);
+    assert.doesNotMatch(query.text, /collector_assignments|collector_user_id/);
     assert.deepEqual(query.values, [77, '2026-10-01', '2026-10-15', 'latina']);
   }
 });
@@ -732,8 +735,8 @@ test('Collector owner total subtracts assigned-Dairy farmer losses once from the
   assert.equal(sheet.isReconciled, true);
 });
 
-test('Dairy selected-center payout uses collector aggregates and excludes farmer deductions and transport', async () => {
-  let collectorFilters;
+test('Dairy selected-center report uses owned Abacunda totals and deductions without Collector aggregates', async () => {
+  let collectorQueryCalled = false;
   const summary = await Reports.getSummary({
     ownerUserId: 77,
     query: { startDate: '2026-06-01', endDate: '2026-06-15', collectionCenter: 'North Site' },
@@ -741,31 +744,24 @@ test('Dairy selected-center payout uses collector aggregates and excludes farmer
       ...reportRepository({ accountType: 'COLLECTION_CENTER', links: [], allowed: [], profiles: [] }),
       getUserProfile: async (id) => ({ id, name: 'Dairy A', accountType: 'COLLECTION_CENTER' }),
       getPeriodTotals: async () => ({ totalVolume: 85, totalAmount: 34000 }),
-      getTotalDeductions: async () => 9900,
       getFarmerTotals: async () => [{ ...farmerRows[0], totalVolume: 85, grossAmount: 34000, totalDeductions: 9900, totalTransport: 8000 }],
-      getDairyCollectorTotals: async (filters) => {
-        collectorFilters = filters;
-        return [
-          { collectorUserId: 99, name: 'Abacunda A', assignedFarmerCount: 1, totalVolume: 50, grossAmount: 20000 },
-          { collectorUserId: 100, name: 'Abacunda B', assignedFarmerCount: 1, totalVolume: 35, grossAmount: 14000 },
-        ];
-      },
+      getDairyCollectorTotals: async () => { collectorQueryCalled = true; return []; },
     },
   });
 
-  assert.deepEqual(collectorFilters, { ownerUserId: 77, rangeStart: '2026-06-01', rangeEnd: '2026-06-15', centerFilter: 'north site' });
+  assert.equal(collectorQueryCalled, false);
   assert.equal(summary.totalVolume, 85);
-  assert.equal(summary.totalDeductionsMonth, 34000);
+  assert.equal(summary.totalDeductionsMonth, 9900);
   assert.equal(summary.totalTransport, 0);
   assert.equal(summary.totalTransportFeesMonth, 0);
-  assert.equal(summary.netRevenueMonth, 0);
-  assert.deepEqual(summary.farmerPayments, []);
-  assert.equal(summary.collectorSettlementRows.length, 2);
-  assert.equal(summary.collectorSettlementRows[0].netAmount + summary.collectorSettlementRows[1].netAmount, 34000);
-  assert.equal(summary.collectorSettlementRows[0].totalDeductions + summary.collectorSettlementRows[1].totalDeductions, 34000);
-  assert.equal(summary.collectorSettlementRows[0].totalTransport + summary.collectorSettlementRows[1].totalTransport, 0);
-  assert.equal(summary.ownerSettlementRow.totalDeductions, 34000);
-  assert.equal(summary.ownerSettlementRow.netAmount, 0);
+  assert.equal(summary.netRevenueMonth, 24100);
+  assert.equal(summary.farmerPayments.length, 1);
+  assert.equal(summary.farmerPayments[0].totalTransport, 0);
+  assert.equal(summary.farmerPayments[0].totalDeductions, 9900);
+  assert.equal(summary.farmerPayments[0].netAmount, 24100);
+  assert.deepEqual(summary.collectorSettlementRows, []);
+  assert.equal(summary.ownerSettlementRow.totalDeductions, 9900);
+  assert.equal(summary.ownerSettlementRow.netAmount, 24100);
 });
 
 test('Dairy accounting rejects browser-supplied farmer filters instead of exposing farmer settlement scope', async () => {
