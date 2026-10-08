@@ -26,7 +26,8 @@ test('Collector Milk Entry puts the Owner and Owner Ifishi before the separate A
   assert.match(milkEntry, /aria-expanded=\{ownerIfishiOpen\}/);
   assert.match(milkEntry, /openIfishiForFarmer\(row\.farmerId, row\.farmerName\)/);
   assert.match(workspace, /setIfishiFarmers\(\[selectedFarmer\]\)/);
-  assert.doesNotMatch(ownerIfishi, /RWF|payment|amount|deduction|transport|ejo.?heza/i);
+  assert.match(ownerIfishi, /ownerIfishiReport\?\.farmerPayments/);
+  assert.match(ownerIfishi, /ownerIfishiReport\.collectorPayable/);
   assert.match(workspace, /setIfishiOpen\(false\); setOwnerIfishiOpen/);
   assert.doesNotMatch(workspace.slice(workspace.indexOf('const renderIfishi ='), workspace.indexOf('const renderDashboard')), /if \(isCollector\) return renderOwnerIfishi/);
 });
@@ -36,6 +37,7 @@ test('Collection Center directory lists only active-Ikigo linked Abacunda with m
 
   assert.match(directory, /Active Ikigo/);
   assert.match(directory, /collectorAssignments\.map/);
+  assert.match(directory, /collectorAssignments\.reduce\(/);
   assert.match(directory, /openAbacundaIfishi\(assignment\)/);
   assert.match(workspace, /\/api\/ifishi\/abacunda/);
   assert.doesNotMatch(directory, /farmers\?\.data|renderFarmers|linkCollector|unlinkCollector/);
@@ -51,6 +53,7 @@ test('Dairy navigation excludes Settings and Dairy Amata is read-only Abacunda a
   assert.doesNotMatch(dairyTabs, /id: 'settings'/);
   assert.match(milkEntry, /isCollector \? volumeInput\(row, 'morning'\) : liters\(row\.volumeMorning\)/);
   assert.match(milkEntry, /row\.presentCount \|\| 0/);
+  assert.match(milkEntry, /\$\{dailySummary\.presentCount\} milk entries · \$\{dailySummary\.totalFarmers\} Abacunda/);
   assert.match(milkEntry, /isCollector \? <><span className=\{`milk-entry-state/);
   assert.match(milkEntry, /isCollector \? <><button type="button" className="button button-secondary small-button" onClick=\{\(\) => openIfishiForFarmer/);
 });
@@ -77,6 +80,16 @@ test('Farmer Ifishi requests milk history only and renders no financial values',
   assert.doesNotMatch(view, /RWF|grossAmount|transport|ejo.?heza|ifishiGross|ifishiTransport|ifishiTotalDeductions|ifishiFinalPayment/i);
 });
 
+test('notifications are restored in the header and use the existing owned notification APIs', () => {
+  const header = workspace.slice(workspace.indexOf('<header className="topbar"'), workspace.indexOf('<div className="workspace-body"'));
+
+  assert.match(header, /notification-dropdown/);
+  assert.match(header, /unreadCount/);
+  assert.match(workspace, /api<\{ data: Notice\[\] \}>\('\/api\/notifications\?limit=50'\)/);
+  assert.match(workspace, /api<\{ data: \{ unreadCount: number \} \}>\('\/api\/notifications\/unread-count'\)/);
+  assert.ok(workspace.includes('api(`/api/notifications/${notification.id}/read`'));
+});
+
 test('Ukwezi UI requests selected half-months and only scopes a Dairy to its active Ikigo', () => {
   const loadUkwezi = workspace.slice(workspace.indexOf('const loadUkwezi'), workspace.indexOf('const loadUnreadCount'));
   const ukwezi = workspace.slice(workspace.indexOf('const renderUkwezi'), workspace.indexOf('const renderTransport'));
@@ -87,4 +100,22 @@ test('Ukwezi UI requests selected half-months and only scopes a Dairy to its act
   assert.match(ukwezi, /value="second-half">16–/);
   assert.match(ukwezi, /ukweziReport\.rangeStart\} – \{ukweziReport\.rangeEnd/);
   assert.doesNotMatch(workspace, /ejo.?heza/i);
+});
+
+test('Active Ikigo selection stays valid and falls back to the first center when needed', () => {
+  const loadCenters = workspace.slice(workspace.indexOf('const loadCenters'), workspace.indexOf('const loadCollectorAssignments'));
+
+  assert.match(loadCenters, /setSelectedCenter\(\(current\) =>/);
+  assert.match(loadCenters, /data\.some\(\(center\) => String\(center\.id\) === String\(current\)\)/);
+  assert.match(loadCenters, /String\(data\[0\]\.id\)/);
+});
+
+test('Session startup has a bounded failure state and local assignment and milk retries', () => {
+  assert.match(workspace, /setTimeout\(\(\) => controller\.abort\(\), 12000\)/);
+  assert.match(workspace, /Unable to start Milk System/);
+  assert.match(workspace, /onClick=\{\(\) => \{ setAuthError\(''\); setAuthLoading\(true\); setAuthAttempt/);
+  assert.match(workspace, /if \(status === 401\) \{[\s\S]*?setUser\(null\)/);
+  assert.match(workspace, /collectorAssignmentsError \? <div className="workspace-empty" role="alert">[\s\S]*?Retry/);
+  assert.match(workspace, /dailyError \? <div className="workspace-empty" role="alert">[\s\S]*?Retry/);
+  assert.match(workspace, /register\('\/sw\.js'\)\.catch\(\(\) => undefined\)/);
 });

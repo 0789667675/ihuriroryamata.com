@@ -29,3 +29,18 @@ test('migration scaffold preserves the required owner and admin model', () => {
   assert.match(farmerRoute, /getAuthenticatedUser/);
   assert.match(appFile, /Milk System — Next.js \+ Supabase PostgreSQL migration/);
 });
+
+test('canonical Collector tier migration preserves prices and only deactivates retired codes', () => {
+  const migration = fs.readFileSync(path.join(root, 'supabase', 'migrations', '012_canonical_collector_tiers.sql'), 'utf8');
+  for (const code of [
+    'USAGE_0_5000_MONTHLY',
+    'USAGE_5001_10000_MONTHLY',
+    'USAGE_10001_20000_MONTHLY',
+    'USAGE_20001_40000_MONTHLY',
+    'USAGE_40001_PLUS_MONTHLY',
+  ]) assert.ok(migration.includes(code));
+  assert.match(migration, /COALESCE\(CASE WHEN current_plan\.is_active THEN current_plan\.price END,\s*legacy\.price, current_plan\.price, tier\.default_price\)/);
+  assert.match(migration, /ON CONFLICT \(code\) DO UPDATE/);
+  assert.match(migration, /SET is_active = FALSE/);
+  assert.doesNotMatch(migration, /DROP TABLE|TRUNCATE|DELETE FROM/i);
+});

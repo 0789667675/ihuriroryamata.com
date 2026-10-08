@@ -364,8 +364,11 @@ export const publicCopy = {
     paymentAwaitingConfirmation: 'Bitegereje kwemezwa',
     paymentReference: 'Nomero yishyurirwaho',
     paymentDate: 'Itariki',
+    paymentConfirmationDate: 'Itariki yo kwemezwa',
     paymentPlan: 'Gahunda',
     paymentStatus: 'Uko kwishyura bihagaze',
+    previousPage: 'Ibibanza bibanje',
+    nextPage: 'Ibibanza bikurikira',
 
     platform: 'URUBUGA',
     customerAccounts: 'Konti z’abakiriya',
@@ -834,8 +837,11 @@ export const publicCopy = {
     paymentAwaitingConfirmation: 'Awaiting provider confirmation',
     paymentReference: 'Reference',
     paymentDate: 'Date',
+    paymentConfirmationDate: 'Confirmation date',
     paymentPlan: 'Plan',
     paymentStatus: 'Status',
+    previousPage: 'Previous',
+    nextPage: 'Next',
 
     platform: 'PLATFORM',
     customerAccounts: 'Customer accounts',

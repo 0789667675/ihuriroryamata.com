@@ -23,8 +23,10 @@ const plan = {
 };
 
 test('subscription payment helpers preserve canonical tier aliases and discount calculations', () => {
-  assert.equal(Subscriptions.canonicalPlanCode('USAGE_20001_35000', 'monthly'), 'USAGE_20001_35000_MONTHLY');
-  assert.equal(Subscriptions.canonicalPlanCode('USAGE_40001_PLUS', 'monthly'), 'USAGE_35001_PLUS_MONTHLY');
+  assert.equal(Subscriptions.canonicalPlanCode('USAGE_20001_35000', 'monthly'), 'USAGE_20001_40000_MONTHLY');
+  assert.equal(Subscriptions.canonicalPlanCode('USAGE_20001_35000_MONTHLY', 'monthly'), 'USAGE_20001_40000_MONTHLY');
+  assert.equal(Subscriptions.canonicalPlanCode('USAGE_40001_PLUS', 'monthly'), 'USAGE_40001_PLUS_MONTHLY');
+  assert.equal(Subscriptions.canonicalPlanCode('USAGE_35001_PLUS_MONTHLY', 'monthly'), 'USAGE_40001_PLUS_MONTHLY');
   assert.equal(Subscriptions.canonicalPlanCode('USAGE_5001_10000', '6_months'), 'USAGE_5001_10000_6_MONTHS');
   assert.equal(Subscriptions.calculatePrice({ intro_periods_used: 0 }, { ...plan, price: 10000, intro_price: 7000, intro_periods: 1 }, 'monthly').amount, 7000);
   assert.equal(Subscriptions.calculatePrice({ intro_periods_used: 0 }, { ...plan, price: 10000, intro_price: null }, '6_months').amount, 54000);
@@ -146,8 +148,8 @@ const usagePlans = [
   ['USAGE_0_5000_MONTHLY', 5000, 0, 5000],
   ['USAGE_5001_10000_MONTHLY', 10000, 5001, 10000],
   ['USAGE_10001_20000_MONTHLY', 17000, 10001, 20000],
-  ['USAGE_20001_35000_MONTHLY', 20000, 20001, 35000],
-  ['USAGE_35001_PLUS_MONTHLY', 25000, 35001, null],
+  ['USAGE_20001_40000_MONTHLY', 20000, 20001, 40000],
+  ['USAGE_40001_PLUS_MONTHLY', 25000, 40001, null],
 ].map(([code, price, min, max], index) => ({
   ...plan,
   id: index + 1,
@@ -164,7 +166,7 @@ test('customer subscription returns validated plan and payment arrays for collec
     now: new Date('2026-10-10T00:00:00.000Z'),
     repository: {
       getSubscription: async () => ({ status: 'trial', trial_started_at: '2026-10-01', trial_ends_at: '2026-10-16', intro_periods_used: 0 }),
-      getUser: async () => ({ id: 42, phone: '0788000000', accountType: 'COLLECTOR' }),
+      getUser: async () => ({ id: 42, name: 'Milk User', phone: '0788000000', accountType: 'COLLECTOR' }),
       getActivePlans: async () => usagePlans,
       getPaymentsByUser: async () => [],
       getCollectorMilk: async () => [],
@@ -178,10 +180,25 @@ test('customer subscription returns validated plan and payment arrays for collec
   assert.equal(result.plans.length, 5);
   assert.ok(Array.isArray(result.plans));
   assert.ok(Array.isArray(result.payments));
+  assert.equal(result.account.name, 'Milk User');
   assert.equal(result.account.accountType, 'COLLECTOR');
   assert.equal(result.pricing.planCode, 'USAGE_0_5000_MONTHLY');
   assert.equal(result.pricing.amount, 5000);
   assert.equal(result.pricing.estimatedMonthlyLiters, 0);
+});
+
+test('admin payment history query is customer-linked and bounded with real provider fields', () => {
+  const statements = SubscriptionRepository.buildAdminPaymentHistoryQueries({ limit: 20, offset: 40, status: 'PENDING' });
+  assert.match(statements.payments.text, /u\.email AS account_email/);
+  assert.match(statements.payments.text, /sp\.mobile_money_phone/);
+  assert.match(statements.payments.text, /sp\.provider_transaction_id/);
+  assert.match(statements.payments.text, /sp\.created_at/);
+  assert.match(statements.payments.text, /sp\.completed_at/);
+  assert.match(statements.payments.text, /JOIN users u ON u\.id = sp\.user_id/);
+  assert.match(statements.payments.text, /LIMIT \$2 OFFSET \$3/);
+  assert.deepEqual(statements.payments.values, ['PENDING', 20, 40]);
+  assert.match(statements.count.text, /COUNT\(\*\)::bigint AS total/);
+  assert.deepEqual(statements.count.values, ['PENDING']);
 });
 
 test('collector billing accepts the current stored price while preserving the approved tier ranges', () => {

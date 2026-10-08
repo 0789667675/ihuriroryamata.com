@@ -66,8 +66,12 @@ test('Dairy Abacunda assignments are filtered through an owner-owned active Ikig
   });
 
   assert.match(captured.text, /ca\.dairy_user_id = \$1/);
-  assert.match(captured.text, /c\.owner_user_id = f\.owner_user_id/);
-  assert.match(captured.text, /\$2::bigint IS NULL OR c\.id = \$2/);
+  assert.match(captured.text, /ca\.revoked_at IS NULL/);
+  assert.match(captured.text, /f\.owner_user_id = ca\.dairy_user_id/);
+  assert.match(captured.text, /c\.owner_user_id = ca\.dairy_user_id/);
+  assert.match(captured.text, /c\.id = \$2/);
+  assert.match(captured.text, /LEFT JOIN farmers f/);
+  assert.doesNotMatch(captured.text, /WHERE ca\.dairy_user_id = \$1 AND ca\.revoked_at IS NULL AND/);
   assert.deepEqual(captured.values, [77, 8]);
 });
 

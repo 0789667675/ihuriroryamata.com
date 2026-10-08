@@ -17,7 +17,12 @@ export async function GET(request) {
     if (!user) return NextResponse.json({ message: 'Not authenticated.' }, { status: 401 });
     if (!allowedUser(user)) return NextResponse.json({ message: 'Owner Ifishi is available to Collector accounts.' }, { status: 403 });
     const params = new URL(request.url).searchParams;
-    const history = await OwnerIfishi.getHistory({ ownerUserId: user.id, startDate: params.get('startDate'), endDate: params.get('endDate') });
+    const history = await OwnerIfishi.getHistoryForPeriod({
+      ownerUserId: user.id,
+      month: params.get('month'),
+      year: params.get('year'),
+      periodType: params.get('periodType'),
+    });
     return NextResponse.json({ owner: { name: user.name }, ...history });
   } catch (error) {
     return errorResponse(error, 'Failed to load Owner Ifishi history.');

@@ -8,6 +8,7 @@ export default function LoadingState() {
   return (
     <main className="boot-screen">
       <BrandLockup imageSize={52} />
+      <small className="boot-company">Milk System Technologies Ltd.</small>
       <div className="loading-status" role="status" aria-live="polite">
         <span className="loading-indicator" aria-hidden="true" />
         <span>{t('loading')}</span>

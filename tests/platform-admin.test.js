@@ -1,5 +1,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const path = require('node:path');
 
 const Admin = require('../lib/services/platform-admin-service.js');
 const Config = require('../lib/services/platform-config-service.js');
@@ -58,6 +60,14 @@ test('platform admin forbids non-policy trials and extensions without a reason',
   await assert.rejects(() => Admin.manageAccount({ userId: accountId, actorId: 1, action: 'grant-trial', input: { days: 30 }, repository: empty }), /exactly 15 days/i);
   await assert.rejects(() => Admin.manageAccount({ userId: accountId, actorId: 1, action: 'extend-trial', input: { days: 20 }, repository: empty }), /reason is required/i);
   assert.equal(await Admin.manageAccount({ userId: 999, actorId: 1, action: 'suspend', repository: empty }), null);
+});
+
+test('platform payment history is server-authorized for Super Admin and uses subscription service', () => {
+  const route = fs.readFileSync(path.join(__dirname, '..', 'app', 'api', 'admin', 'payments', 'route.js'), 'utf8');
+  assert.match(route, /getAuthenticatedUser/);
+  assert.match(route, /user\.role !== 'super_admin'/);
+  assert.match(route, /Subscriptions\.getAdminPaymentHistory/);
+  assert.doesNotMatch(route, /params\.get\(['"](?:userId|ownerUserId|accountId)['"]\)/);
 });
 
 test('platform admin edits the complete Collector tier price schedule only with positive RWF integers', async () => {

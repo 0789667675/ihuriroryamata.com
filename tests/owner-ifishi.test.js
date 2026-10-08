@@ -253,6 +253,8 @@ test('Owner Ifishi API derives owner scope from authentication and keeps financi
   const workspace = fs.readFileSync(path.join(__dirname, '..', 'app', 'workspace.tsx'), 'utf8');
   const styles = fs.readFileSync(path.join(__dirname, '..', 'app', 'globals.css'), 'utf8');
   assert.match(route, /ownerUserId: user\.id/);
+  assert.match(route, /getHistoryForPeriod/);
+  assert.doesNotMatch(route, /params\.get\(['"]startDate['"]\)|params\.get\(['"]endDate['"]\)/);
   assert.match(route, /actorId: user\.id/);
   assert.doesNotMatch(route, /ownerUserId: input\.|ownerId: input\./);
   assert.doesNotMatch(route, /params\.get\(['"]owner(?:User)?Id['"]\)/);
@@ -264,7 +266,24 @@ test('Owner Ifishi API derives owner scope from authentication and keeps financi
   assert.match(ownerScreen, /ownerIfishiEmpty/);
   assert.match(ownerScreen, /type="date"/);
   assert.match(ownerScreen, /owner-ifishi-mobile-list/);
-  assert.doesNotMatch(ownerScreen, /RWF|payment|amount|deduction|transport|ubwikorezi|ejo.?heza/i);
+  assert.match(ownerScreen, /ownerIfishiReport\?\.farmerPayments/);
+  assert.match(ownerScreen, /ownerIfishiReport\.collectorPayable/);
+  assert.match(ownerScreen, /ownerIfishiReport\.collectorFarmerTransport/);
+  assert.match(ownerScreen, /ownerIfishiReport\.collectorFarmerDeductions/);
   assert.match(styles, /\.owner-ifishi-desktop-list \{ display: none; \}/);
   assert.match(styles, /\.owner-ifishi-mobile-list \{ display: grid;/);
+});
+
+test('Owner Ifishi resolves half-month history dates on the server', async () => {
+  let filters;
+  const history = await OwnerIfishi.getHistoryForPeriod({
+    ownerUserId,
+    month: '02',
+    year: '2024',
+    periodType: 'second-half',
+    repository: { getOwnerIfishiHistory: async (input) => { filters = input; return []; } },
+  });
+  assert.deepEqual(filters, { ownerUserId, startDate: '2024-02-16', endDate: '2024-02-29' });
+  assert.equal(history.startDate, '2024-02-16');
+  assert.equal(history.endDate, '2024-02-29');
 });

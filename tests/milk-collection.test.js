@@ -386,14 +386,48 @@ test('Dairy daily collection aggregates linked Abacunda by owned active center w
   });
 
   assert.match(query.text, /ca\.dairy_user_id = \$1/);
+  assert.match(query.text, /ca\.revoked_at IS NULL/);
   assert.match(query.text, /u\.account_type = 'COLLECTOR'/);
   assert.match(query.text, /f\.owner_user_id = ca\.dairy_user_id/);
   assert.match(query.text, /f\.collector_user_id = ca\.collector_user_id/);
   assert.match(query.text, /owned\.owner_user_id = f\.owner_user_id/);
   assert.match(query.text, /c\.id = \$3/);
   assert.match(query.text, /summary AS/);
-  assert.match(query.text, /summary AS/);
+  assert.match(query.text, /SUM\("totalFarmers"\).*AS "allAbacundaCount"/s);
+  assert.match(query.text, /SUM\("presentCount"\).*AS "presentAbacundaCount"/s);
   assert.deepEqual(query.values, [77, '2026-10-07', 8, 900, 26]);
+});
+
+test('Dairy daily summary counts Abacunda, not linked collectors', async () => {
+  let queryCount = 0;
+  const result = await MilkRepository.getDairyDailyCollection({
+    dairyUserId: 77,
+    date: '2026-10-07',
+    centerId: 8,
+    runQuery: async () => {
+      queryCount += 1;
+      if (queryCount === 1) {
+        return { rows: [{ id: 8, name: 'North Ikigo', pricePerLiter: '400', transportRatePerLiter: '0' }] };
+      }
+      return { rows: [{
+        collectorUserId: 900,
+        collectorName: 'Abacunda A',
+        totalFarmers: 4,
+        presentCount: 2,
+        totalMorning: 12,
+        totalEvening: 8,
+        totalVolume: 20,
+        totalAmount: 8000,
+        allAbacundaCount: 6,
+        presentAbacundaCount: 3,
+      }] };
+    },
+  });
+
+  assert.equal(result.summary.totalFarmers, 6);
+  assert.equal(result.summary.presentCount, 3);
+  assert.equal(result.collectors[0].totalFarmers, 4);
+  assert.equal(result.collectors[0].presentCount, 2);
 });
 
 test('Dairy daily service returns Abacunda aggregates without farmer rows or owner milk', async () => {

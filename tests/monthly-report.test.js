@@ -348,6 +348,34 @@ test('Dairy report projects one settlement row per linked Collector and does not
   assert.deepEqual(summary.farmerPayments, []);
 });
 
+test('Dairy reports scope every farmer and milk aggregate to active assignments and the selected Ikigo', async () => {
+  const filters = [];
+  const repository = {
+    ...reportRepository({ accountType: 'COLLECTION_CENTER' }),
+    getUserProfile: async (id) => ({ id, name: 'Dairy A', accountType: 'COLLECTION_CENTER' }),
+    getTotalFarmers: async (input) => { filters.push(input); return 0; },
+    getPeriodTotals: async (input) => { filters.push(input); return {}; },
+    getTodayTotals: async (input) => { filters.push(input); return {}; },
+    getFarmerTotals: async (input) => { filters.push(input); return []; },
+    getMilkLossRecords: async (input) => { filters.push(input); return []; },
+    getDairyCollectorTotals: async (input) => { filters.push(input); return []; },
+  };
+
+  await Reports.getSummary({
+    ownerUserId: 77,
+    query: { periodType: 'first-half', month: '10', year: '2026', collectionCenter: 'Latina' },
+    repository,
+  });
+
+  assert.equal(filters.length, 6);
+  for (const input of filters.slice(0, 5)) {
+    assert.equal(input.ownerUserId, 77);
+    assert.equal(input.centerFilter, 'latina');
+    assert.equal(input.assignedCollectorOnly, true);
+  }
+  assert.equal(filters[5].ownerUserId, 77);
+});
+
 test('collection-center summary excludes transport from dairy payable math while keeping collector transport separate', async () => {
   const dairyRepository = {
     ...reportRepository({ accountType: 'COLLECTION_CENTER' }),
@@ -419,6 +447,30 @@ test('farmer totals SQL can additionally scope assigned collectors', () => {
   });
   assert.match(query.text, /f\.collector_user_id = \$4/);
   assert.deepEqual(query.values, [42, '2026-06-01', '2026-06-30', 99]);
+});
+
+test('Dairy farmer and loss SQL require a current owner-matched collector assignment', () => {
+  const farmerQuery = ReportRepository.buildFarmerTotalsQuery({
+    ownerUserId: 77,
+    rangeStart: '2026-10-01',
+    rangeEnd: '2026-10-15',
+    centerFilter: 'latina',
+    assignedCollectorOnly: true,
+  });
+  const lossQuery = ReportRepository.buildMilkLossRecordsQuery({
+    ownerUserId: 77,
+    rangeStart: '2026-10-01',
+    rangeEnd: '2026-10-15',
+    centerFilter: 'latina',
+    assignedCollectorOnly: true,
+  });
+
+  for (const query of [farmerQuery, lossQuery]) {
+    assert.match(query.text, /ca\.dairy_user_id = f\.owner_user_id/);
+    assert.match(query.text, /ca\.collector_user_id = f\.collector_user_id/);
+    assert.match(query.text, /ca\.revoked_at IS NULL/);
+    assert.deepEqual(query.values, [77, '2026-10-01', '2026-10-15', 'latina']);
+  }
 });
 
 test('Collector farmer transport is calculated once from valid litres and the owner center configuration', () => {
@@ -758,6 +810,7 @@ test('Dairy collector SQL is owner-, assignment-, period-, and selected-center-s
 
   assert.deepEqual(query.values, [77, '2026-06-16', '2026-06-30', 'north site']);
   assert.match(query.text, /ca\.dairy_user_id = \$1/);
+  assert.match(query.text, /ca\.revoked_at IS NULL/);
   assert.match(query.text, /f\.owner_user_id = ca\.dairy_user_id/);
   assert.match(query.text, /u\.id = ca\.collector_user_id AND u\.account_type = 'COLLECTOR'/);
   assert.match(query.text, /mr\.date BETWEEN \$2 AND \$3/);
