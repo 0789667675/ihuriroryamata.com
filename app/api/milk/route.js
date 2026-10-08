@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 
 const { getAuthenticatedUser } = require('@/lib/security/authenticate.js');
+const { requireAccountType } = require('@/lib/security/account-access.js');
 const Milk = require('@/lib/services/milk-service.js');
 const Farmers = require('@/lib/services/farmer-service.js');
 
@@ -18,6 +19,7 @@ export async function GET(request) {
   try {
     const user = await getAuthenticatedUser(request);
     if (!user) return NextResponse.json({ message: 'Not authenticated.' }, { status: 401 });
+    requireAccountType(user, 'COLLECTOR');
     const params = new URL(request.url).searchParams;
     const result = await Milk.listMilkRecords({
       ownerUserId: user.id,
@@ -40,6 +42,7 @@ export async function POST(request) {
   try {
     const user = await getAuthenticatedUser(request);
     if (!user) return NextResponse.json({ message: 'Not authenticated.' }, { status: 401 });
+    requireAccountType(user, 'COLLECTOR');
     const input = await request.json();
     let farmerId = input.farmerId;
     if (!farmerId && input.farmerData?.name) {

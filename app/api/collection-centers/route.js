@@ -28,6 +28,7 @@ export async function POST(request) {
     const center = await Centers.createCenter({
       ownerUserId: user.id,
       actorId: user.id,
+      accountType: user.accountType,
       input: await request.json(),
     });
     return NextResponse.json(center, { status: 201 });

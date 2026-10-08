@@ -376,6 +376,54 @@ test('daily collection requires an owned center and returns a bounded farmer cur
   await assert.rejects(() => Milk.getDailyCollection({ ownerUserId, date: '2026-02-30', center: 'North Site', repository: {} }), /Invalid date/i);
 });
 
+test('Dairy daily collection aggregates linked Abacunda by owned active center with complete summary totals', () => {
+  const query = MilkRepository.buildDairyDailyCollectionQuery({
+    dairyUserId: 77,
+    date: '2026-10-07',
+    centerId: 8,
+    cursor: 900,
+    limit: 25,
+  });
+
+  assert.match(query.text, /ca\.dairy_user_id = \$1/);
+  assert.match(query.text, /u\.account_type = 'COLLECTOR'/);
+  assert.match(query.text, /f\.owner_user_id = ca\.dairy_user_id/);
+  assert.match(query.text, /f\.collector_user_id = ca\.collector_user_id/);
+  assert.match(query.text, /owned\.owner_user_id = f\.owner_user_id/);
+  assert.match(query.text, /c\.id = \$3/);
+  assert.match(query.text, /summary AS/);
+  assert.match(query.text, /summary AS/);
+  assert.deepEqual(query.values, [77, '2026-10-07', 8, 900, 26]);
+});
+
+test('Dairy daily service returns Abacunda aggregates without farmer rows or owner milk', async () => {
+  let received;
+  const result = await Milk.getDailyCollection({
+    ownerUserId: 77,
+    accountType: 'COLLECTION_CENTER',
+    date: '2026-10-07',
+    centerId: '8',
+    limit: '10',
+    repository: {
+      getDairyDailyCollection: async (filters) => {
+        received = filters;
+        return {
+          center: { id: 8, name: 'North Ikigo' },
+          collectors: [{ collectorUserId: 900, collectorName: 'Abacunda A', totalFarmers: 4, presentCount: 3, totalMorning: 12, totalEvening: 8, totalVolume: 20, totalAmount: 8000 }],
+          summary: { totalFarmers: 1, presentCount: 1, totalMorning: 12, totalEvening: 8, totalVolume: 20, totalAmount: 8000, pricePerLiter: 400, transportRate: 0 },
+          pagination: { pageSize: 10, hasMore: false, nextCursor: null },
+        };
+      },
+    },
+  });
+
+  assert.deepEqual(received, { dairyUserId: 77, date: '2026-10-07', centerId: 8, cursor: null, limit: 10 });
+  assert.equal(result.farmers[0].farmerName, 'Abacunda A');
+  assert.equal(result.farmers[0].abacundaCount, 4);
+  assert.equal(result.summary.totalFarmers, 1);
+  assert.deepEqual(result.collectorMilk, []);
+});
+
 test('collector daily overview can resolve its assigned center without a caller-supplied center', async () => {
   let args;
   const expected = { center: 'North Site', centers: ['North Site'], farmers: [], farmerPagination: { pageSize: 50, hasMore: false, nextCursor: null } };

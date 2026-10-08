@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 
 const { getAuthenticatedUser } = require('@/lib/security/authenticate.js');
+const { requireAccountType } = require('@/lib/security/account-access.js');
 const Farmers = require('@/lib/services/farmer-service.js');
 
 export const runtime = 'nodejs';
@@ -14,6 +15,7 @@ export async function GET(request: Request) {
   try {
     const user = await getAuthenticatedUser(request);
     if (!user) return NextResponse.json({ message: 'Not authenticated.' }, { status: 401 });
+    requireAccountType(user, 'COLLECTOR');
     const params = new URL(request.url).searchParams;
     const collectorUserId = user.accountType === 'COLLECTOR' ? String(user.id) : params.get('collectorUserId') || '';
     const result = await Farmers.listFarmers({
@@ -34,6 +36,7 @@ export async function POST(request: Request) {
   try {
     const user = await getAuthenticatedUser(request);
     if (!user) return NextResponse.json({ message: 'Not authenticated.' }, { status: 401 });
+    requireAccountType(user, 'COLLECTOR');
     const farmer = await Farmers.createFarmer({
       ownerUserId: user.id,
       actorId: user.id,

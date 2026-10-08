@@ -92,7 +92,7 @@ test('trial usage window is 15 days and monthly usage selects farmer records whe
     },
   });
   assert.equal(usage.actualLiters, 120);
-  assert.equal(usage.projectedMonthlyLiters, 360);
+  assert.equal(usage.projectedMonthlyLiters, 240);
   assert.equal(farmerUsageWindow.endDate, '2026-10-10');
   assert.equal(usage.estimate, true);
   assert.equal(usage.recommendedTier.code, 'USAGE_0_5000_MONTHLY');

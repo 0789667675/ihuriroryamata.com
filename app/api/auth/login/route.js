@@ -25,6 +25,7 @@ export async function POST(request) {
     return NextResponse.json({
       ok: false,
       message: error.statusCode && error.statusCode < 500 ? error.message : 'Invalid email or password.',
-    }, { status: error.code === 'DATABASE_NOT_CONFIGURED' || error.code === 'SESSION_SECRET_NOT_CONFIGURED' ? 503 : 401 });
+      ...(error.code ? { code: error.code } : {}),
+    }, { status: error.code === 'DATABASE_NOT_CONFIGURED' || error.code === 'SESSION_SECRET_NOT_CONFIGURED' ? 503 : error.statusCode || 401 });
   }
 }

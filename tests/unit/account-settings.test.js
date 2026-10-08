@@ -1,6 +1,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const bcrypt = require('bcryptjs');
+const crypto = require('node:crypto');
 
 process.env.SESSION_SECRET = 'test-session-secret-with-at-least-32-characters';
 
@@ -186,4 +187,56 @@ test('the authoritative Super Admin email cannot be changed from account setting
     audit: fixture.audit,
   }), (error) => error.statusCode === 403 && error.code === 'SUPER_ADMIN_EMAIL_CHANGE_BLOCKED');
   assert.equal(fixture.mailer.messages.length, 0);
+});
+
+test('registration email verification stores a hash, sends through the mail adapter, and audits the request', async () => {
+  const user = { id: 91, email: 'verify@example.com', name: 'Verify User', emailVerified: false };
+  let tokenRecord;
+  let delivered;
+  const auditEntries = [];
+  await Accounts.sendRegistrationEmailVerification({
+    userId: user.id,
+    baseUrl: 'https://milk.example.com',
+    language: 'rw',
+    repository: {
+      findUserById: async (id) => Number(id) === user.id ? user : null,
+      createRegistrationEmailVerificationToken: async (...args) => { tokenRecord = args; },
+      deleteRegistrationEmailVerificationTokensByUser: async () => {},
+    },
+    mailer: { sendRegistrationEmailVerification: async (message) => { delivered = message; } },
+    audit: async (entry) => auditEntries.push(entry),
+  });
+
+  const token = new URL(delivered.link).hash.slice(1);
+  const expectedHash = crypto.createHmac('sha256', process.env.SESSION_SECRET)
+    .update(`registration-email:${token}`).digest('hex');
+  assert.equal(delivered.email, user.email);
+  assert.equal(new URL(delivered.link).pathname, '/verify-email');
+  assert.equal(tokenRecord[0], user.id);
+  assert.equal(tokenRecord[1], expectedHash);
+  assert.notEqual(tokenRecord[1], token);
+  assert.equal(tokenRecord[2].getTime() > Date.now(), true);
+  assert.equal(auditEntries[0].action, 'email_verification_requested');
+});
+
+test('registration email verification consumes a one-time token and audits confirmation', async () => {
+  const token = 'a'.repeat(43);
+  const user = { id: 91, email: 'verify@example.com', role: 'user', accountType: 'COLLECTOR', emailVerified: true };
+  const expectedHash = crypto.createHmac('sha256', process.env.SESSION_SECRET)
+    .update(`registration-email:${token}`).digest('hex');
+  let consumedHash;
+  const auditEntries = [];
+  const result = await Accounts.verifyRegistrationEmail({
+    token,
+    repository: { completeRegistrationEmailVerification: async (hash) => { consumedHash = hash; return user; } },
+    audit: async (entry) => auditEntries.push(entry),
+  });
+
+  assert.deepEqual(result, { ok: true, user });
+  assert.equal(consumedHash, expectedHash);
+  assert.equal(auditEntries[0].action, 'email_verified');
+  await assert.rejects(
+    () => Accounts.verifyRegistrationEmail({ token: 'short', repository: { completeRegistrationEmailVerification() {} } }),
+    (error) => error.code === 'INVALID_EMAIL_VERIFICATION_TOKEN' && error.statusCode === 400
+  );
 });

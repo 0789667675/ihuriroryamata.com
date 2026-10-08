@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 
 const { getAuthenticatedUser } = require('@/lib/security/authenticate.js');
+const { requireAccountType } = require('@/lib/security/account-access.js');
 const CollectorMilk = require('@/lib/services/collector-milk-service.js');
 
 export const runtime = 'nodejs';
@@ -13,6 +14,7 @@ export async function GET(request) {
   try {
     const user = await getAuthenticatedUser(request);
     if (!user) return NextResponse.json({ message: 'Not authenticated.' }, { status: 401 });
+    requireAccountType(user, 'COLLECTOR');
     const date = new URL(request.url).searchParams.get('date');
     return NextResponse.json(await CollectorMilk.getDaily({ ownerUserId: user.id, date }));
   } catch (error) {
@@ -24,6 +26,7 @@ export async function PUT(request) {
   try {
     const user = await getAuthenticatedUser(request);
     if (!user) return NextResponse.json({ message: 'Not authenticated.' }, { status: 401 });
+    requireAccountType(user, 'COLLECTOR');
     const input = await request.json();
     const record = await CollectorMilk.saveDaily({
       ownerUserId: user.id,

@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 
 const { getAuthenticatedUser } = require('@/lib/security/authenticate.js');
+const { requireAccountType } = require('@/lib/security/account-access.js');
 const CollectorMilk = require('@/lib/services/collector-milk-service.js');
 
 export const runtime = 'nodejs';
@@ -9,6 +10,7 @@ export async function POST(request) {
   try {
     const user = await getAuthenticatedUser(request);
     if (!user) return NextResponse.json({ message: 'Not authenticated.' }, { status: 401 });
+    requireAccountType(user, 'COLLECTOR');
     const input = await request.json();
     return NextResponse.json(await CollectorMilk.voidDaily({
       ownerUserId: user.id,

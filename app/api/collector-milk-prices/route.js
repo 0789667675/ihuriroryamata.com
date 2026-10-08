@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 
 const { getAuthenticatedUser } = require('@/lib/security/authenticate.js');
+const { requireAccountType } = require('@/lib/security/account-access.js');
 const CollectorMilk = require('@/lib/services/collector-milk-service.js');
 
 export const runtime = 'nodejs';
@@ -9,6 +10,7 @@ export async function GET(request) {
   try {
     const user = await getAuthenticatedUser(request);
     if (!user) return NextResponse.json({ message: 'Not authenticated.' }, { status: 401 });
+    requireAccountType(user, 'COLLECTOR');
     return NextResponse.json(await CollectorMilk.getPrices({ ownerUserId: user.id }));
   } catch (error) {
     return NextResponse.json({ message: 'Failed to load collector milk prices.' }, {
@@ -21,6 +23,7 @@ export async function POST(request) {
   try {
     const user = await getAuthenticatedUser(request);
     if (!user) return NextResponse.json({ message: 'Not authenticated.' }, { status: 401 });
+    requireAccountType(user, 'COLLECTOR');
     if (user.role !== 'user') return NextResponse.json({ message: 'Permission denied.' }, { status: 403 });
     const input = await request.json();
     const price = await CollectorMilk.addPrice({

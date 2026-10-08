@@ -2,6 +2,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 
 const Assignments = require('../lib/services/collector-assignment-service.js');
+const AssignmentRepository = require('../lib/repositories/collectorAssignmentRepository.js');
 
 const dairyUserId = 77;
 
@@ -38,4 +39,23 @@ test('invalid collector ids are rejected before revoke persistence', async () =>
     repository: { revokeAssignment: async () => { called = true; } },
   }), /Invalid collector id/i);
   assert.equal(called, false);
+});
+
+test('revoking an assignment preserves its history and farmer ownership links', async () => {
+  const statements = [];
+  const pool = {
+    connect: async () => ({
+      query: async (text, values = []) => {
+        statements.push({ text, values });
+        if (text.includes('SELECT id FROM collector_assignments')) return { rows: [{ id: 18 }] };
+        return { rows: [{ id: 18 }] };
+      },
+      release() {},
+    }),
+  };
+
+  assert.equal(await AssignmentRepository.revokeAssignment({ dairyUserId, collectorUserId: 42, actorId: dairyUserId, poolProvider: () => pool }), true);
+  assert.ok(statements.some(({ text }) => text.includes('UPDATE collector_assignments SET revoked_at')));
+  assert.equal(statements.some(({ text }) => text.includes('DELETE FROM collector_assignments')), false);
+  assert.equal(statements.some(({ text }) => text.includes('UPDATE farmers SET collector_user_id = NULL')), false);
 });

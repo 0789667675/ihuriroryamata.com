@@ -76,3 +76,25 @@ test('deduction list SQL binds owner, farmer, date cursor, and page limit', () =
   assert.match(query.text, /LIMIT \$5/);
   assert.deepEqual(query.values, [42, 7, '2026-09-30', 18, 26]);
 });
+
+test('deduction deletion preserves the historical row by clearing it with an audit event', async () => {
+  const statements = [];
+  const pool = {
+    connect: async () => ({
+      query: async (text, values = []) => {
+        statements.push({ text, values });
+        if (text.includes('SELECT d.*')) return { rows: [{ id: 12, farmer_id: 7, owner_user_id: ownerUserId, amount: 1500, type: 'Advance', status: 'Active', date: '2026-10-01' }] };
+        if (text.includes('UPDATE deductions SET status')) return { rows: [{ id: 12, status: 'Cleared' }] };
+        return { rows: [] };
+      },
+      release() {},
+    }),
+  };
+
+  const deleted = await DeductionRepository.deleteDeduction({ id: 12, ownerUserId, actorId: ownerUserId, poolProvider: () => pool });
+
+  assert.equal(deleted, true);
+  assert.ok(statements.some(({ text }) => text.includes("UPDATE deductions SET status = 'Cleared'")));
+  assert.ok(statements.some(({ text, values }) => text.includes('INSERT INTO audit_logs') && values[1] === 'cleared'));
+  assert.equal(statements.some(({ text }) => text.includes('DELETE FROM deductions')), false);
+});

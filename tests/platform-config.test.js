@@ -20,3 +20,22 @@ test('platform plan views are delegated to the server repository', async () => {
   assert.equal(await Config.getPlans({ repository: { listPlans: async () => plans } }), plans);
   assert.deepEqual(await Config.getCollectionCenterPricing({ repository: { getCollectionCenterPricing: async () => ({ config: null, plan: null }) } }), { config: null, plan: null });
 });
+
+test('admin tier pricing accepts the five active Collector tier codes', async () => {
+  let written;
+  const tiers = [
+    ['USAGE_0_5000_MONTHLY', 5000],
+    ['USAGE_5001_10000_MONTHLY', 10000],
+    ['USAGE_10001_20000_MONTHLY', 17000],
+    ['USAGE_20001_35000_MONTHLY', 20000],
+    ['USAGE_35001_PLUS_MONTHLY', 25000],
+  ].map(([code, price]) => ({ code, price }));
+
+  await Config.updateCollectorTierPrices({
+    actorId: 1,
+    input: { tiers },
+    repository: { updateCollectorTierPrices: async (input) => { written = input; return input; } },
+  });
+
+  assert.deepEqual(written, { actorId: 1, tiers });
+});

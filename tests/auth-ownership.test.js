@@ -3,6 +3,7 @@ const assert = require('node:assert/strict');
 
 const { registerUser, loginUser, getCurrentUser } = require('../lib/services/auth-service.js');
 const { assertUserCanAccessOwnerScopedResource, buildOwnerScope } = require('../lib/security/ownership.js');
+const { requireAccountType } = require('../lib/security/account-access.js');
 const { createSessionToken } = require('../lib/security/session.js');
 const { getAuthenticatedUser } = require('../lib/security/authenticate.js');
 const { createUserWithConnection } = require('../lib/repositories/userRepository.js');
@@ -52,6 +53,23 @@ test('registerUser creates a user with the correct default role and account type
   assert.notEqual(user.passwordHash, 'StrongPass123!');
 });
 
+test('registration recognizes the configured authoritative Super Admin email', async () => {
+  const previousEmail = process.env.SUPER_ADMIN_EMAIL;
+  process.env.SUPER_ADMIN_EMAIL = 'configured-admin@example.com';
+  try {
+    const user = await registerUser({
+      repository,
+      name: 'Configured Admin',
+      email: 'CONFIGURED-ADMIN@example.com',
+      password: 'StrongPass123!',
+    });
+    assert.equal(user.role, 'super_admin');
+  } finally {
+    if (previousEmail === undefined) delete process.env.SUPER_ADMIN_EMAIL;
+    else process.env.SUPER_ADMIN_EMAIL = previousEmail;
+  }
+});
+
 test('registration persistence creates the 15-day trial in the same transaction connection', async () => {
   const statements = [];
   const client = {
@@ -72,8 +90,27 @@ test('registration persistence creates the 15-day trial in the same transaction 
   });
   assert.equal(result.subscription.status, 'trial');
   assert.equal(statements.length, 2);
+  assert.match(statements[0].text, /email_verified\)\s+VALUES \(\$1, \$2, \$3, \$4, \$5, 'active', FALSE\)/);
   assert.match(statements[1].text, /NOW\(\) \+ INTERVAL '15 days'/);
   assert.deepEqual(statements[1].values, [15]);
+});
+
+test('unverified accounts cannot sign in before email confirmation', async () => {
+  const unverifiedUsers = new Map();
+  const unverifiedRepository = {
+    findUserByEmail: async (email) => unverifiedUsers.get(String(email).toLowerCase()) || null,
+    createUser: async ({ name, email, passwordHash, role, accountType }) => {
+      const user = { id: 81, name, email, passwordHash, role, accountType, emailVerified: false, accountStatus: 'active' };
+      unverifiedUsers.set(String(email).toLowerCase(), user);
+      return user;
+    },
+  };
+  await registerUser({ repository: unverifiedRepository, name: 'Pending User', email: 'pending@example.com', password: 'StrongPass123!' });
+
+  await assert.rejects(
+    () => loginUser({ repository: unverifiedRepository, email: 'pending@example.com', password: 'StrongPass123!' }),
+    (error) => error.code === 'EMAIL_NOT_VERIFIED' && error.statusCode === 403
+  );
 });
 
 test('registerUser rejects duplicate email addresses', async () => {
@@ -137,6 +174,18 @@ test('owner scope allows the same user to access their own resource and blocks a
     resourceName: 'farmers',
     actorRole: 'user',
   }), /does not have access/i);
+});
+
+test('business account authorization separates Collector and Collection Center access', () => {
+  const collector = { id: 42, role: 'user', accountType: 'COLLECTOR' };
+  const dairy = { id: 77, role: 'user', accountType: 'COLLECTION_CENTER' };
+  const admin = { id: 1, role: 'super_admin', accountType: 'COLLECTOR' };
+
+  assert.equal(requireAccountType(collector, 'COLLECTOR'), collector);
+  assert.equal(requireAccountType(dairy, 'COLLECTION_CENTER'), dairy);
+  assert.throws(() => requireAccountType(dairy, 'COLLECTOR'), { code: 'ACCOUNT_TYPE_FORBIDDEN', statusCode: 403 });
+  assert.throws(() => requireAccountType(collector, 'COLLECTION_CENTER'), { code: 'ACCOUNT_TYPE_FORBIDDEN', statusCode: 403 });
+  assert.throws(() => requireAccountType(admin, 'COLLECTOR'), { code: 'ACCOUNT_TYPE_FORBIDDEN', statusCode: 403 });
 });
 
 test('super admin access is allowed only for the single authoritative platform account', async () => {

@@ -19,6 +19,7 @@ export async function PUT(request, { params }) {
       id: params.id,
       ownerUserId: user.id,
       actorId: user.id,
+      accountType: user.accountType,
       input: await request.json(),
     });
     if (!center) return NextResponse.json({ message: 'Collection center not found.' }, { status: 404 });

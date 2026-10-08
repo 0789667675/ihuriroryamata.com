@@ -101,6 +101,24 @@ test('period resolution preserves monthly, daily, and half-month report ranges',
   assert.deepEqual(Reports.getPeriodRange({ periodType: 'yearly', year: 2026, now }), ['2026-01-01', '2026-12-31']);
 });
 
+test('Ukwezi half-month boundaries override browser-supplied custom ranges', () => {
+  assert.deepEqual(Reports.getPeriodRange({
+    periodType: 'first-half',
+    month: 2,
+    year: 2024,
+    startDate: '2024-02-01',
+    endDate: '2024-02-29',
+    now: new Date('2026-10-07T00:00:00.000Z'),
+  }), ['2024-02-01', '2024-02-15']);
+  assert.deepEqual(Reports.getPeriodRange({
+    periodType: 'monthly',
+    month: 2,
+    year: 2024,
+    startDate: '2024-02-03',
+    endDate: '2024-02-09',
+  }), ['2024-02-03', '2024-02-09']);
+});
+
 test('monthly summary applies owner totals, deductions, center pricing, and farmer net calculation', async () => {
   const summary = await Reports.getSummary({
     ownerUserId: 42,

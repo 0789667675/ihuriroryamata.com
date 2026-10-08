@@ -44,6 +44,17 @@ test('Collection Center directory lists only active-Ikigo linked Abacunda with m
   assert.doesNotMatch(workspace, /renderDairyCollectors/);
 });
 
+test('Dairy navigation excludes Settings and Dairy Amata is read-only Abacunda aggregation', () => {
+  const dairyTabs = workspace.slice(workspace.indexOf('const dairyTabs'), workspace.indexOf('const navigationCopy'));
+  const milkEntry = workspace.slice(workspace.indexOf('const renderMilk'), workspace.indexOf('const renderOwnerIfishi'));
+
+  assert.doesNotMatch(dairyTabs, /id: 'settings'/);
+  assert.match(milkEntry, /isCollector \? volumeInput\(row, 'morning'\) : liters\(row\.volumeMorning\)/);
+  assert.match(milkEntry, /row\.presentCount \|\| 0/);
+  assert.match(milkEntry, /isCollector \? <><span className=\{`milk-entry-state/);
+  assert.match(milkEntry, /isCollector \? <><button type="button" className="button button-secondary small-button" onClick=\{\(\) => openIfishiForFarmer/);
+});
+
 test('Milk workspace has no loaded-page search and the header has no global search', () => {
   const milkEntry = workspace.slice(workspace.indexOf('const renderMilk'), workspace.indexOf('const renderOwnerIfishi'));
   const header = workspace.slice(workspace.indexOf('className="content-heading"'), workspace.indexOf('{error ?'));

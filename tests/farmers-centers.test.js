@@ -342,13 +342,53 @@ test('center create and update carry only authenticated owner identity', async (
     createCenter: async (args) => { calls.push(args); return args; },
     updateCenter: async (args) => { calls.push(args); return args; },
   };
-  await Centers.createCenter({ ownerUserId: owner.id, input: { name: '  North  ' }, repository });
-  await Centers.updateCenter({ id: 3, ownerUserId: owner.id, input: { eveningEnd: '19:30' }, repository });
+  await Centers.createCenter({ ownerUserId: owner.id, accountType: 'COLLECTOR', input: { name: '  North  ' }, repository });
+  await Centers.updateCenter({ id: 3, ownerUserId: owner.id, accountType: 'COLLECTOR', input: { eveningEnd: '19:30' }, repository });
 
   assert.equal(calls[0].ownerUserId, 42);
   assert.equal(calls[0].input.name, 'North');
   assert.equal(calls[1].ownerUserId, 42);
   assert.deepEqual(calls[1].input, { eveningEnd: '19:30:00' });
+});
+
+test('collection center customers cannot create or update collection centers', async () => {
+  const repository = {
+    createCenter: async () => { throw new Error('must not persist'); },
+    updateCenter: async () => { throw new Error('must not persist'); },
+  };
+
+  await assert.rejects(
+    () => Centers.createCenter({ ownerUserId: 88, accountType: 'COLLECTION_CENTER', input: { name: 'Second Ikigo' }, repository }),
+    (error) => error.statusCode === 403 && error.code === 'ACCOUNT_TYPE_FORBIDDEN'
+  );
+  await assert.rejects(
+    () => Centers.updateCenter({ id: 2, ownerUserId: 88, accountType: 'COLLECTION_CENTER', input: { name: 'Second Ikigo' }, repository }),
+    (error) => error.statusCode === 403 && error.code === 'ACCOUNT_TYPE_FORBIDDEN'
+  );
+});
+
+test('farmer with historical milk is not deleted or cascaded', async () => {
+  const statements = [];
+  const pool = {
+    connect: async () => ({
+      query: async (text, values = []) => {
+        statements.push({ text, values });
+        if (text.includes('FROM farmers WHERE id = $1 AND owner_user_id = $2')) {
+          return { rows: [{ ...currentFarmer, owner_user_id: owner.id }] };
+        }
+        if (text.includes('has_historical_records')) return { rows: [{ has_historical_records: true }] };
+        return { rows: [] };
+      },
+      release() {},
+    }),
+  };
+
+  await assert.rejects(
+    () => DomainRepository.deleteFarmer({ id: 7, ownerUserId: owner.id, actorId: owner.id, poolProvider: () => pool }),
+    (error) => error.code === 'FARMER_HAS_HISTORY' && error.statusCode === 409
+  );
+  assert.equal(statements.some(({ text }) => text.includes('DELETE FROM farmers')), false);
+  assert.equal(statements.some(({ text }) => text.includes('ROLLBACK')), true);
 });
 
 test('accessible center loading uses the authenticated Collector scope', async () => {
