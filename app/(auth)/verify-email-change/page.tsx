@@ -1,54 +1,12 @@
-'use client';
+import { cookies } from 'next/headers';
+import { redirect } from 'next/navigation';
+import Workspace from '../../workspace';
+import { getAuthenticatedUserFromCookieStore } from '@/lib/security/authenticate';
 
-import { useEffect, useRef, useState } from 'react';
-import Link from 'next/link';
-import { ArrowRight, Check, X } from 'lucide-react';
-import { BrandLockup } from '@/components/brand-lockup';
-import { usePublicLanguage } from '@/hooks/use-public-language';
-
-export default function VerifyEmailChangePage() {
-  const { t } = usePublicLanguage();
-  const [state, setState] = useState<'loading' | 'success' | 'error'>('loading');
-  const submitted = useRef(false);
-
-  useEffect(() => {
-    if (submitted.current) return;
-    submitted.current = true;
-    const token = window.location.hash.slice(1);
-    if (!token) {
-      setState('error');
-      return;
-    }
-    fetch('/api/auth/verify-email-change', {
-      method: 'POST',
-      credentials: 'include',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ token }),
-    }).then(async (response) => {
-      if (!response.ok) throw new Error('Email verification failed.');
-      window.history.replaceState(null, '', window.location.pathname);
-      setState('success');
-    }).catch(() => setState('error'));
-  }, []);
-
-  return (
-    <main className="auth-layout">
-      <section className="auth-brand">
-        <BrandLockup className="auth-brand-lockup" imageSize={46} />
-        <p className="eyebrow">{t('accountSecurity')}</p>
-        <h1>{t('accountEmailVerificationTitle')}</h1>
-        <p className="auth-subtitle">{state === 'loading' ? t('wait') : state === 'success' ? t('accountEmailVerificationSuccess') : t('accountEmailVerificationInvalid')}</p>
-      </section>
-      <section className="auth-panel">
-        <div className="auth-reset-success" role={state === 'error' ? 'alert' : 'status'}>
-          <span className={`auth-reset-success-icon${state === 'error' ? ' auth-reset-error-icon' : ''}`}>
-            {state === 'error' ? <X size={22} aria-hidden="true" /> : <Check size={22} aria-hidden="true" />}
-          </span>
-          <h2>{t('accountEmailVerificationTitle')}</h2>
-          <p>{state === 'loading' ? t('wait') : state === 'success' ? t('accountEmailVerificationSuccess') : t('accountEmailVerificationInvalid')}</p>
-          {state !== 'loading' ? <Link className="button button-primary button-wide" href="/login">{t('returnToLogin')}<ArrowRight size={17} /></Link> : null}
-        </div>
-      </section>
-    </main>
-  );
+export default async function VerifyEmailChangePage() {
+  const user = await getAuthenticatedUserFromCookieStore(cookies());
+  if (user) {
+    redirect('/dashboard');
+  }
+  return <Workspace />;
 }
