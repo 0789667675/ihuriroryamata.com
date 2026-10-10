@@ -9,6 +9,8 @@ export async function DELETE(request, { params }) {
   try {
     const user = await getAuthenticatedUser(request);
     if (!user) return NextResponse.json({ message: 'Not authenticated.' }, { status: 401 });
+    requireAccountType(user, ['COLLECTOR', 'COLLECTION_CENTER']);
+    await requireActiveSubscription(user);
     const removed = await Assignments.revokeAssignment({ dairyUserId: user.id, actorId: user.id, collectorUserId: params.collectorUserId });
     if (!removed) return NextResponse.json({ message: 'That collector is not linked to this collection center.' }, { status: 404 });
     return NextResponse.json({ removed: true });

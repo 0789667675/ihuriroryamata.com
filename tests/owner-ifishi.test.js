@@ -32,6 +32,8 @@ const inMemoryRepository = () => {
         originalVolumeLiters: input.volumeLiters,
         validVolumeLiters: input.volumeLiters,
         lostVolumeLiters: 0,
+        pricePerLiter: input.pricePerLiter,
+        grossAmount: Number((input.volumeLiters * input.pricePerLiter).toFixed(2)),
         assignedFarmerLiters: 0,
         status: 'valid',
       };
@@ -45,6 +47,8 @@ const inMemoryRepository = () => {
       row.volumeLiters = input.volumeLiters;
       row.originalVolumeLiters = input.volumeLiters;
       row.validVolumeLiters = input.volumeLiters;
+      row.pricePerLiter = input.pricePerLiter;
+      row.grossAmount = Number((input.volumeLiters * input.pricePerLiter).toFixed(2));
       return row;
     },
   };
@@ -55,9 +59,9 @@ test('Owner Ifishi history includes owner milk, assigned volume, valid surplus, 
     getOwnerIfishiHistory: async (filters) => {
       assert.deepEqual(filters, { ownerUserId, startDate: '2026-10-01', endDate: '2026-10-31' });
       return [
-        { id: 1, date: '2026-10-04', volumeLiters: 100, originalVolumeLiters: 100, validVolumeLiters: 100, lostVolumeLiters: 0, assignedFarmerLiters: 70, status: 'valid' },
-        { id: 2, date: '2026-10-03', volumeLiters: 80, originalVolumeLiters: 80, validVolumeLiters: 0, lostVolumeLiters: 80, assignedFarmerLiters: 0, status: 'cancelled' },
-        { id: null, date: '2026-10-02', volumeLiters: 0, originalVolumeLiters: 0, validVolumeLiters: 0, lostVolumeLiters: 0, assignedFarmerLiters: 45, status: 'missing' },
+        { id: 1, date: '2026-10-04', volumeLiters: 100, originalVolumeLiters: 100, validVolumeLiters: 100, lostVolumeLiters: 0, pricePerLiter: 400, grossAmount: 40000, assignedFarmerLiters: 70, status: 'valid' },
+        { id: 2, date: '2026-10-03', volumeLiters: 80, originalVolumeLiters: 80, validVolumeLiters: 0, lostVolumeLiters: 80, pricePerLiter: null, grossAmount: 0, assignedFarmerLiters: 0, status: 'cancelled' },
+        { id: null, date: '2026-10-02', volumeLiters: 0, originalVolumeLiters: 0, validVolumeLiters: 0, lostVolumeLiters: 0, pricePerLiter: null, grossAmount: 0, assignedFarmerLiters: 45, status: 'missing' },
       ];
     },
   };
@@ -68,9 +72,36 @@ test('Owner Ifishi history includes owner milk, assigned volume, valid surplus, 
   assert.equal(history.entries[0].surplusLiters, 30);
   assert.equal(history.entries[1].status, 'cancelled');
   assert.equal(history.entries[1].validVolumeLiters, 0);
+  assert.equal(history.entries[0].pricePerLiter, 400);
+  assert.equal(history.entries[0].grossAmount, 40000);
   assert.equal(history.entries[2].surplusLiters, 0);
-  assert.deepEqual(history.totals, { ownerVolumeLiters: 100, assignedFarmerLiters: 115, surplusLiters: 30 });
-  assert.doesNotMatch(JSON.stringify(history), /gross|amount|price|payment|deduction|transport|ubwikorezi|ejo.?heza|RWF/i);
+  assert.deepEqual(history.totals, { originalVolumeLiters: 180, ownerVolumeLiters: 100, lostVolumeLiters: 80, ownerMilkGross: 40000, assignedFarmerLiters: 115, surplusLiters: 30, ownerMilkValueComplete: true });
+});
+
+test('Owner Ifishi sums each historical entry at its saved price and marks incomplete periods unavailable', async () => {
+  const records = [
+    { id: 1, date: '2026-10-01', volumeLiters: 10, originalVolumeLiters: 10, validVolumeLiters: 10, lostVolumeLiters: 0, pricePerLiter: 380, assignedFarmerLiters: 0, status: 'valid' },
+    { id: 2, date: '2026-10-02', volumeLiters: 20, originalVolumeLiters: 20, validVolumeLiters: 20, lostVolumeLiters: 0, pricePerLiter: 400, assignedFarmerLiters: 0, status: 'valid' },
+  ];
+  const pricedHistory = await OwnerIfishi.getHistory({
+    ownerUserId,
+    startDate: '2026-10-01',
+    endDate: '2026-10-15',
+    repository: { getOwnerIfishiHistory: async () => records },
+  });
+  const incompleteHistory = await OwnerIfishi.getHistory({
+    ownerUserId,
+    startDate: '2026-10-01',
+    endDate: '2026-10-15',
+    repository: { getOwnerIfishiHistory: async () => [...records, { ...records[0], id: 3, date: '2026-10-03', pricePerLiter: null }] },
+  });
+
+  assert.equal(pricedHistory.entries[0].grossAmount, 3800);
+  assert.equal(pricedHistory.entries[1].grossAmount, 8000);
+  assert.equal(pricedHistory.totals.ownerMilkGross, 11800);
+  assert.equal(incompleteHistory.entries.find((entry) => entry.id === 3)?.grossAmount, null);
+  assert.equal(incompleteHistory.totals.ownerMilkGross, null);
+  assert.equal(incompleteHistory.totals.ownerMilkValueComplete, false);
 });
 
 test('missed historical Owner Ifishi entry persists through the milk-record repository path', async () => {
@@ -86,8 +117,32 @@ test('missed historical Owner Ifishi entry persists through the milk-record repo
 
   assert.equal(entry.date, '2026-10-02');
   assert.equal(entry.validVolumeLiters, 25.5);
+  assert.equal(entry.pricePerLiter, 400);
+  assert.equal(entry.grossAmount, 10200);
   assert.equal(repository.saved.length, 1);
   assert.equal(repository.saved[0].ownerUserId, ownerUserId);
+});
+
+test('Owner Ifishi rejects an entry without an effective price before writing', async () => {
+  const repository = inMemoryRepository();
+  repository.getPriceAtDate = async () => null;
+
+  await assert.rejects(
+    () => OwnerIfishi.createEntry({ ownerUserId, date: '2026-10-02', volumeLiters: 25, repository, now: fixedNow }),
+    (error) => error.code === 'OWNER_MILK_PRICE_MISSING' && error.statusCode === 409
+  );
+  assert.equal(repository.saved.length, 0);
+});
+
+test('Owner Ifishi returns the committed record without a post-save history read', async () => {
+  const repository = inMemoryRepository();
+  repository.getOwnerIfishiHistory = async () => { throw new Error('history query unavailable'); };
+
+  const entry = await OwnerIfishi.createEntry({ ownerUserId, date: '2026-10-02', volumeLiters: 25, repository, now: fixedNow });
+
+  assert.equal(entry.id, 1);
+  assert.equal(entry.validVolumeLiters, 25);
+  assert.equal(repository.saved.length, 1);
 });
 
 test('Owner Ifishi historical correction persists and can only target the authenticated owner record', async () => {
@@ -107,7 +162,7 @@ test('Owner Ifishi historical correction persists and can only target the authen
     id: 1,
     date: '2026-10-02',
     volumeLiters: 31,
-    repository: { ...repository, correctOwnerEntry: async () => null, getPriceAtDate: async () => null, getOwnerIfishiHistory: async () => [] },
+    repository: { ...repository, correctOwnerEntry: async () => null, getPriceAtDate: async () => ({ pricePerLiter: 400 }), getOwnerIfishiHistory: async () => [] },
     now: fixedNow,
   });
 
@@ -165,6 +220,7 @@ test('Owner Ifishi history query scopes owner rows and assigned farmer rows thro
   assert.match(captured.text, /mr\.owner_user_id = \$1/);
   assert.match(captured.text, /ca\.collector_user_id = \$1/);
   assert.match(captured.text, /mr\.is_owner_milk = TRUE/);
+  assert.match(captured.text, /COALESCE\(o\.status::text, 'missing'\) AS status/);
   assert.match(captured.text, /farmer_daily/);
 });
 
@@ -178,7 +234,7 @@ test('Owner Ifishi cross-owner history is empty under the requested authenticate
   });
   assert.equal(scopedOwner, 99);
   assert.deepEqual(history.entries, []);
-  assert.deepEqual(history.totals, { ownerVolumeLiters: 0, assignedFarmerLiters: 0, surplusLiters: 0 });
+  assert.deepEqual(history.totals, { originalVolumeLiters: 0, ownerVolumeLiters: 0, lostVolumeLiters: 0, ownerMilkGross: 0, assignedFarmerLiters: 0, surplusLiters: 0, ownerMilkValueComplete: true });
 });
 
 test('Owner Ifishi correction SQL rejects cross-owner record IDs and audits legitimate corrections', async () => {

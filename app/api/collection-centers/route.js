@@ -1,6 +1,8 @@
 import { NextResponse } from 'next/server';
 
 const { getAuthenticatedUser } = require('@/lib/security/authenticate.js');
+const { requireAccountType } = require('@/lib/security/account-access.js');
+const { requireActiveSubscription } = require('@/lib/security/subscription-access.js');
 const Centers = require('@/lib/services/collection-center-service.js');
 
 export const runtime = 'nodejs';
@@ -25,6 +27,7 @@ export async function POST(request) {
     const user = await getAuthenticatedUser(request);
     if (!user) return NextResponse.json({ message: 'Not authenticated.' }, { status: 401 });
     if (user.role !== 'user') return NextResponse.json({ message: 'Permission denied.' }, { status: 403 });
+    await requireActiveSubscription(user);
     const center = await Centers.createCenter({
       ownerUserId: user.id,
       actorId: user.id,

@@ -29,6 +29,7 @@ export async function PUT(request, { params }) {
     const user = await getAuthenticatedUser(request);
     if (!user) return NextResponse.json({ message: 'Not authenticated.' }, { status: 401 });
     requireAccountType(user, ['COLLECTOR', 'COLLECTION_CENTER']);
+    await requireActiveSubscription(user);
     const farmer = await Farmers.updateFarmer({
       id: params.id,
       ownerUserId: user.id,
@@ -47,6 +48,7 @@ export async function DELETE(request, { params }) {
     const user = await getAuthenticatedUser(request);
     if (!user) return NextResponse.json({ message: 'Not authenticated.' }, { status: 401 });
     requireAccountType(user, ['COLLECTOR', 'COLLECTION_CENTER']);
+    await requireActiveSubscription(user);
     const deleted = await Farmers.deleteFarmer({ id: params.id, ownerUserId: user.id, actorId: user.id });
     if (!deleted) return NextResponse.json({ message: 'Farmer not found.' }, { status: 404 });
     return new Response(null, { status: 204 });

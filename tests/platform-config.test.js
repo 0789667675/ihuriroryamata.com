@@ -39,3 +39,40 @@ test('admin tier pricing accepts the five active Collector tier codes', async ()
 
   assert.deepEqual(written, { actorId: 1, tiers });
 });
+
+test('admin tier pricing rejects non-positive or fractional RWF prices without writing', async () => {
+  const tiers = [
+    ['USAGE_0_5000_MONTHLY', 5000],
+    ['USAGE_5001_10000_MONTHLY', 10000],
+    ['USAGE_10001_20000_MONTHLY', 17000],
+    ['USAGE_20001_40000_MONTHLY', 20000],
+    ['USAGE_40001_PLUS_MONTHLY', 25000],
+  ].map(([code, price]) => ({ code, price }));
+  let writes = 0;
+  const repository = { updateCollectorTierPrices: async () => { writes += 1; } };
+
+  for (const price of [0, -1, 5000.5]) {
+    await assert.rejects(() => Config.updateCollectorTierPrices({
+      actorId: 1,
+      input: { tiers: tiers.map((tier, index) => index === 0 ? { ...tier, price } : tier) },
+      repository,
+    }), /positive whole RWF/i);
+  }
+  assert.equal(writes, 0);
+});
+
+test('Collector tier pricing rejects the protected Dairy monthly plan code', async () => {
+  const tiers = [
+    ['COLLECTION_CENTER_MONTHLY', 30000],
+    ['USAGE_5001_10000_MONTHLY', 10000],
+    ['USAGE_10001_20000_MONTHLY', 17000],
+    ['USAGE_20001_40000_MONTHLY', 20000],
+    ['USAGE_40001_PLUS_MONTHLY', 25000],
+  ].map(([code, price]) => ({ code, price }));
+
+  await assert.rejects(() => Config.updateCollectorTierPrices({
+    actorId: 1,
+    input: { tiers },
+    repository: { updateCollectorTierPrices: async () => assert.fail('Dairy pricing must not be updated') },
+  }), /Invalid or duplicate Collector pricing tier/i);
+});

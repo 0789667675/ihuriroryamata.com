@@ -3,6 +3,7 @@ import PDFDocument from 'pdfkit';
 
 const { getAuthenticatedUser } = require('@/lib/security/authenticate.js');
 const Milk = require('@/lib/services/milk-service.js');
+const Reports = require('@/lib/services/monthly-report-service.js');
 const { buildIfishiVolumeRows } = require('@/lib/utils/ifishi-ledger.js');
 
 export const runtime = 'nodejs';
@@ -19,6 +20,7 @@ export async function GET(request) {
 
     const params = new URL(request.url).searchParams;
     const farmerId = Number(params.get('farmerId'));
+    const preview = params.get('preview') === 'true';
     const month = Number(params.get('month'));
     const year = Number(params.get('year'));
     if (!Number.isSafeInteger(farmerId) || farmerId <= 0
@@ -30,6 +32,12 @@ export async function GET(request) {
     const records = await Milk.getMilkTemplate({ ownerUserId: user.id, farmerId, month, year });
     const rows = buildIfishiVolumeRows(records || []);
     if (!rows.length) return NextResponse.json({ message: 'Farmer or Ifishi records not found.' }, { status: 404 });
+    const accountingReport = await Reports.getSummary({
+      ownerUserId: user.id,
+      actorId: user.id,
+      query: { farmerId: String(farmerId), month: String(month), year: String(year), periodType: 'monthly' },
+    });
+    const accounting = accountingReport.farmerPayments.find((row) => row.farmerId === farmerId);
 
     const document = new PDFDocument({ size: 'A4', layout: 'landscape', margin: 24 });
     const chunks = [];
@@ -83,6 +91,14 @@ export async function GET(request) {
     });
 
     document.moveTo(document.page.margins.left, rowY + (rows.length * 18) + 8).lineTo(document.page.width - document.page.margins.right, rowY + (rows.length * 18) + 8).stroke();
+    document.y = rowY + (rows.length * 18) + 18;
+    document.font('Helvetica-Bold').fontSize(10).text('ACCOUNTING SUMMARY');
+    document.font('Helvetica').fontSize(8);
+    document.text(`Gross milk value: ${accounting?.grossAmount == null ? 'Not available' : `${Number(accounting.grossAmount).toFixed(2)} RWF`}`);
+    document.text(`Transport: ${accounting?.totalTransport == null ? 'Not available' : `${Number(accounting.totalTransport).toFixed(2)} RWF`}`);
+    document.text(`Deductions: ${accounting ? `${Number(accounting.totalDeductions || 0).toFixed(2)} RWF` : 'Not available'}`);
+    document.text(`Net payable: ${accounting?.netAmount == null ? 'Not available' : `${Number(accounting.netAmount).toFixed(2)} RWF`}`);
+    if (accounting?.transportIsComplete === false) document.text('Historical transport could not be established for all records in this period.');
     document.end();
 
     const bytes = await new Promise((resolve, reject) => {
@@ -93,7 +109,7 @@ export async function GET(request) {
       status: 200,
       headers: {
         'Content-Type': 'application/pdf',
-        'Content-Disposition': `attachment; filename="ifishi-${year}-${String(month).padStart(2, '0')}-${farmerId}.pdf"`,
+        'Content-Disposition': `${preview ? 'inline' : 'attachment'}; filename="ifishi-${year}-${String(month).padStart(2, '0')}-${farmerId}.pdf"`,
       },
     });
   } catch (error) {

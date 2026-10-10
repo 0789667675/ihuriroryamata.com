@@ -54,6 +54,9 @@ export const publicCopy = {
     registrationVerificationTitle: 'Emeza imeyili yawe',
     registrationVerificationSuccess: 'Imeyili yawe yemejwe neza. Konti yawe iriteguye gukoresha.',
     registrationVerificationInvalid: 'Iyi link yo kwemeza imeyili ntiyemewe cyangwa igihe cyayo cyarangiye.',
+
+    trialPricingTitle: 'Igerageza ry ubuntu ry iminsi 15',
+    trialPricingBody: 'Uzahabwa iminsi 15 yo kugerageza Milk System ku buntu. Nyuma y\'igerageza, amafaranga yo gukomeza gukoresha sisitemu azabarwa na sisistema hashingiwe ku ngano y\'amata wandika kandi ikusanywa na konti yawe. Ntabwo uhitamo plan cyangwa igiciro; sisistema ni yo ibara amafaranga agomba kwishyurwa.',
     accountOpenBilling: 'Fungura amakuru yo kwishyura',
     accountLanguage: 'Ururimi',
     accountLoading: 'Birimo gufungura amakuru ya konti…',
@@ -126,7 +129,9 @@ export const publicCopy = {
 
     navReports: 'Raporo',
     navSubscription: 'Kwiyandikisha',
+    navSubscriptions: 'Gahunda z’ifatabuguzi',
     navAlerts: 'Imenyesha',
+    navAdminAlerts: 'Imenyesha ry’urubuga',
     navSettings: 'Konti',
 
     emailVerificationStatus: 'Imeyili yemejwe',
@@ -200,6 +205,7 @@ export const publicCopy = {
     ifishiNoPersistedRecords: 'Nta mata yabitswe muri uku kwezi.',
     ifishiSaved: 'Amata y’umunsi yabitswe.',
     ifishiDownloadPdf: 'Kuramo Ifishi PDF',
+    ifishiPreviewPdf: 'Banza urebe Ifishi PDF',
     ifishiGross: 'Amafaranga yose y’amata',
     ifishiTransport: 'Ubwikorezi',
     ifishiOtherDeductions: 'Ibindi byakuweho',
@@ -211,6 +217,8 @@ export const publicCopy = {
     ifishiReason: 'Impamvu',
 
     ownerIfishiTitle: 'Ifishi ya nyirayo',
+    ownerIfishiViewHistory: 'Reba amateka',
+    ownerIfishiHideHistory: 'Hisha amateka',
     ownerIfishiContext: 'Amata ya nyirayo yanditse ku matariki, atandukanye n’amata y’aborozi yashinzwe.',
     ownerIfishiPreviousMonth: 'Ukwezi kwabanje',
     ownerIfishiNextMonth: 'Ukwezi gukurikira',
@@ -229,6 +237,7 @@ export const publicCopy = {
     ownerIfishiVoidedShort: 'Byahagaritswe',
     ownerIfishiHistory: 'Amateka y’amata ya nyirayo',
     ownerIfishiOwnerMilk: 'Amata ya nyirayo yemewe',
+    ownerIfishiGross: 'Agaciro k’amata ya nyirayo',
     ownerIfishiAssigned: 'Amata y’aborozi yashinzwe',
     ownerIfishiSurplus: 'Amata asagutse yemewe',
     ownerIfishiLoading: 'Amateka arimo gufunguka…',
@@ -255,6 +264,7 @@ export const publicCopy = {
     abacundaEmptyTitle: 'Nta bacunda muri uru rutonde',
     abacundaEmptyBody: 'Ongeramo umucunda cyangwa ukureho ibyo washakishije kugira ngo ubone abacunda bahari.',
     abacundaAdd: 'Ongeramo umucunda',
+    collectorAdd: 'Ongeramo umucunda',
 
     centersEmptyTitle: 'Nta kigo cy’ikusanyirizo kirashyirwaho',
     centersAdd: 'Ongeramo ikigo cy’ikusanyirizo',
@@ -264,6 +274,9 @@ export const publicCopy = {
     reportsEmptyTitle: 'Nta makuru ahari muri iki gihe',
 
     deductionsRecord: 'Andika amafaranga yakuweho',
+    deductionsAdd: 'Ongeraho amafaranga yakuweho',
+    deductionsSaved: 'Amafaranga yakuweho yabitswe.',
+    deductionsNotes: 'Ibisobanuro by’inyongera',
     deductionsRecent: 'Ibyakuweho biheruka',
     deductionsSearch: 'Shakisha umworozi',
     deductionsFarmer: 'Umworozi',
@@ -279,6 +292,7 @@ export const publicCopy = {
     reportSummary: 'Incamake',
     reportsRevenue: 'Amafaranga yose',
     reportsTransport: 'Ubwikorezi',
+    transportHistoryUnavailable: 'Amafaranga y’ubwikorezi ntiyamenyekanye neza kuri aya mateka.',
     reportsGross: 'Amafaranga mbere yo gukuraho',
     reportsNet: 'Asigaye',
 
@@ -356,6 +370,11 @@ export const publicCopy = {
     billingPhoneMissing: 'Ongeraho nimero ya MTN Rwanda mu igenamiterere rya konti mbere yo kwishyura.',
 
     paymentCheckStatus: 'Reba uko kwishyura bihagaze',
+    paymentSuccessful: 'Yishyuwe',
+    paymentPending: 'Birategerejwe',
+    paymentFailed: 'Byanze',
+    paymentCancelled: 'Byahagaritswe',
+    paymentExpired: 'Byarangiye',
     paymentTransaction: 'Nomero y’ubucuruzi',
     adminPaymentHistory: 'Amateka y’ubwishyu',
     adminPaymentApi: 'Aderesi ya API ya LMBTech',
@@ -394,6 +413,11 @@ export const publicCopy = {
     adminExpiredAccounts: 'Konti zarangiye',
     adminRegistrations: 'Konti nshya mu minsi 30',
     adminGovernanceActions: 'Igenzura ry’urubuga',
+    systemHealth: 'Imiterere ya sisitemu',
+    systemOverview: 'Incamake ya sisitemu',
+    databaseStatus: 'Ububikoshingiro',
+    apiHealth: 'Imikorere ya API',
+    paymentCallbackStatus: 'Imikorere y’ihamagara ry’ubwishyu',
 
     adminCollectorPricing: 'Ibiciro bya konti z’abacunda',
     adminCollectorVolume: 'Ingano y’amata ku kwezi',
@@ -401,6 +425,7 @@ export const publicCopy = {
     adminPlanStatus: 'Uko igiciro gihagaze',
     adminPriceContractNote: 'Ibiciro bishya bikoreshwa mu ibaruramari rizakurikiraho; impinduka zose zandikwa mu mateka y’ibikorwa.',
     adminSaveCollectorPrices: 'Bika ibiciro by’abacunda',
+    adminCollectorPriceValidation: 'Ibiciro by’ibyiciro bitanu bigomba kuba amafaranga yuzuye ya RWF arenze zeru.',
 
     adminPaymentSettings: 'Uburyo bwo kwishyura',
     adminPaymentReadiness: 'Imiterere yo kwakira ubwishyu',
@@ -418,6 +443,7 @@ export const publicCopy = {
     billingPaymentInstruction: 'Icyifuzo cyo kwishyura cyoherezwa kuri telefone yabitswe kuri iyi konti.',
     billingPaymentUnavailable: 'Uburyo bwo kwishyura ntiburafungurwa. Ongera ugerageze nyuma.',
     adminPlansMissing: 'Nta gahunda z’ibiciro by’abacunda zabonetse.',
+    adminCollectorPlansIncomplete: 'Ibyiciro bitanu by’ibiciro by’abacunda ntibiboneka.',
 
     workspace: 'AKAZI',
     systemOnline: 'Sisitemu iri gukora',
@@ -527,6 +553,8 @@ export const publicCopy = {
     registrationVerificationTitle: 'Verify your email',
     registrationVerificationSuccess: 'Your email has been verified successfully. Your account is ready to use.',
     registrationVerificationInvalid: 'This email verification link is invalid or has expired.',
+    trialPricingTitle: '15-Day Free Trial',
+    trialPricingBody: 'Try Milk System free for 15 days. After your trial, your subscription price will be calculated automatically by the system based on the milk volume recorded for your account. You do not choose a plan or set your own price.',
     accountOpenBilling: 'Open billing details',
     accountLanguage: 'Language',
     accountLoading: 'Loading account details…',
@@ -599,7 +627,9 @@ export const publicCopy = {
 
     navReports: 'Reports',
     navSubscription: 'Subscription',
+    navSubscriptions: 'Subscriptions',
     navAlerts: 'Alerts',
+    navAdminAlerts: 'Platform alerts',
     navSettings: 'Account',
 
     emailVerificationStatus: 'Email verified',
@@ -673,6 +703,7 @@ export const publicCopy = {
     ifishiNoPersistedRecords: 'No milk has been saved for this month.',
     ifishiSaved: 'Daily milk saved.',
     ifishiDownloadPdf: 'Download Ifishi PDF',
+    ifishiPreviewPdf: 'Preview Ifishi PDF',
     ifishiGross: 'Gross milk value',
     ifishiTransport: 'Transport',
     ifishiOtherDeductions: 'Other deductions',
@@ -684,6 +715,8 @@ export const publicCopy = {
     ifishiReason: 'Reason',
 
     ownerIfishiTitle: 'Owner Ifishi',
+    ownerIfishiViewHistory: 'View history',
+    ownerIfishiHideHistory: 'Hide history',
     ownerIfishiContext: 'Daily owner milk records, separate from assigned farmer milk.',
     ownerIfishiPreviousMonth: 'Previous month',
     ownerIfishiNextMonth: 'Next month',
@@ -702,6 +735,7 @@ export const publicCopy = {
     ownerIfishiVoidedShort: 'Voided',
     ownerIfishiHistory: 'Owner milk history',
     ownerIfishiOwnerMilk: 'Valid owner milk',
+    ownerIfishiGross: 'Owner milk gross value',
     ownerIfishiAssigned: 'Assigned farmer milk',
     ownerIfishiSurplus: 'Valid surplus milk',
     ownerIfishiLoading: 'Loading history…',
@@ -728,6 +762,7 @@ export const publicCopy = {
     abacundaEmptyTitle: 'No Abacunda in this view',
     abacundaEmptyBody: 'Add an Abacunda or clear your search to see available Abacunda.',
     abacundaAdd: 'Add Abacunda',
+    collectorAdd: 'Add Umucunda',
 
     centersEmptyTitle: 'No collection centers configured',
     centersAdd: 'Add collection center',
@@ -737,6 +772,9 @@ export const publicCopy = {
     reportsEmptyTitle: 'No information for this period',
 
     deductionsRecord: 'Record deduction',
+    deductionsAdd: 'Add deduction',
+    deductionsSaved: 'Deduction saved.',
+    deductionsNotes: 'Additional notes',
     deductionsRecent: 'Recent deductions',
     deductionsSearch: 'Find a farmer',
     deductionsFarmer: 'Farmer',
@@ -752,6 +790,7 @@ export const publicCopy = {
     reportSummary: 'Summary',
     reportsRevenue: 'Revenue',
     reportsTransport: 'Transport',
+    transportHistoryUnavailable: 'Historical transport could not be established for every record in this period.',
     reportsGross: 'Gross amount',
     reportsNet: 'Net amount',
 
@@ -829,6 +868,11 @@ export const publicCopy = {
     billingPhoneMissing: 'Add a valid MTN Rwanda phone number to your account settings before paying.',
 
     paymentCheckStatus: 'Check payment status',
+    paymentSuccessful: 'Successful',
+    paymentPending: 'Pending',
+    paymentFailed: 'Failed',
+    paymentCancelled: 'Cancelled',
+    paymentExpired: 'Expired',
     paymentTransaction: 'Transaction ID',
     adminPaymentHistory: 'Payment history',
     adminPaymentApi: 'LMBTech API endpoint',
@@ -867,6 +911,11 @@ export const publicCopy = {
     adminExpiredAccounts: 'Expired accounts',
     adminRegistrations: 'New accounts in 30 days',
     adminGovernanceActions: 'Platform governance',
+    systemHealth: 'System health',
+    systemOverview: 'System overview',
+    databaseStatus: 'Database',
+    apiHealth: 'API status',
+    paymentCallbackStatus: 'Payment callback',
 
     adminCollectorPricing: 'Collector subscription pricing',
     adminCollectorVolume: 'Monthly milk volume',
@@ -874,6 +923,7 @@ export const publicCopy = {
     adminPlanStatus: 'Plan status',
     adminPriceContractNote: 'New prices apply to subsequent billing calculations. Every change is recorded in the audit log.',
     adminSaveCollectorPrices: 'Save Collector prices',
+    adminCollectorPriceValidation: 'Enter a positive whole-RWF price for all five Collector tiers.',
 
     adminPaymentSettings: 'Payment method',
     adminPaymentReadiness: 'Live payment readiness',
@@ -891,6 +941,7 @@ export const publicCopy = {
     billingPaymentInstruction: 'The payment request is sent to the phone saved on this account.',
     billingPaymentUnavailable: 'Payments are not enabled right now. Please try again later.',
     adminPlansMissing: 'No Collector subscription tiers were returned.',
+    adminCollectorPlansIncomplete: 'All five active Collector pricing tiers must be available before saving.',
 
     workspace: 'WORKSPACE',
     systemOnline: 'System online',

@@ -10,6 +10,7 @@ test('migration scaffold preserves the required owner and admin model', () => {
   const farmerCenterMigration = fs.readFileSync(path.join(root, 'supabase', 'migrations', '002_farmers_collection_centers.sql'), 'utf8');
   const paymentMigration = fs.readFileSync(path.join(root, 'supabase', 'migrations', '008_lmbtech_payment_reconciliation.sql'), 'utf8');
   const subscriptionEmailMigration = fs.readFileSync(path.join(root, 'supabase', 'migrations', '009_subscription_email_outbox.sql'), 'utf8');
+  const transportSnapshotMigration = fs.readFileSync(path.join(root, 'supabase', 'migrations', '013_milk_transport_rate_snapshots.sql'), 'utf8');
   const usersRoute = fs.readFileSync(path.join(root, 'app', 'api', 'admin', 'super-admin', 'route.ts'), 'utf8');
   const farmerRoute = fs.readFileSync(path.join(root, 'app', 'api', 'farmers', 'route.ts'), 'utf8');
   const appFile = fs.readFileSync(path.join(root, 'app', 'page.tsx'), 'utf8');
@@ -27,6 +28,8 @@ test('migration scaffold preserves the required owner and admin model', () => {
   assert.match(farmerCenterMigration, /gin_trgm_ops/);
   assert.match(farmerRoute, /cursor/);
   assert.match(farmerRoute, /getAuthenticatedUser/);
+  assert.match(transportSnapshotMigration, /ADD COLUMN IF NOT EXISTS transport_rate_per_liter NUMERIC\(10,2\)/);
+  assert.doesNotMatch(transportSnapshotMigration, /UPDATE|DELETE|TRUNCATE|DROP/i);
   assert.match(appFile, /Milk System — Next.js \+ Supabase PostgreSQL migration/);
 });
 

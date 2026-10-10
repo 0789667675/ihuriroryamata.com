@@ -48,6 +48,7 @@ test('collector milk repository exports its report mapper and preserves PostgreS
 
   assert.equal(mapped.date, '2026-10-02');
   assert.equal(mapped.effectiveVolumeLiters, 90);
+  assert.equal(mapped.grossAmount, 36000);
 });
 
 test('collector entry query resolves effective historical prices in one owner-scoped query', () => {
@@ -62,6 +63,22 @@ test('collector entry query resolves effective historical prices in one owner-sc
   assert.match(query.text, /p\.effective_date <= cm\.date/);
   assert.match(query.text, /ORDER BY p\.effective_date DESC, p\.id DESC LIMIT 1/);
   assert.deepEqual(query.values, [42, '2026-10-01', '2026-10-15']);
+});
+
+test('Collector price history preserves ISO dates returned as PostgreSQL Date objects', async () => {
+  const effectiveDate = new Date(2026, 9, 7);
+  const ownerUserId = 42;
+  const rows = [{ id: 3, owner_user_id: ownerUserId, price_per_liter: '400.00', effective_date: effectiveDate }];
+  const list = await CollectorMilkRepository.getPrices(ownerUserId, async () => ({ rows }));
+  const atDate = await CollectorMilkRepository.getPriceAtDate({
+    ownerUserId,
+    date: '2026-10-10',
+    runQuery: async () => ({ rows }),
+  });
+
+  assert.equal(list[0].effectiveDate, '2026-10-07');
+  assert.equal(atDate.effectiveDate, '2026-10-07');
+  assert.equal(list[0].pricePerLiter, 400);
 });
 
 const reportRepository = ({ accountType = 'COLLECTOR', links = [], allowed = [], profiles = [], entries = [collectorEntry] } = {}) => ({
@@ -161,6 +178,30 @@ test('collector report reconciles historical milk, farmer payable, transport, de
   assert.equal(summary.ownerSettlementRow.totalDeductions, 34000);
   assert.equal(summary.ownerSettlementRow.netAmount, 6000);
   assert.equal(summary.ownerSettlementRow.isOwner, true);
+});
+
+test('Collector settlement stays unavailable when historical transport snapshots are missing', async () => {
+  const repository = reportRepository();
+  repository.getFarmerTotals = async () => [{
+    ...farmerRows[0],
+    totalTransport: null,
+    transportIsComplete: false,
+    netAmount: null,
+  }];
+  const summary = await Reports.getSummary({
+    ownerUserId: 42,
+    query: { month: '6', year: '2026', periodType: 'first-half' },
+    repository,
+    now: new Date('2026-06-10T00:00:00.000Z'),
+  });
+
+  assert.equal(summary.farmerPayments[0].transportIsComplete, false);
+  assert.equal(summary.farmerPayments[0].totalTransport, null);
+  assert.equal(summary.farmerPayments[0].netAmount, null);
+  assert.equal(summary.collectorFarmerTransport, null);
+  assert.equal(summary.collectorPayable, null);
+  assert.equal(summary.collectorIsReconciled, null);
+  assert.equal(summary.collectorTransportIsComplete, false);
 });
 
 test('collector report leaves owner gross and surplus unknown when no effective price exists', async () => {
@@ -476,12 +517,27 @@ test('Dairy farmer and loss SQL are owner- and center-scoped without Collector a
   }
 });
 
-test('Collector farmer transport is calculated once from valid litres and the owner center configuration', () => {
+test('Collector farmer transport uses the rate snapshot stored on each milk record', () => {
   const query = ReportRepository.buildFarmerTotalsQuery({ ownerUserId: 42, rangeStart: '2026-06-01', rangeEnd: '2026-06-15' });
-  assert.match(query.text, /SUM\(COALESCE\(mr\.valid_volume_liters, mr\.volume_liters\) \* COALESCE\(c\.transport_rate_per_liter, 0\)\)/);
+  assert.match(query.text, /SUM\(COALESCE\(mr\.valid_volume_liters, mr\.volume_liters\) \* COALESCE\(mr\.transport_rate_per_liter, 0\)\)/);
+  assert.match(query.text, /transport_incomplete_count/);
+  assert.doesNotMatch(query.text, /COALESCE\(c\.transport_rate_per_liter, 0\)/);
   assert.match(query.text, /c\.owner_user_id = f\.owner_user_id/);
   assert.match(query.text, /prices\.effective_date <= mr\.date/);
   assert.match(query.text, /COALESCE\(mr\.status, 'valid'\) <> 'cancelled'/);
+
+  const legacyRow = ReportRepository.mapFarmerRow({
+    farmerId: 7,
+    farmerName: 'Legacy Farmer',
+    totalVolume: 30,
+    grossAmount: 12000,
+    totalTransport: 0,
+    transportIncompleteCount: 1,
+    totalDeductions: 500,
+  });
+  assert.equal(legacyRow.transportIsComplete, false);
+  assert.equal(legacyRow.totalTransport, null);
+  assert.equal(legacyRow.netAmount, null);
 });
 
 test('active deduction queries whitelist supported farmer deduction types', () => {

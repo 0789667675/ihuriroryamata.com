@@ -31,6 +31,7 @@ export async function PUT(request, { params }) {
     const user = await getAuthenticatedUser(request);
     if (!user) return NextResponse.json({ message: 'Not authenticated.' }, { status: 401 });
     requireAccountType(user, 'COLLECTOR');
+    await requireActiveSubscription(user);
     const input = await request.json();
     const record = await Milk.updateMilkRecord({
       id: params.id,
@@ -52,6 +53,7 @@ export async function DELETE(request, { params }) {
     const user = await getAuthenticatedUser(request);
     if (!user) return NextResponse.json({ message: 'Not authenticated.' }, { status: 401 });
     requireAccountType(user, 'COLLECTOR');
+    await requireActiveSubscription(user);
     const input = await request.json().catch(() => ({}));
     const voided = await Milk.voidMilkRecord({ id: params.id, ownerUserId: user.id, actorId: user.id, reason: input.reason });
     if (!voided) return NextResponse.json({ message: 'Milk record not found.' }, { status: 404 });

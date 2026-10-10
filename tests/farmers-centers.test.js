@@ -173,7 +173,7 @@ test('collector cannot list a different Dairy account without its assignment', a
   }, async () => ({ rows: [] })), (error) => error.statusCode === 403);
 });
 
-test('collector center options and selected center IDs use only owned or assigned centers', async () => {
+test('collector farmer assignments accept only sites owned by the authenticated Collector', async () => {
   let listQuery;
   await DomainRepository.listCollectorCenters(77, async (text, values) => {
     listQuery = { text, values };
@@ -190,12 +190,12 @@ test('collector center options and selected center IDs use only owned or assigne
       query: async (text, values) => {
         contextCalls.push({ text, values });
         if (text.includes('FROM users')) return { rows: [{ id: 77, account_type: 'COLLECTOR', account_status: 'active' }] };
-        return { rows: [{ id: 5, name: 'North', owner_user_id: 42 }] };
+        return { rows: [{ id: 5, name: 'North', owner_user_id: 77 }] };
       },
     },
   });
   assert.equal(context.collectionCenter, 'North');
-  assert.match(contextCalls[1].text, /collector_assignments/);
+  assert.match(contextCalls[1].text, /id = \$1 AND owner_user_id = \$2/);
   assert.deepEqual(contextCalls[1].values, [5, 77]);
 
   await assert.rejects(() => DomainRepository.resolveFarmerContext({
@@ -207,6 +207,19 @@ test('collector center options and selected center IDs use only owned or assigne
         : { rows: [] },
     },
   }), (error) => error.code === 'COLLECTION_CENTER_ORGANIZATION_MISMATCH');
+});
+
+test('Collector farmer creation requires a site instead of guessing from location', async () => {
+  await assert.rejects(() => DomainRepository.resolveFarmerContext({
+    ownerUserId: owner.id,
+    requestedCenter: null,
+    requireCollectorCenter: true,
+    client: {
+      query: async (text) => text.includes('FROM users')
+        ? { rows: [{ id: owner.id, account_type: 'COLLECTOR', account_status: 'active' }] }
+        : { rows: [] },
+    },
+  }), (error) => error.statusCode === 400 && error.code === 'COLLECTION_CENTER_REQUIRED');
 });
 
 test('editing farmer center preserves the selected center ID and other farmer fields', async () => {
@@ -264,9 +277,10 @@ test('farmer detail and center resolution queries are constrained by the authent
       },
     },
   }), (error) => error.code === 'COLLECTION_CENTER_ORGANIZATION_MISMATCH');
-  assert.match(statements[1].text, /owner_user_id = \$2/);
-  assert.match(statements[1].text, /collector_assignments/);
-  assert.deepEqual(statements[1].values, ['Foreign Center', 42]);
+  assert.match(statements[1].text, /owner_user_id = \$1/);
+  assert.match(statements[1].text, /LOWER\(BTRIM\(\$2\)\)/);
+  assert.doesNotMatch(statements[1].text, /collector_assignments/);
+  assert.deepEqual(statements[1].values, [42, 'Foreign Center']);
 });
 
 test('farmer creation does not synthesize blank daily milk records', async () => {
@@ -342,13 +356,66 @@ test('center create and update carry only authenticated owner identity', async (
     createCenter: async (args) => { calls.push(args); return args; },
     updateCenter: async (args) => { calls.push(args); return args; },
   };
-  await Centers.createCenter({ ownerUserId: owner.id, accountType: 'COLLECTOR', input: { name: '  North  ' }, repository });
-  await Centers.updateCenter({ id: 3, ownerUserId: owner.id, accountType: 'COLLECTOR', input: { eveningEnd: '19:30' }, repository });
+  await Centers.createCenter({ ownerUserId: owner.id, accountType: 'COLLECTOR', input: { name: '  North  ', transportRatePerLiter: 20 }, repository });
+  await Centers.updateCenter({ id: 3, ownerUserId: owner.id, accountType: 'COLLECTOR', input: { name: 'North Annex', eveningEnd: '19:30', transportRatePerLiter: 25 }, repository });
 
   assert.equal(calls[0].ownerUserId, 42);
   assert.equal(calls[0].input.name, 'North');
+  assert.equal(calls[0].input.transportRatePerLiter, 20);
   assert.equal(calls[1].ownerUserId, 42);
-  assert.deepEqual(calls[1].input, { eveningEnd: '19:30:00' });
+  assert.deepEqual(calls[1].input, { eveningEnd: '19:30:00', transportRatePerLiter: 25, name: 'North Annex' });
+});
+
+test('collection-site create and edit persist settings and audit using owner-scoped transactions', async () => {
+  const calls = [];
+  const client = {
+    query: async (text, values = []) => {
+      calls.push({ text, values });
+      if (text.includes('INSERT INTO collection_centers')) return { rows: [{ id: 5, name: 'North', owner_user_id: owner.id }] };
+      if (text.includes('FROM collection_centers')) return { rows: [{ id: 5, name: 'North', owner_user_id: owner.id }] };
+      if (text.includes('UPDATE collection_centers')) return { rows: [{ id: 5, name: 'North Annex', owner_user_id: owner.id }] };
+      return { rows: [] };
+    },
+    release() {},
+  };
+  const poolProvider = () => ({ connect: async () => client });
+  const created = await DomainRepository.createCenter({
+    ownerUserId: owner.id,
+    actorId: owner.id,
+    input: { name: 'North', pricePerLiter: 400, transportRatePerLiter: 20, morningStart: '06:30', morningEnd: '09:00', eveningStart: '17:30', eveningEnd: '19:00' },
+    poolProvider,
+  });
+  const updated = await DomainRepository.updateCenter({
+    id: 5,
+    ownerUserId: owner.id,
+    actorId: owner.id,
+    input: { name: 'North Annex', transportRatePerLiter: 25 },
+    poolProvider,
+  });
+
+  assert.equal(created.id, 5);
+  assert.equal(updated.name, 'North Annex');
+  const insert = calls.find(({ text }) => text.includes('INSERT INTO collection_centers'));
+  assert.deepEqual(insert.values, ['North', owner.id, 400, 20, '06:30', '09:00', '17:30', '19:00']);
+  const update = calls.find(({ text }) => text.includes('UPDATE collection_centers'));
+  assert.match(update.text, /name = \$1/);
+  assert.match(update.text, /transport_rate_per_liter = \$2/);
+  assert.match(update.text, /WHERE id = \$3 AND owner_user_id = \$4/);
+  assert.deepEqual(update.values, ['North Annex', 25, 5, owner.id]);
+  const assignments = calls.find(({ text }) => text.includes('UPDATE farmers SET collection_center'));
+  assert.match(assignments.text, /owner_user_id = \$2/);
+  assert.deepEqual(assignments.values, ['North Annex', owner.id, 'North']);
+  assert.equal(calls.filter(({ text }) => text.includes('INSERT INTO audit_logs')).length, 2);
+});
+
+test('collection center lookup is scoped to the authenticated owner for edit access', async () => {
+  let call;
+  const center = await DomainRepository.getCenter(5, owner.id, {
+    query: async (text, values) => { call = { text, values }; return { rows: [] }; },
+  });
+  assert.equal(center, null);
+  assert.match(call.text, /WHERE id = \$1 AND owner_user_id = \$2/);
+  assert.deepEqual(call.values, [5, owner.id]);
 });
 
 test('Collection Center owners can configure only their own Ikigo without Collector transport', async () => {

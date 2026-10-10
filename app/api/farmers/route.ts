@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 
 const { getAuthenticatedUser } = require('@/lib/security/authenticate.js');
 const { requireAccountType } = require('@/lib/security/account-access.js');
+const { requireActiveSubscription } = require('@/lib/security/subscription-access.js');
 const Farmers = require('@/lib/services/farmer-service.js');
 
 export const runtime = 'nodejs';
@@ -37,6 +38,7 @@ export async function POST(request: Request) {
     const user = await getAuthenticatedUser(request);
     if (!user) return NextResponse.json({ message: 'Not authenticated.' }, { status: 401 });
     requireAccountType(user, ['COLLECTOR', 'COLLECTION_CENTER']);
+    await requireActiveSubscription(user);
     const farmer = await Farmers.createFarmer({
       ownerUserId: user.id,
       actorId: user.id,

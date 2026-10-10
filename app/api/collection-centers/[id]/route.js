@@ -15,6 +15,7 @@ export async function PUT(request, { params }) {
     const user = await getAuthenticatedUser(request);
     if (!user) return NextResponse.json({ message: 'Not authenticated.' }, { status: 401 });
     if (user.role !== 'user') return NextResponse.json({ message: 'Permission denied.' }, { status: 403 });
+    await requireActiveSubscription(user);
     const center = await Centers.updateCenter({
       id: params.id,
       ownerUserId: user.id,

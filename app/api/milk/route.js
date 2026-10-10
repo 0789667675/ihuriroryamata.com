@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 
 const { getAuthenticatedUser } = require('@/lib/security/authenticate.js');
 const { requireAccountType } = require('@/lib/security/account-access.js');
+const { requireActiveSubscription } = require('@/lib/security/subscription-access.js');
 const Milk = require('@/lib/services/milk-service.js');
 const Farmers = require('@/lib/services/farmer-service.js');
 
@@ -43,6 +44,7 @@ export async function POST(request) {
     const user = await getAuthenticatedUser(request);
     if (!user) return NextResponse.json({ message: 'Not authenticated.' }, { status: 401 });
     requireAccountType(user, 'COLLECTOR');
+    await requireActiveSubscription(user);
     const input = await request.json();
     let farmerId = input.farmerId;
     if (!farmerId && input.farmerData?.name) {

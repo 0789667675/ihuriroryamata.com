@@ -16,7 +16,7 @@ const farmer = {
 
 const baseRepository = (saveResult = { created: true, record: { id: 101 } }) => ({
   getMilkContext: async ({ ownerUserId: scopedOwner, farmerId }) => scopedOwner === ownerUserId && farmerId === farmer.id
-    ? { farmer, center: { id: 5, name: 'North Site' }, pricePerLiter: 400 }
+    ? { farmer, center: { id: 5, name: 'North Site', transportRatePerLiter: 20 }, pricePerLiter: 400 }
     : null,
   upsertMilkRecord: async (input) => ({ ...saveResult, input }),
 });
@@ -54,6 +54,7 @@ test('recordMilk validates positive session volumes and calculates the owner cen
   assert.equal(saved.volume, 7.25);
   assert.equal(saved.pricePerLiter, 400);
   assert.equal(saved.amount, 2900);
+  assert.equal(saved.transportRatePerLiter, 20);
   assert.equal(result.statusCode, 201);
 });
 
@@ -75,6 +76,24 @@ test('milk context resolves the center price effective on the recorded date', as
 
   assert.equal(context.pricePerLiter, 325);
   assert.deepEqual(calls[2].values, [5, ownerUserId, '2024-02-29']);
+});
+
+test('an unassigned farmer location does not infer a collection site', async () => {
+  let centerLookup = false;
+  const context = await MilkRepository.getMilkContext({
+    ownerUserId,
+    farmerId: farmer.id,
+    date: '2026-10-01',
+    client: {
+      query: async (text) => {
+        if (text.includes('FROM farmers')) return { rows: [{ id: farmer.id, owner_user_id: ownerUserId, location: 'North Site', collectionCenter: null }] };
+        centerLookup = true;
+        return { rows: [] };
+      },
+    },
+  });
+  assert.equal(context.center, null);
+  assert.equal(centerLookup, false);
 });
 
 test('recordMilk rejects identical same-day submissions with the duplicate contract', async () => {
