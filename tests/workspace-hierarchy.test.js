@@ -5,6 +5,7 @@ const path = require('node:path');
 
 const workspace = fs.readFileSync(path.join(__dirname, '..', 'app', 'workspace.tsx'), 'utf8');
 const publicCopy = fs.readFileSync(path.join(__dirname, '..', 'lib', 'i18n', 'public-copy.ts'), 'utf8');
+const styles = fs.readFileSync(path.join(__dirname, '..', 'app', 'globals.css'), 'utf8');
 
 test('Collector Milk Entry puts the Owner and Owner Ifishi before the separate Aborozi list', () => {
   const milkEntry = workspace.slice(workspace.indexOf('const renderMilk'), workspace.indexOf('const renderOwnerIfishi'));
@@ -45,10 +46,10 @@ test('Collection Center Abacunda uses owner-scoped farmer management without Col
   assert.match(farmerView, /isDairy \? publicLanguage\.t\('navAbacunda'\)/);
   assert.match(farmerView, /<div className="toolbar">/);
   assert.match(farmerView, /!isCollector && !isDairy \? <div className="assignment-tool">/);
-  assert.match(farmerView, /!isDairy \? <th>\{publicLanguage\.t\('assignedCollector'\)\}<\/th>/);
-  assert.match(farmerView, /!isDairy \? <div><dt>\{publicLanguage\.t\('assignedCollector'\)\}<\/dt>/);
-  assert.match(farmerView, /isDairy \? <><label>Active Ikigo<input readOnly value=\{centers\.find\(\(center\) => String\(center\.id\) === selectedCenter\)\?\.name \|\| ''\} required \/><\/label><label>\{publicLanguage\.t\('farmerVillage'\)\}<input required value=\{farmerForm\.location\} onChange=\{\(event\) => setFarmerForm\(\{ \.\.\.farmerForm, location: event\.target\.value \}\)\} \/><\/label>/);
-  assert.match(farmerView, /isDairy \? <><label>Active Ikigo<input readOnly value=\{centers\.find\(\(center\) => String\(center\.id\) === selectedCenter\)\?\.name \|\| ''\} required \/><\/label><label>\{publicLanguage\.t\('farmerVillage'\)\}<input required value=\{farmerEdit\.location\} onChange=\{\(event\) => setFarmerEdit\(\{ \.\.\.farmerEdit, location: event\.target\.value \}\)\} \/><\/label>/);
+  const farmerTable = farmerView.slice(farmerView.indexOf('table-scroll farmers-desktop-table'), farmerView.indexOf('{farmers ? farmers.data.length'));
+  assert.doesNotMatch(farmerTable, /assignedCollector|navIfishi/);
+  assert.doesNotMatch(farmerView, /farmerVillage|farmerForm\.location|farmerEdit\.location/);
+  assert.match(styles, /farmer-mobile-card dl > div:nth-child\(5\), \.farmer-mobile-card footer > button:first-child \{ display: none; \}/);
   assert.match(farmerView, /createFarmer/);
   assert.match(farmerView, /saveFarmer/);
   for (const route of [listRoute, detailRoute]) {
@@ -65,33 +66,42 @@ test('Dairy navigation includes Settings and Dairy Amata is read-only Abacunda a
   assert.match(dairyTabs, /id: 'settings'/);
   assert.match(milkEntry, /isCollector \? volumeInput\(row, 'morning'\) : liters\(row\.volumeMorning\)/);
   assert.match(milkEntry, /row\.presentCount \|\| 0/);
-  assert.match(milkEntry, /\$\{dailySummary\.presentCount\} milk entries · \$\{dailySummary\.totalFarmers\} Abacunda/);
+  assert.match(milkEntry, /publicLanguage\.t\('milkResultsCount'\)/);
   assert.match(milkEntry, /isCollector \? <><span className=\{`milk-entry-state/);
   assert.match(milkEntry, /isCollector \? <><button type="button" className="button button-secondary small-button" onClick=\{\(\) => openIfishiForFarmer/);
 });
 
-test('Milk workspace has no loaded-page search and the header has no global search', () => {
+test('Milk Entry exposes secure search, session, page-size, clear, and reset controls', () => {
   const milkEntry = workspace.slice(workspace.indexOf('const renderMilk'), workspace.indexOf('const renderOwnerIfishi'));
   const header = workspace.slice(workspace.indexOf('className="content-heading"'), workspace.indexOf('{error ?'));
 
-  assert.doesNotMatch(milkEntry, /type="search"|milkSearch|normalizedSearch/);
+  assert.match(milkEntry, /className="milk-record-tools"/);
+  assert.match(milkEntry, /type="search"/);
+  assert.match(milkEntry, /milkClearSearch/);
+  assert.match(milkEntry, /milkSessionAll/);
+  assert.match(milkEntry, /dailyPageSize/);
+  assert.match(workspace, /params\.set\('search', search\)/);
+  assert.match(workspace, /params\.set\('session', session\)/);
+  assert.match(workspace, /setDailyCursor\(null\)/);
+  assert.match(workspace, /debouncedDailySearch, dailySession, dailyPageSize/);
   assert.doesNotMatch(header, /search-form|Global search|globalSearch|global-search/);
   assert.doesNotMatch(workspace, /globalSearch|runGlobalSearch|global-search-panel/);
 });
 
-test('Farmer Ifishi uses authoritative report values for transport and net payable', () => {
+test('Farmer Ifishi in Milk Entry contains milk records only', () => {
   const loader = workspace.slice(workspace.indexOf('const loadIfishiRecords'), workspace.indexOf('const loadOwnerIfishiHistory'));
   const view = workspace.slice(workspace.indexOf('const renderIfishi ='), workspace.indexOf('const renderDashboard'));
 
   assert.match(loader, /\/api\/milk\?/);
-  assert.match(loader, /\/api\/reports\/summary\?/);
-  assert.match(loader, /periodType: 'monthly'/);
-  assert.match(view, /accountingFarmer\.totalTransport/);
-  assert.match(view, /accountingFarmer\.netAmount/);
+  assert.doesNotMatch(loader, /\/api\/reports\/summary/);
+  assert.doesNotMatch(view, /ifishiAccounting|accountingFarmer|totalTransport|netAmount|reportsGross|dashboardDeductions/);
   assert.match(workspace, /if \(user && tab === 'milk' && ifishiOpen && ifishiFarmerId\) loadIfishiRecords\(\)/);
   assert.doesNotMatch(view, /if \(isCollector\) return renderOwnerIfishi/);
   assert.match(workspace, /setIfishiFarmers\(result\.data\.length \? result\.data : ifishiFarmers\.filter/);
-  assert.match(workspace, /transportHistoryUnavailable/);
+  const milkEntry = workspace.slice(workspace.indexOf('const renderMilk'), workspace.indexOf('const renderOwnerIfishi'));
+  assert.doesNotMatch(milkEntry, /dailySummary\.totalAmount|milkAmount/);
+  assert.match(styles, /\.milk-desktop-list \{ width: 100%; margin: 0; border-top: 0; \}/);
+  assert.match(styles, /\.milk-desktop-list table \{ table-layout: fixed; \}/);
 });
 
 test('Owner Ifishi history does not request or render the Ukwezi settlement summary', () => {
@@ -119,6 +129,9 @@ test('Ukwezi UI requests selected half-months and only scopes a Dairy to its act
   assert.match(loadUkwezi, /if \(isDairy && selectedCenter\)/);
   assert.match(ukwezi, /value="first-half">1–15/);
   assert.match(ukwezi, /value="second-half">16–/);
+  assert.match(ukwezi, /new URLSearchParams\(\{ month: ukweziMonth, year: ukweziYear, periodType: ukweziPeriod \}\)/);
+  assert.match(ukwezi, /ukweziPdfParams\.set\('language', publicLanguage\.language\)/);
+  assert.match(ukwezi, /if \(isDairy && activeCenterName\) ukweziPdfParams\.set\('collectionCenter', activeCenterName\)/);
   assert.match(ukwezi, /ukweziReport\.rangeStart\} – \{ukweziReport\.rangeEnd/);
   assert.doesNotMatch(workspace, /ejo.?heza/i);
 });
@@ -177,7 +190,7 @@ test('Owner Ifishi is the only Collector owner-milk entry form', () => {
 });
 
 test('Dairy with no active center does not issue a daily milk request', () => {
-  assert.match(workspace, /if \(tab === 'milk' && \(!isDairy \|\| selectedCenter\)\) loadDaily\(\)/);
+  assert.match(workspace, /if \(user && tab === 'milk' && \(!isDairy \|\| selectedCenter\)\) loadDaily\(\)/);
   assert.match(workspace, /if \(user && tab === 'milk' && \(!isDairy \|\| selectedCenter\)\) loadDaily\(\)/);
 });
 
@@ -236,4 +249,29 @@ test('Super Admin subscriptions editor saves only five controlled Collector tier
   assert.match(save, /Number\.isSafeInteger\(tier\.price\)/);
   assert.match(save, /\/api\/admin\/config\/plans/);
   assert.match(plansRoute, /user\.role !== 'super_admin'/);
+});
+
+test('Login and Register use the existing visible brand lockup', () => {
+  const login = workspace.slice(workspace.indexOf('function Login'), workspace.indexOf('export default function Workspace'));
+  assert.match(login, /<BrandLockup className="auth-brand-lockup" imageSize=\{72\} \/>/);
+  assert.match(styles, /\.auth-brand-lockup \.brand-lockup-image \{ width: 72px; height: 72px; \}/);
+  assert.match(styles, /\.auth-brand-lockup \.brand-lockup-image \{ width: 52px; height: 52px; \}/);
+  assert.match(login, /registering \? t\('createTitle'\) : t\('loginTitle'\)/);
+  assert.match(login, /registering \? t\('registerDescription'\) : t\('loginDescription'\)/);
+});
+
+test('Ifishi has no PDF controls while Ukwezi retains its checked PDF download', () => {
+  const ifishiView = workspace.slice(workspace.indexOf('const renderIfishi ='), workspace.indexOf('const renderDashboard'));
+  assert.doesNotMatch(ifishiView, /PDF|pdf|iframe/i);
+  assert.doesNotMatch(workspace, /ifishiPreviewOpen|ifishiPreviewPdf|ifishiDownloadPdf|\/api\/ifishi\/pdf/);
+  assert.doesNotMatch(styles, /ifishi-preview-frame/);
+  assert.match(workspace, /fetch\(`\/api\/ukwezi\/pdf\?\$\{params\}`/);
+  assert.match(workspace, /application\/pdf/);
+  assert.match(workspace, /ukweziPdfError/);
+  assert.match(workspace, /ukweziPdfStatus/);
+});
+
+test('registration exposes Collection Center selection only outside production', () => {
+  const login = workspace.slice(workspace.indexOf('function Login'), workspace.indexOf('export default function Workspace'));
+  assert.match(login, /process\.env\.NODE_ENV !== 'production' \? <option value="COLLECTION_CENTER">/);
 });

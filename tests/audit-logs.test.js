@@ -44,3 +44,13 @@ test('audit SQL always filters owner and parameterizes filters with bounded pagi
   assert.match(filter.clauses[0], /al\.owner_user_id = \$1/);
   assert.deepEqual(filter.values, [42, 'farmer', 'updated', '2026-10-01T00:00:00.000Z', '2026-10-31T23:59:59.999Z']);
 });
+
+test('platform audit SQL finds actions by the Super Admin across target-owner rows', () => {
+  const filter = AuditRepository.buildPlatformAuditFilter({
+    actorId: 1,
+    entityType: 'user_account',
+    action: 'customer_suspended',
+  });
+  assert.match(filter.clauses[0], /al\.changed_by = \$1 OR al\.owner_user_id = \$1/);
+  assert.deepEqual(filter.values, [1, 'user_account', 'customer_suspended']);
+});

@@ -2,6 +2,7 @@
 
 const AUTH_PAGES = new Set(['/login', '/register', '/forgot-password', '/verify-email', '/verify-email-change']);
 const PUBLIC_API_PREFIXES = ['/api/auth', '/api/health'];
+const PUBLIC_API_PATHS = new Set(['/api/subscription/payments/callback']);
 const COOKIE_NAME = 'milk_session';
 
 const base64UrlEncode = (bytes: Uint8Array) => {
@@ -25,7 +26,8 @@ async function verifySessionToken(token: string | undefined) {
   const [payload, signature, extra] = token.split('.');
   if (!payload || !signature || extra) return false;
 
-  const secret = process.env.SESSION_SECRET || 'development-session-secret-must-be-at-least-32-chars';
+  const secret = process.env.SESSION_SECRET;
+  if (!secret || secret.length < 32) return false;
   const key = await crypto.subtle.importKey(
     'raw',
     new TextEncoder().encode(secret),
@@ -74,7 +76,8 @@ export async function middleware(request: NextRequest) {
     return NextResponse.redirect(new URL('/login', request.url));
   }
 
-  if (pathname.startsWith('/api/') && !PUBLIC_API_PREFIXES.some((prefix) => pathname.startsWith(prefix)) && !hasValidSession) {
+  const isPublicApi = PUBLIC_API_PATHS.has(pathname) || PUBLIC_API_PREFIXES.some((prefix) => pathname.startsWith(prefix));
+  if (pathname.startsWith('/api/') && !isPublicApi && !hasValidSession) {
     return NextResponse.json({ ok: false, message: 'Not authenticated.' }, { status: 401 });
   }
 

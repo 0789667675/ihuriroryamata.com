@@ -1,6 +1,8 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { renderUkweziPdf, buildUkweziFilename } = require('../lib/services/ukwezi-pdf-service.js');
+const fs = require('node:fs');
+const path = require('node:path');
+const { renderUkweziPdf, buildUkweziFilename, buildUkweziResponseHeaders } = require('../lib/services/ukwezi-pdf-service.js');
 
 const report = {
   rangeStart: '2026-10-01',
@@ -54,7 +56,14 @@ test('Ukwezi PDF renderer creates a valid multipage accounting document from the
   assert.equal(pdf.subarray(0, 5).toString('ascii'), '%PDF-');
   assert.ok(pdf.length > 10000);
   assert.ok(pageCount > 1);
+  assert.match(serialized, /\/Subtype\s*\/Image/);
   assert.equal(buildUkweziFilename({ accountName: 'Latina / account', year: '2026', month: '10', periodType: 'first-half' }), 'Ukwezi-Latina-account-2026-10-first-half.pdf');
+  assert.deepEqual(buildUkweziResponseHeaders({ accountName: 'Latina / account', year: 2026, month: 10, periodType: 'first-half' }), {
+    'Content-Type': 'application/pdf',
+    'Content-Disposition': 'attachment; filename="Ukwezi-Latina-account-2026-10-first-half.pdf"',
+    'Cache-Control': 'private, no-store',
+    'X-Content-Type-Options': 'nosniff',
+  });
 });
 
 test('Ukwezi PDF renderer handles an empty accounting period without inventing rows', async () => {
@@ -67,4 +76,16 @@ test('Ukwezi PDF renderer handles an empty accounting period without inventing r
 
   assert.equal(pdf.subarray(0, 5).toString('ascii'), '%PDF-');
   assert.ok(pdf.length > 1000);
+  const pageCount = (pdf.toString('latin1').match(/\/Type\s*\/Page\b/g) || []).length;
+  assert.equal(pageCount, 1);
+});
+
+test('Ukwezi PDF route uses the authenticated owner and selected period context', () => {
+  const route = fs.readFileSync(path.join(__dirname, '..', 'app', 'api', 'ukwezi', 'pdf', 'route.js'), 'utf8');
+  assert.match(route, /getAuthenticatedUser\(request\)/);
+  assert.match(route, /ownerUserId: user\.id, actorId: user\.id, query/);
+  assert.match(route, /periodType: query\.periodType/);
+  assert.match(route, /query\.language = query\.language === 'en' \? 'en' : 'rw'/);
+  assert.match(route, /buildUkweziResponseHeaders/);
+  assert.match(route, /return new NextResponse\(pdf,\s*\{\s*status: 200,\s*headers,\s*\}\)/);
 });

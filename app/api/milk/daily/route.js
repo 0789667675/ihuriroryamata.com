@@ -18,6 +18,8 @@ export async function GET(request) {
     const center = params.get('center') || params.get('collectionCenter');
     const cursor = params.get('cursor');
     const limit = params.get('limit') || 50;
+    const search = params.get('search') || '';
+    const session = params.get('session') || 'all';
 
     if (user.accountType === 'COLLECTION_CENTER' && !centerId && !center) {
       return NextResponse.json({ message: 'An active collection center is required. Please select a center.' }, { status: 400 });
@@ -32,6 +34,8 @@ export async function GET(request) {
       center,
       cursor,
       limit,
+      search,
+      session,
     });
     return NextResponse.json(result);
   } catch (error) {

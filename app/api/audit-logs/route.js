@@ -11,8 +11,8 @@ export async function GET(request) {
     if (!user) return NextResponse.json({ success: false, message: 'Not authenticated.' }, { status: 401 });
     if (user.role !== 'super_admin') return NextResponse.json({ success: false, message: 'Insufficient permissions.' }, { status: 403 });
     const params = new URL(request.url).searchParams;
-    const data = await Audit.listAuditLogs({
-      ownerUserId: user.id,
+    const data = await Audit.listPlatformAuditLogs({
+      actorId: user.id,
       page: params.get('page') || 1,
       limit: params.get('limit') || 50,
       entityType: params.get('entityType'),

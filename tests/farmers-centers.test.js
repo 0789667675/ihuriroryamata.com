@@ -20,11 +20,12 @@ const currentFarmer = {
   collectionCenter: 'North Site',
 };
 
-test('farmer creation requires a name and location and rejects oversized fields', () => {
-  assert.throws(() => Farmers.normalizeFarmerInput({ name: ' ', location: 'North' }, { create: true }), /name is required/i);
-  assert.throws(() => Farmers.normalizeFarmerInput({ name: 'Name', location: '' }, { create: true }), /location is required/i);
-  assert.throws(() => Farmers.normalizeFarmerInput({ name: 'Name', location: 'North', phone: 123 }, { create: true }), /phone must be a string/i);
-  assert.equal(Farmers.normalizeFarmerInput({ name: ' Name ', location: ' North ' }, { create: true }).name, 'Name');
+test('farmer registration requires a name, ignores Umudugudu payloads, and rejects invalid fields', () => {
+  assert.throws(() => Farmers.normalizeFarmerInput({ name: ' ' }, { create: true }), /name is required/i);
+  assert.throws(() => Farmers.normalizeFarmerInput({ name: 'Name', phone: 123 }, { create: true }), /phone must be a string/i);
+  const normalized = Farmers.normalizeFarmerInput({ name: ' Name ', location: 'North' }, { create: true });
+  assert.equal(normalized.name, 'Name');
+  assert.equal(Object.hasOwn(normalized, 'location'), false);
 });
 
 test('farmer creation resolves a selected center id to the canonical center name and preserves server-side ownership', async () => {
@@ -55,7 +56,22 @@ test('farmer creation resolves a selected center id to the canonical center name
   assert.equal(captured.ownerUserId, owner.id);
   assert.equal(captured.input.collectionCenterId, 7);
   assert.equal(captured.input.collectionCenter, 'Cyumba');
+  assert.equal(Object.hasOwn(captured.input, 'location'), false);
   assert.equal(created.collectionCenter, 'Cyumba');
+});
+
+test('farmer updates preserve a legacy location without accepting it from the client', async () => {
+  let persisted;
+  await Farmers.updateFarmer({
+    id: currentFarmer.id,
+    ownerUserId: owner.id,
+    input: { name: 'Updated Farmer', location: 'Client override' },
+    repository: {
+      getFarmer: async () => currentFarmer,
+      updateFarmer: async ({ input }) => { persisted = input; return input; },
+    },
+  });
+  assert.equal(persisted.location, currentFarmer.location);
 });
 
 test('creating a farmer with a selected center remains visible on the next owner-scoped fetch', async () => {
@@ -249,6 +265,7 @@ test('collector scope resolves the assigned dairy before farmer filtering', asyn
     client: {
       query: async (text, values) => {
         assert.match(text, /collector_assignments/);
+        assert.match(text, /revoked_at IS NULL/);
         assert.deepEqual(values, [77]);
         return { rows: [{ dairy_user_id: 42 }] };
       },

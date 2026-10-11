@@ -47,8 +47,8 @@ test('collector milk repository exports its report mapper and preserves PostgreS
   });
 
   assert.equal(mapped.date, '2026-10-02');
-  assert.equal(mapped.effectiveVolumeLiters, 90);
-  assert.equal(mapped.grossAmount, 36000);
+  assert.equal(mapped.effectiveVolumeLiters, 100);
+  assert.equal(mapped.grossAmount, 40000);
 });
 
 test('collector entry query resolves effective historical prices in one owner-scoped query', () => {
@@ -161,7 +161,8 @@ test('collector report reconciles historical milk, farmer payable, transport, de
   });
   const settlement = summary.collectorSettlementRow;
   assert.equal(settlement.collectorGross, 36000);
-  assert.equal(settlement.collectorTotalFarmersPayable, 34000);
+  assert.equal(settlement.collectorTotalFarmersPayable, 30000);
+  assert.equal(settlement.collectorFarmerMilkValue, 34000);
   assert.equal(settlement.collectorSurplusLiters, 5);
   assert.equal(settlement.collectorSurplusAmount, 2000);
   assert.equal(settlement.collectorPayable, 6000);
@@ -175,13 +176,14 @@ test('collector report reconciles historical milk, farmer payable, transport, de
   assert.equal(summary.ownerSettlementRow.name, 'Collector A');
   assert.equal(summary.ownerSettlementRow.totalVolume, 90);
   assert.equal(summary.ownerSettlementRow.grossAmount, 36000);
-  assert.equal(summary.ownerSettlementRow.totalDeductions, 1500);
-  assert.equal(summary.ownerSettlementRow.farmerPayable, 34000);
+  assert.equal(summary.ownerSettlementRow.totalDeductions, 34000);
+  assert.equal(summary.ownerSettlementRow.otherDeductions, 1500);
+  assert.equal(summary.ownerSettlementRow.farmerPayable, 30000);
   assert.equal(summary.ownerSettlementRow.netAmount, 6000);
   assert.equal(summary.ownerSettlementRow.isOwner, true);
 });
 
-test('Ukwezi owner settlement calculates 69L at its saved 400 RWF price before farmer payable', async () => {
+test('Ukwezi owner settlement prices only owner milk and reconciles farmer payable independently', async () => {
   const ownerEntry = {
     ...collectorEntry,
     date: '2026-10-01',
@@ -216,12 +218,16 @@ test('Ukwezi owner settlement calculates 69L at its saved 400 RWF price before f
     },
   });
 
-  assert.equal(summary.ownerSettlementRow.totalVolume, 69);
+  assert.equal(summary.ownerSettlementRow.totalVolume, 50);
   assert.equal(summary.ownerSettlementRow.pricePerLiter, 400);
-  assert.equal(summary.ownerSettlementRow.grossAmount, 27600);
-  assert.equal(summary.ownerSettlementRow.totalDeductions, 0);
+  assert.equal(summary.ownerSettlementRow.grossAmount, 20000);
+  assert.equal(summary.ownerSettlementRow.totalDeductions, 7600);
+  assert.equal(summary.ownerSettlementRow.otherDeductions, 0);
   assert.equal(summary.ownerSettlementRow.farmerPayable, 7600);
-  assert.equal(summary.ownerSettlementRow.netAmount, 20000);
+  assert.equal(summary.ownerSettlementRow.netAmount, 12400);
+  assert.equal(summary.collectorFarmerMilkValue, 7600);
+  assert.equal(summary.collectorSurplusAmount, 12400);
+  assert.equal(summary.collectorPayable, 12400);
   assert.equal(summary.collectorFarmerTransport, 0);
   assert.equal(summary.collectorIsReconciled, true);
 });
@@ -249,6 +255,8 @@ test('Collector settlement stays unavailable when historical transport snapshots
   assert.equal(summary.collectorPayable, null);
   assert.equal(summary.collectorIsReconciled, null);
   assert.equal(summary.collectorTransportIsComplete, false);
+  assert.equal(summary.collectorAccountingComplete, false);
+  assert.deepEqual(summary.collectorAccountingMissingInputs, ['farmer_transport_snapshot']);
 });
 
 test('collector report leaves owner gross and surplus unknown when no effective price exists', async () => {
@@ -265,6 +273,65 @@ test('collector report leaves owner gross and surplus unknown when no effective 
   assert.equal(summary.collectorPayable, null);
   assert.equal(summary.collectorPayableFromBreakdown, null);
   assert.equal(summary.collectorIsReconciled, null);
+  assert.deepEqual(summary.collectorAccountingMissingInputs, ['owner_historical_price']);
+});
+
+test('missing historical farmer prices keep farmer and owner accounting incomplete', async () => {
+  const query = ReportRepository.buildFarmerTotalsQuery({ ownerUserId: 42, rangeStart: '2026-06-01', rangeEnd: '2026-06-15' });
+  assert.match(query.text, /unpriced_valid_count/);
+  assert.match(query.text, /prices\.effective_date <= mr\.date/);
+  assert.doesNotMatch(query.text, /c\.price_per_liter/);
+  const farmer = ReportRepository.mapFarmerRow({
+    farmerId: 7,
+    farmerName: 'Unpriced Farmer',
+    totalVolume: 10,
+    grossAmount: null,
+    pricedVolumeAmount: 0,
+    unpricedValidCount: 1,
+    totalTransport: 0,
+    transportIncompleteCount: 0,
+    totalDeductions: 0,
+  });
+  assert.equal(farmer.milkValueComplete, false);
+  assert.equal(farmer.pricePerLiter, null);
+  assert.equal(farmer.grossAmount, null);
+  assert.equal(farmer.netAmount, null);
+
+  const ownerEntry = { ...collectorEntry, validVolumeLiters: 90, pricePerLiter: 400 };
+  const summary = await Reports.getSummary({
+    ownerUserId: 42,
+    query: { periodType: 'first-half', month: '6', year: '2026' },
+    repository: {
+      ...reportRepository({ entries: [ownerEntry] }),
+      getFarmerTotals: async () => [{ ...farmer, totalVolume: 10, totalDeductions: 0, totalTransport: 0, transportIsComplete: true }],
+      getCollectorEntries: async () => [ownerEntry],
+      getFarmerValidLitersByDate: async () => new Map([['2026-06-01', 10]]),
+      getFarmerValidTotalsByDate: async () => new Map([['2026-06-01', { validLiters: 10, originalLiters: 10, lostLiters: 0 }]]),
+    },
+  });
+  assert.equal(summary.ownerGeneratedGross, 36000);
+  assert.equal(summary.collectorFarmerMilkValue, null);
+  assert.equal(summary.collectorFarmerPayable, null);
+  assert.equal(summary.collectorPayable, null);
+  assert.equal(summary.collectorAccountingComplete, false);
+  assert.deepEqual(summary.collectorAccountingMissingInputs, ['farmer_historical_price']);
+});
+
+test('farmer-by-day totals do not substitute a current price for missing historical value', async () => {
+  const totals = await ReportRepository.getFarmerValidTotalsByDate({
+    ownerUserId: 42,
+    rangeStart: '2026-06-16',
+    rangeEnd: '2026-06-30',
+    runQuery: async (text, values) => {
+      assert.deepEqual(values, [42, '2026-06-16', '2026-06-30']);
+      assert.match(text, /unpriced_valid_count/);
+      assert.doesNotMatch(text, /c\.price_per_liter/);
+      return { rows: [{ date: '2026-06-20', valid_liters: 10, original_liters: 10, lost_liters: 0, gross_amount: 0, unpriced_valid_count: 1 }] };
+    },
+  });
+
+  assert.equal(totals.get('2026-06-20').grossAmount, null);
+  assert.equal(totals.get('2026-06-20').milkValueComplete, false);
 });
 
 test('half-month ukwezi range stays within the selected historical period for the chosen month and year', () => {
@@ -302,7 +369,7 @@ test('center-filtered historical Collector Ukwezi keeps owner milk while scoping
   assert.equal(summary.ownerGeneratedVolume, 100);
   assert.equal(summary.collectorFarmersValidLiters, 40);
   assert.equal(summary.collectorSurplusLiters, 60);
-  assert.equal(summary.collectorTotalFarmersPayable, 16000);
+  assert.equal(summary.collectorTotalFarmersPayable, 14300);
   assert.equal(summary.collectorFarmerTransport, 1200);
   assert.equal(summary.collectorFarmerDeductions, 500);
   assert.equal(summary.collectorIsReconciled, true);
@@ -566,7 +633,7 @@ test('Dairy farmer and loss SQL are owner- and center-scoped without Collector a
 
 test('Collector farmer transport uses the rate snapshot stored on each milk record', () => {
   const query = ReportRepository.buildFarmerTotalsQuery({ ownerUserId: 42, rangeStart: '2026-06-01', rangeEnd: '2026-06-15' });
-  assert.match(query.text, /SUM\(COALESCE\(mr\.valid_volume_liters, mr\.volume_liters\) \* COALESCE\(mr\.transport_rate_per_liter, 0\)\)/);
+  assert.match(query.text, /SUM\(COALESCE\(mr\.valid_volume_liters, mr\.volume_liters, 0\) \* COALESCE\(mr\.transport_rate_per_liter, 0\)\)/);
   assert.match(query.text, /transport_incomplete_count/);
   assert.doesNotMatch(query.text, /COALESCE\(c\.transport_rate_per_liter, 0\)/);
   assert.match(query.text, /c\.owner_user_id = f\.owner_user_id/);
@@ -733,7 +800,8 @@ test('Collector payable reconciles surplus, farmer deductions, and configured tr
   assert.equal(sheet.collectorFarmersValidLiters, 85);
   assert.equal(sheet.collectorSurplusLiters, 5);
   assert.equal(sheet.collectorGross, 36000);
-  assert.equal(sheet.collectorTotalFarmersPayable, 34000);
+  assert.equal(sheet.collectorTotalFarmersPayable, 30000);
+  assert.equal(sheet.collectorFarmerMilkValue, 34000);
   assert.equal(sheet.collectorSurplusAmount, 2000);
   assert.equal(sheet.collectorFarmerDeductions, 1500);
   assert.equal(sheet.collectorFarmerTransport, 2500);
@@ -742,7 +810,7 @@ test('Collector payable reconciles surplus, farmer deductions, and configured tr
   assert.equal(sheet.isReconciled, true);
 });
 
-test('Collector owner total falls back to assigned valid milk when no owner entry exists', async () => {
+test('Collector owner total never substitutes assigned farmer milk when no owner entry exists', async () => {
   const summary = await Reports.getSummary({
     ownerUserId: 42,
     query: { startDate: '2026-06-01', endDate: '2026-06-15' },
@@ -754,11 +822,11 @@ test('Collector owner total falls back to assigned valid milk when no owner entr
     },
   });
 
-  assert.equal(summary.ownerGeneratedVolume, 85);
-  assert.equal(summary.ownerGeneratedGross, 34000);
+  assert.equal(summary.ownerGeneratedVolume, 0);
+  assert.equal(summary.ownerGeneratedGross, 0);
   assert.equal(summary.collectorFarmersValidLiters, 85);
   assert.equal(summary.collectorSurplusLiters, 0);
-  assert.equal(summary.collectorPayable, 4000);
+  assert.equal(summary.collectorPayable, -30000);
   assert.equal(summary.collectorIsReconciled, true);
 });
 
@@ -815,7 +883,7 @@ test('Collector reconciliation preserves different applicable owner and farmer h
   assert.equal(sheet.isReconciled, true);
 });
 
-test('Collector owner total subtracts assigned-Dairy farmer losses once from the owner daily aggregate', async () => {
+test('Collector owner milk remains unchanged by assigned-Dairy farmer losses', async () => {
   const sheet = await Reports.calculateCollectorBalanceSheet({
     collectorUserId: 99,
     farmerOwnerUserId: 42,
@@ -832,9 +900,10 @@ test('Collector owner total subtracts assigned-Dairy farmer losses once from the
 
   assert.equal(sheet.collectorOriginalLiters, 100);
   assert.equal(sheet.collectorLostLiters, 5);
-  assert.equal(sheet.collectorEffectiveLiters, 95);
-  assert.equal(sheet.collectorGross, 38000);
-  assert.equal(sheet.collectorSurplusLiters, 0);
+  assert.equal(sheet.collectorEffectiveLiters, 100);
+  assert.equal(sheet.collectorGross, 40000);
+  assert.equal(sheet.collectorSurplusLiters, 5);
+  assert.equal(sheet.collectorSurplusAmount, 2000);
   assert.equal(sheet.isReconciled, true);
 });
 
@@ -916,7 +985,46 @@ test('Dairy collector SQL is owner-, assignment-, period-, and selected-center-s
   assert.match(query.text, /LOWER\(BTRIM\(\$4\)\)/);
   assert.match(query.text, /mr\.status = 'cancelled'/);
   assert.match(query.text, /prices\.effective_date <= mr\.date/);
+  assert.match(query.text, /unpricedMilkCount/);
+  assert.doesNotMatch(query.text, /c\.price_per_liter/);
   assert.doesNotMatch(query.text, /transport|deductions|ejoheza/i);
+});
+
+test('Dairy collector settlement stays unknown when historical prices are missing', async () => {
+  const dairyQuery = ReportRepository.buildDairyCollectorTotalsQuery({ ownerUserId: 77, rangeStart: '2026-06-01', rangeEnd: '2026-06-15' });
+  assert.doesNotMatch(dairyQuery.text, /c\.price_per_liter/);
+  assert.match(dairyQuery.text, /prices\.effective_date <= mr\.date/);
+
+  const totals = await ReportRepository.getDairyCollectorTotals({
+    ownerUserId: 77,
+    rangeStart: '2026-06-01',
+    rangeEnd: '2026-06-15',
+    runQuery: async () => ({ rows: [{ collectorUserId: 99, name: 'Collector A', assignedFarmerCount: 1, totalVolume: 10, grossAmount: 0, unpricedMilkCount: 1 }] }),
+  });
+  assert.equal(totals[0].grossAmount, null);
+  assert.equal(totals[0].milkValueComplete, false);
+
+  const settlementRows = await Reports.buildDairyCollectorSettlementRows({
+    dairyUserId: 77,
+    rangeStart: '2026-06-01',
+    rangeEnd: '2026-06-15',
+    repository: { getDairyCollectorTotals: async () => totals },
+  });
+  assert.equal(settlementRows[0].grossAmount, null);
+  assert.equal(settlementRows[0].totalDeductions, null);
+  assert.equal(settlementRows[0].netAmount, null);
+  assert.equal(settlementRows[0].isReconciled, null);
+});
+
+test('Collector Dairy-owner lookup ignores revoked assignment history', async () => {
+  let queryText;
+  const ownerId = await ReportRepository.getCollectorDairyOwnerId(99, async (text, values) => {
+    queryText = text;
+    assert.deepEqual(values, [99]);
+    return { rows: [] };
+  });
+  assert.equal(ownerId, null);
+  assert.match(queryText, /revoked_at IS NULL/);
 });
 
 test('Dairy center selection changes only the owner-scoped center filter, not tenant identity', () => {
@@ -965,5 +1073,5 @@ test('historical farmer aggregate keys preserve PostgreSQL date-only values', as
   });
 
   assert.equal(dailyLiters.get('2026-06-20'), 40);
-  assert.deepEqual(dailyTotals.get('2026-06-20'), { validLiters: 40, originalLiters: 45, lostLiters: 5, grossAmount: 16000 });
+  assert.deepEqual(dailyTotals.get('2026-06-20'), { validLiters: 40, originalLiters: 45, lostLiters: 5, grossAmount: 16000, milkValueComplete: true });
 });

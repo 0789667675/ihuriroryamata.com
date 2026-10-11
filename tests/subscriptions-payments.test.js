@@ -72,6 +72,32 @@ test('payment configuration rejects localhost or non-HTTPS callback origins', ()
   assert.equal(Provider.normalizeLmbtechCallbackUrl('https://milk.example.test'), 'https://milk.example.test/api/subscription/payments/callback');
 });
 
+test('LMBTech credential aliases work with canonical variables taking precedence', () => {
+  const names = ['LMBTECH_APP_KEY', 'LMBTECH_SECRET_KEY', 'LMBTECH_API_KEY', 'LMBTECH_API_SECRET'];
+  const previous = Object.fromEntries(names.map((name) => [name, process.env[name]]));
+  try {
+    delete process.env.LMBTECH_APP_KEY;
+    delete process.env.LMBTECH_SECRET_KEY;
+    process.env.LMBTECH_API_KEY = 'legacy-app-test';
+    process.env.LMBTECH_API_SECRET = 'legacy-secret-test';
+    assert.deepEqual(
+      [Provider.getLmbtechCredentials().appKey, Provider.getLmbtechCredentials().secretKey],
+      ['legacy-app-test', 'legacy-secret-test']
+    );
+    process.env.LMBTECH_APP_KEY = 'canonical-app-test';
+    process.env.LMBTECH_SECRET_KEY = 'canonical-secret-test';
+    assert.deepEqual(
+      [Provider.getLmbtechCredentials().appKey, Provider.getLmbtechCredentials().secretKey],
+      ['canonical-app-test', 'canonical-secret-test']
+    );
+  } finally {
+    for (const name of names) {
+      if (previous[name] === undefined) delete process.env[name];
+      else process.env[name] = previous[name];
+    }
+  }
+});
+
 test('trial usage window is 15 days and monthly usage selects farmer records when present', async () => {
   const subscription = { status: 'trial', trial_started_at: '2026-10-01T00:00:00.000Z', trial_ends_at: '2026-10-16T00:00:00.000Z' };
   assert.deepEqual(Subscriptions.getUsageWindow(subscription), {
@@ -201,6 +227,13 @@ test('admin payment history query is customer-linked and bounded with real provi
   assert.deepEqual(statements.count.values, ['PENDING']);
 });
 
+test('customer payment history is owner-scoped and bounded to the newest 100 rows', () => {
+  const statement = SubscriptionRepository.buildCustomerPaymentHistoryQuery(42);
+  assert.match(statement.text, /sp\.user_id = \$1/);
+  assert.match(statement.text, /ORDER BY sp\.created_at DESC, sp\.id DESC LIMIT \$2/);
+  assert.deepEqual(statement.values, [42, 100]);
+});
+
 test('collector billing accepts the current stored price while preserving the approved tier ranges', () => {
   const adjustedPlans = usagePlans.map((item, index) => ({ ...item, price: 6200 + index * 1000 }));
   const validated = Subscriptions.validatePricingTiers(adjustedPlans);
@@ -325,22 +358,117 @@ test('documented concurrent success callbacks confirm provider status and settle
   assert.deepEqual(confirmationRecipients, [['customer@example.test', 5000]]);
 });
 
-test('callback amount mismatch fails the stored payment without provider success confirmation', async () => {
+test('callback amount mismatch cannot fail or settle a payment without matching provider verification', async () => {
   const body = { reference_id: 'ref-201', transaction_id: 'txn-201', status: 'success', amount: '4000', payment_method: 'MTN_MOMO_RWA', payer_phone: '+250788000000' };
   let payment = { id: 201, status: 'PENDING', provider: 'mtn_momo', provider_reference: 'ref-201', payment_method: 'MTN_MOMO_RWA', mobile_money_phone: '0788000000', amount: 5000, user_id: 42 };
   let statusChecks = 0;
+  let settlements = 0;
   const repository = {
     findPaymentByReference: async () => payment,
-    settlePayment: async ({ status, transactionId }) => { payment = { ...payment, status, provider_transaction_id: transactionId }; return payment; },
+    settlePayment: async ({ status, transactionId }) => { settlements += 1; payment = { ...payment, status, provider_transaction_id: transactionId }; return payment; },
     recordPaymentEvent: async () => {},
   };
-  await assert.rejects(() => Subscriptions.handleProviderCallback({
+  const result = await Subscriptions.handleProviderCallback({
     body,
     repository,
-    provider: { getPaymentStatus: async () => { statusChecks += 1; return {}; } },
-  }), (error) => error.statusCode === 400);
-  assert.equal(payment.status, 'FAILED');
-  assert.equal(statusChecks, 0);
+    provider: { getPaymentStatus: async () => { statusChecks += 1; return { providerReference: 'ref-201', transactionId: 'txn-201', amount: 5000, paymentMethod: 'MTN_MOMO_RWA', status: 'SUCCESS' }; } },
+  });
+  assert.equal(result.status, 'PENDING');
+  assert.equal(result.verificationPending, true);
+  assert.equal(payment.status, 'PENDING');
+  assert.equal(statusChecks, 1);
+  assert.equal(settlements, 0);
+});
+
+test('callback status mismatch and provider verification failure leave payment pending', async () => {
+  const payment = { id: 209, status: 'PENDING', provider: 'mtn_momo', provider_reference: 'ref-209', payment_method: 'MTN_MOMO_RWA', mobile_money_phone: '0788000000', amount: 5000, user_id: 42 };
+  const body = { reference_id: 'ref-209', transaction_id: 'txn-209', status: 'failed', amount: '5000', payment_method: 'MTN_MOMO_RWA', payer_phone: '+250788000000' };
+  let settlements = 0;
+  const repository = {
+    findPaymentByReference: async () => payment,
+    settlePayment: async () => { settlements += 1; },
+    recordPaymentEvent: async () => {},
+  };
+  const mismatch = await Subscriptions.handleProviderCallback({
+    body,
+    repository,
+    provider: { getPaymentStatus: async () => ({ providerReference: 'ref-209', transactionId: 'txn-209', amount: 5000, paymentMethod: 'MTN_MOMO_RWA', status: 'SUCCESS' }) },
+  });
+  assert.equal(mismatch.status, 'PENDING');
+  assert.equal(mismatch.verificationPending, true);
+  const unavailable = await Subscriptions.handleProviderCallback({
+    body: { ...body, status: 'success' },
+    repository,
+    provider: { getPaymentStatus: async () => { throw new Error('status lookup unavailable'); } },
+  });
+  assert.equal(unavailable.status, 'PENDING');
+  assert.equal(unavailable.verificationPending, true);
+  assert.equal(payment.status, 'PENDING');
+  assert.equal(settlements, 0);
+});
+
+test('terminal provider status without its transaction ID remains pending', async () => {
+  const payment = { id: 206, status: 'PENDING', provider: 'mtn_momo', provider_reference: 'ref-206', payment_method: 'MTN_MOMO_RWA', mobile_money_phone: '0788000000', amount: 5000, user_id: 42 };
+  const result = await Subscriptions.handleProviderCallback({
+    body: { reference_id: 'ref-206', transaction_id: 'callback-txn', status: 'success', amount: '5000', payment_method: 'MTN_MOMO_RWA', payer_phone: '+250788000000' },
+    repository: {
+      findPaymentByReference: async () => payment,
+      settlePayment: async () => { throw new Error('Must not settle without provider transaction ID.'); },
+      recordPaymentEvent: async () => {},
+    },
+    provider: { getPaymentStatus: async () => ({ providerReference: 'ref-206', amount: 5000, paymentMethod: 'MTN_MOMO_RWA', status: 'SUCCESS' }) },
+  });
+  assert.equal(result.status, 'PENDING');
+  assert.equal(result.verificationPending, true);
+  assert.equal(payment.status, 'PENDING');
+});
+
+test('callback transaction, phone, method, and reference mismatches never settle a payment', async () => {
+  const basePayment = { id: 208, status: 'PENDING', provider: 'mtn_momo', provider_reference: 'ref-208', payment_method: 'MTN_MOMO_RWA', mobile_money_phone: '0788000000', amount: 5000, user_id: 42 };
+  const baseBody = { reference_id: 'ref-208', transaction_id: 'txn-208', status: 'success', amount: '5000', payment_method: 'MTN_MOMO_RWA', payer_phone: '+250788000000' };
+  const cases = [
+    { body: { ...baseBody, transaction_id: 'forged-transaction' }, confirmation: { providerReference: 'ref-208', transactionId: 'txn-208', amount: 5000, paymentMethod: 'MTN_MOMO_RWA', status: 'SUCCESS' } },
+    { body: { ...baseBody, payer_phone: '+250799000000' }, confirmation: { providerReference: 'ref-208', transactionId: 'txn-208', amount: 5000, paymentMethod: 'MTN_MOMO_RWA', status: 'SUCCESS' } },
+    { body: baseBody, payment: { ...basePayment, payment_method: 'CARD' }, confirmation: { providerReference: 'ref-208', transactionId: 'txn-208', amount: 5000, paymentMethod: 'MTN_MOMO_RWA', status: 'SUCCESS' } },
+    { body: baseBody, confirmation: { providerReference: 'other-reference', transactionId: 'txn-208', amount: 5000, paymentMethod: 'MTN_MOMO_RWA', status: 'SUCCESS' } },
+    { body: baseBody, confirmation: { providerReference: 'ref-208', transactionId: 'txn-208', amount: 5000, paymentMethod: 'CARD', status: 'SUCCESS' } },
+  ];
+  for (const item of cases) {
+    const payment = item.payment || basePayment;
+    let settlements = 0;
+    const result = await Subscriptions.handleProviderCallback({
+      body: item.body,
+      repository: {
+        findPaymentByReference: async () => payment,
+        settlePayment: async () => { settlements += 1; },
+        recordPaymentEvent: async () => {},
+      },
+      provider: { getPaymentStatus: async () => item.confirmation },
+    });
+    assert.equal(result.status, 'PENDING');
+    assert.equal(result.verificationPending, true);
+    assert.equal(payment.status, 'PENDING');
+    assert.equal(settlements, 0);
+  }
+});
+
+test('stale callback cannot downgrade a previously successful payment', async () => {
+  const body = { reference_id: 'ref-207', transaction_id: 'txn-207', status: 'failed', amount: '5000', payment_method: 'MTN_MOMO_RWA', payer_phone: '+250788000000' };
+  const payment = { id: 207, status: 'SUCCESS', provider: 'mtn_momo', provider_reference: 'ref-207', provider_transaction_id: 'txn-207', payment_method: 'MTN_MOMO_RWA', mobile_money_phone: '0788000000', amount: 5000, user_id: 42 };
+  let lookups = 0;
+  let settlements = 0;
+  await assert.rejects(() => Subscriptions.handleProviderCallback({
+    body,
+    repository: {
+      findPaymentByReference: async () => payment,
+      settlePayment: async () => { settlements += 1; },
+      recordPaymentEvent: async () => {},
+    },
+    provider: { getPaymentStatus: async () => { lookups += 1; } },
+  }), (error) => error.statusCode === 409);
+  assert.equal(payment.status, 'SUCCESS');
+  assert.equal(lookups, 0);
+  assert.equal(settlements, 0);
 });
 
 test('callback pending, failed, and cancelled states follow the provider-confirmed status', async () => {
@@ -490,9 +618,10 @@ test('LMBTech initiation and status lookup use the documented endpoints, Basic a
       userName: 'Milk Customer',
     });
     assert.equal(initiated.status, 'PENDING');
-    assert.equal(calls[0].url, 'https://pay.lmbtech.rw/pay/config/api');
+    assert.equal(calls[0].url, 'https://pay.lmbtech.rw/pay/config/api.php');
     assert.equal(calls[0].options.method, 'POST');
     assert.equal(calls[0].options.headers.Authorization, `Basic ${Buffer.from('test-app-key:test-secret-key').toString('base64')}`);
+    assert.equal(calls[0].options.headers['Content-Type'], 'application/json');
     const requestBody = JSON.parse(calls[0].options.body);
     assert.deepEqual(requestBody, {
       email: 'customer@example.test',
@@ -507,10 +636,105 @@ test('LMBTech initiation and status lookup use the documented endpoints, Basic a
     });
     const result = await provider.getPaymentStatus({ providerReference: 'milk-subscription-test-1' });
     assert.equal(calls[1].url, 'https://pay.lmbtech.rw/pay/config/api.php?reference_id=milk-subscription-test-1');
+    assert.equal(calls[1].options.method, 'GET');
+    assert.equal(calls[1].options.headers.Authorization, `Basic ${Buffer.from('test-app-key:test-secret-key').toString('base64')}`);
     assert.equal(result.status, 'SUCCESS');
     assert.equal(result.transactionId, 'txn-1');
     assert.equal(result.amount, 5000);
     assert.equal(result.paymentMethod, 'MTN_MOMO_RWA');
+  } finally {
+    for (const name of names) {
+      if (previous[name] === undefined) delete process.env[name];
+      else process.env[name] = previous[name];
+    }
+  }
+});
+
+test('LMBTech initiation distinguishes uncertain transport/server failures from explicit rejection', async () => {
+  const names = ['LMBTECH_APP_KEY', 'LMBTECH_SECRET_KEY', 'LMBTECH_API_KEY', 'LMBTECH_API_SECRET', 'LMBTECH_CALLBACK_URL', 'LMBTECH_ALLOW_REAL_PAYMENTS'];
+  const previous = Object.fromEntries(names.map((name) => [name, process.env[name]]));
+  try {
+    process.env.LMBTECH_APP_KEY = 'mock-app-key';
+    process.env.LMBTECH_SECRET_KEY = 'mock-secret-key';
+    process.env.LMBTECH_CALLBACK_URL = 'https://milk.example.test/api/subscription/payments/callback';
+    process.env.LMBTECH_ALLOW_REAL_PAYMENTS = 'true';
+    const request = {
+      paymentId: 1,
+      userId: 42,
+      referenceId: 'milk-subscription-failure-test',
+      phoneNumber: '0788000000',
+      amount: 5000,
+      currency: 'RWF',
+      userEmail: 'customer@example.test',
+      userName: 'Milk Customer',
+    };
+    await assert.rejects(
+      () => new Provider.LmbtechProvider(async () => { throw new Error('mock network timeout'); }).createPaymentRequest(request),
+      (error) => error.code === 'LMBTECH_INITIATION_UNCERTAIN' && error.uncertain === true
+    );
+    await assert.rejects(
+      () => new Provider.LmbtechProvider(async () => ({ ok: false, status: 503, text: async () => '{"message":"unavailable"}' })).createPaymentRequest(request),
+      (error) => error.code === 'LMBTECH_INITIATION_UNCERTAIN' && error.uncertain === true
+    );
+    await assert.rejects(
+      () => new Provider.LmbtechProvider(async () => ({ ok: false, status: 400, text: async () => '{"message":"rejected"}' })).createPaymentRequest(request),
+      (error) => error.code === 'LMBTECH_INITIATION_REJECTED' && error.uncertain === false
+    );
+  } finally {
+    for (const name of names) {
+      if (previous[name] === undefined) delete process.env[name];
+      else process.env[name] = previous[name];
+    }
+  }
+});
+
+test('malformed provider responses remain unknown and cannot settle a payment', async () => {
+  const names = ['LMBTECH_APP_KEY', 'LMBTECH_SECRET_KEY', 'LMBTECH_API_KEY', 'LMBTECH_API_SECRET', 'LMBTECH_CALLBACK_URL', 'LMBTECH_ALLOW_REAL_PAYMENTS'];
+  const previous = Object.fromEntries(names.map((name) => [name, process.env[name]]));
+  try {
+    process.env.LMBTECH_APP_KEY = 'mock-app-key';
+    process.env.LMBTECH_SECRET_KEY = 'mock-secret-key';
+    process.env.LMBTECH_CALLBACK_URL = 'https://milk.example.test/api/subscription/payments/callback';
+    process.env.LMBTECH_ALLOW_REAL_PAYMENTS = 'true';
+    const provider = new Provider.LmbtechProvider(async () => ({ ok: true, status: 200, text: async () => 'not-json' }));
+    const status = await provider.getPaymentStatus({ providerReference: 'ref-malformed' });
+    assert.equal(status.status, 'UNKNOWN');
+    assert.equal(status.providerReference, null);
+
+    const payment = { id: 205, user_id: 42, status: 'PENDING', provider: 'mtn_momo', provider_reference: 'ref-malformed', amount: 5000 };
+    let settlements = 0;
+    const result = await Subscriptions.reconcilePayment({
+      paymentId: payment.id,
+      userId: payment.user_id,
+      repository: {
+        getPaymentByIdForUser: async () => payment,
+        settlePayment: async () => { settlements += 1; },
+        recordPaymentEvent: async () => {},
+      },
+      provider: { getPaymentStatus: async () => status },
+    });
+    assert.equal(result.status, 'PENDING');
+    assert.equal(settlements, 0);
+  } finally {
+    for (const name of names) {
+      if (previous[name] === undefined) delete process.env[name];
+      else process.env[name] = previous[name];
+    }
+  }
+});
+
+test('payment readiness remains disabled when required credentials or public callback are missing', () => {
+  const names = ['LMBTECH_APP_KEY', 'LMBTECH_SECRET_KEY', 'LMBTECH_API_KEY', 'LMBTECH_API_SECRET', 'LMBTECH_CALLBACK_URL', 'NEXT_PUBLIC_APP_URL', 'FRONTEND_URL', 'LMBTECH_ALLOW_REAL_PAYMENTS'];
+  const previous = Object.fromEntries(names.map((name) => [name, process.env[name]]));
+  try {
+    for (const name of names) delete process.env[name];
+    assert.equal(Provider.getLmbtechPublicStatus().ready, false);
+    process.env.LMBTECH_API_KEY = 'test-app-key';
+    process.env.LMBTECH_API_SECRET = 'test-secret-key';
+    process.env.LMBTECH_ALLOW_REAL_PAYMENTS = 'true';
+    assert.equal(Provider.getLmbtechPublicStatus().credentialsConfigured, true);
+    assert.equal(Provider.getLmbtechPublicStatus().callbackConfigured, false);
+    assert.equal(Provider.getLmbtechPublicStatus().ready, false);
   } finally {
     for (const name of names) {
       if (previous[name] === undefined) delete process.env[name];
@@ -525,7 +749,8 @@ test('unknown LMBTech states remain unknown and cannot become pending or success
   assert.equal(Provider.normalizeLmbtechStatus('failed'), 'FAILED');
   assert.equal(Provider.normalizeLmbtechStatus('fail'), 'FAILED');
   assert.equal(Provider.normalizeLmbtechStatus('cancelled'), 'CANCELLED');
-  assert.equal(Provider.normalizeLmbtechStatus('expired'), 'EXPIRED');
+  assert.equal(Provider.normalizeLmbtechStatus('canceled'), 'UNKNOWN');
+  assert.equal(Provider.normalizeLmbtechStatus('expired'), 'UNKNOWN');
   assert.equal(Provider.normalizeLmbtechStatus('processing'), 'UNKNOWN');
 });
 

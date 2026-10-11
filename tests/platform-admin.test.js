@@ -40,6 +40,13 @@ test('platform admin account list validates filters and bounds while forwarding 
   await assert.rejects(() => Admin.listAccounts({ status: 'unknown', repository: repository([]) }), /Invalid status/i);
 });
 
+test('platform account status prioritizes unverified and suspended accounts over subscription status', () => {
+  const { ACCOUNT_EFFECTIVE_STATUS } = PlatformAdminRepository;
+  assert.match(ACCOUNT_EFFECTIVE_STATUS, /WHEN u\.email_verified = FALSE THEN 'not_approved'/);
+  assert.match(ACCOUNT_EFFECTIVE_STATUS, /WHEN u\.account_status = 'suspended' THEN 'suspended'/);
+  assert.match(ACCOUNT_EFFECTIVE_STATUS, /WHEN us\.status = 'active'/);
+});
+
 test('platform admin actions audit by the acting Super Admin and honor distinct account/subscription behavior', async () => {
   const events = [];
   const result = await Admin.manageAccount({ userId: accountId, actorId: 1, action: 'suspend', repository: repository(events) });

@@ -236,9 +236,31 @@ test('Owner Ifishi history query scopes owner rows and assigned farmer rows thro
   assert.deepEqual(captured.values, [ownerUserId, '2026-10-01', '2026-10-31']);
   assert.match(captured.text, /mr\.owner_user_id = \$1/);
   assert.match(captured.text, /ca\.collector_user_id = \$1/);
+  assert.match(captured.text, /ca\.revoked_at IS NULL/);
   assert.match(captured.text, /mr\.is_owner_milk = TRUE/);
   assert.match(captured.text, /COALESCE\(o\.status::text, 'missing'\) AS status/);
   assert.match(captured.text, /farmer_daily/);
+  assert.match(captured.text, /CASE WHEN o\.status = 'cancelled' THEN 0 ELSE COALESCE\(o\.valid_volume_liters, o\.volume_liters, 0\) END AS valid_volume_liters/);
+  assert.doesNotMatch(captured.text, /assigned_farmer_lost_liters\) END AS valid_volume_liters/);
+});
+
+test('Owner Ifishi keeps farmer loss separate from owner litres and owner gross', () => {
+  const entry = CollectorMilkRepository.mapRow({
+    id: 91,
+    owner_user_id: ownerUserId,
+    date: '2026-10-04',
+    volume_liters: 100,
+    valid_volume_liters: 100,
+    original_volume_liters: 100,
+    lost_volume_liters: 0,
+    farmer_lost_volume_liters: 10,
+    farmer_lost_liters: 10,
+    price_per_liter: 400,
+    status: 'valid',
+  });
+  assert.equal(entry.farmerLostLiters, 10);
+  assert.equal(entry.effectiveVolumeLiters, 100);
+  assert.equal(entry.grossAmount, 40000);
 });
 
 test('Owner Ifishi cross-owner history is empty under the requested authenticated owner scope', async () => {

@@ -11,6 +11,7 @@ test('migration scaffold preserves the required owner and admin model', () => {
   const paymentMigration = fs.readFileSync(path.join(root, 'supabase', 'migrations', '008_lmbtech_payment_reconciliation.sql'), 'utf8');
   const subscriptionEmailMigration = fs.readFileSync(path.join(root, 'supabase', 'migrations', '009_subscription_email_outbox.sql'), 'utf8');
   const transportSnapshotMigration = fs.readFileSync(path.join(root, 'supabase', 'migrations', '013_milk_transport_rate_snapshots.sql'), 'utf8');
+  const healthRoute = fs.readFileSync(path.join(root, 'app', 'api', 'health', 'route.ts'), 'utf8');
   const usersRoute = fs.readFileSync(path.join(root, 'app', 'api', 'admin', 'super-admin', 'route.ts'), 'utf8');
   const farmerRoute = fs.readFileSync(path.join(root, 'app', 'api', 'farmers', 'route.ts'), 'utf8');
   const appFile = fs.readFileSync(path.join(root, 'app', 'page.tsx'), 'utf8');
@@ -30,6 +31,10 @@ test('migration scaffold preserves the required owner and admin model', () => {
   assert.match(farmerRoute, /getAuthenticatedUser/);
   assert.match(transportSnapshotMigration, /ADD COLUMN IF NOT EXISTS transport_rate_per_liter NUMERIC\(10,2\)/);
   assert.doesNotMatch(transportSnapshotMigration, /UPDATE|DELETE|TRUNCATE|DROP/i);
+  assert.match(healthRoute, /FROM supabase_migrations\.schema_migrations/);
+  assert.match(healthRoute, /REQUIRED_MIGRATIONS\.every/);
+  assert.match(healthRoute, /migrated,\s*\}/);
+  assert.doesNotMatch(healthRoute, /migrated:\s*true/);
   assert.match(appFile, /Milk System — Next.js \+ Supabase PostgreSQL migration/);
 });
 

@@ -50,7 +50,7 @@ test('Abacunda history SQL enforces active Ikigo, linked Collector, dates, and o
     },
   });
 
-  assert.match(captured.text, /ca\.dairy_user_id = \$1 AND ca\.collector_user_id = \$2 AND c\.id = \$3/);
+  assert.match(captured.text, /ca\.dairy_user_id = \$1 AND ca\.collector_user_id = \$2 AND ca\.revoked_at IS NULL AND c\.id = \$3/);
   assert.match(captured.text, /mr\.date BETWEEN \$4 AND \$5/);
   assert.match(captured.text, /mr\.is_owner_milk = FALSE/);
   assert.match(captured.text, /mr\.status = 'cancelled' THEN 0/);

@@ -1,5 +1,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const path = require('node:path');
 
 const { registerUser, loginUser, getCurrentUser } = require('../lib/services/auth-service.js');
 const { assertUserCanAccessOwnerScopedResource, buildOwnerScope } = require('../lib/security/ownership.js');
@@ -198,6 +200,63 @@ test('business account authorization separates Collector and Collection Center a
   assert.throws(() => requireAccountType(dairy, 'COLLECTOR'), { code: 'ACCOUNT_TYPE_FORBIDDEN', statusCode: 403 });
   assert.throws(() => requireAccountType(collector, 'COLLECTION_CENTER'), { code: 'ACCOUNT_TYPE_FORBIDDEN', statusCode: 403 });
   assert.throws(() => requireAccountType(admin, 'COLLECTOR'), { code: 'ACCOUNT_TYPE_FORBIDDEN', statusCode: 403 });
+});
+
+test('production public launch accepts Collectors but blocks Collection Center provisioning and access', async () => {
+  const previousNodeEnv = process.env.NODE_ENV;
+  const previousSessionSecret = process.env.SESSION_SECRET;
+  const originalRepo = require('../lib/repositories/userRepository.js').repository;
+  const originalFind = originalRepo.findUserById;
+  try {
+    delete process.env.NODE_ENV;
+    const dairy = await registerUser({ repository, name: 'Local Dairy', email: 'dairy@example.com', password: 'StrongPass123!', accountType: 'COLLECTION_CENTER' });
+    process.env.NODE_ENV = 'production';
+    const collector = await registerUser({ repository, name: 'Launch Collector', email: 'collector@example.com', password: 'StrongPass123!', accountType: 'COLLECTOR' });
+    assert.equal(collector.accountType, 'COLLECTOR');
+    const collectorSession = makeSession();
+    await loginUser({ repository, email: collector.email, password: 'StrongPass123!', session: collectorSession });
+    assert.equal(collectorSession.userId, collector.id);
+    await assert.rejects(
+      () => registerUser({ repository, name: 'Public Dairy', email: 'public-dairy@example.com', password: 'StrongPass123!', accountType: 'COLLECTION_CENTER' }),
+      (error) => error.statusCode === 403 && error.code === 'ACCOUNT_TYPE_UNAVAILABLE'
+    );
+    const session = makeSession();
+    await assert.rejects(
+      () => loginUser({ repository, email: dairy.email, password: 'StrongPass123!', session }),
+      (error) => error.statusCode === 403 && error.code === 'ACCOUNT_TYPE_UNAVAILABLE'
+    );
+    assert.equal(session.userId, null);
+    assert.throws(() => requireAccountType({ id: dairy.id, role: 'user', accountType: 'COLLECTION_CENTER' }, 'COLLECTION_CENTER'), {
+      statusCode: 403,
+      code: 'ACCOUNT_TYPE_UNAVAILABLE',
+    });
+
+    const superAdmin = await registerUser({ repository, name: 'Platform Admin', email: 'platform-admin@example.com', password: 'StrongPass123!', role: 'super_admin', accountType: 'COLLECTION_CENTER' });
+    process.env.SESSION_SECRET = 'test-session-secret-with-at-least-32-characters';
+    originalRepo.findUserById = async (id) => Number(id) === dairy.id ? dairy : Number(id) === superAdmin.id ? superAdmin : null;
+    const token = createSessionToken({ id: dairy.id, role: 'user' });
+    const authenticated = await getAuthenticatedUser({ cookies: { get: () => ({ value: token }) } });
+    assert.equal(authenticated, null);
+    const adminToken = createSessionToken({ id: superAdmin.id, role: 'super_admin' });
+    const authenticatedAdmin = await getAuthenticatedUser({ cookies: { get: () => ({ value: adminToken }) } });
+    assert.equal(authenticatedAdmin.role, 'super_admin');
+    assert.equal(authenticatedAdmin.accountType, 'COLLECTION_CENTER');
+  } finally {
+    originalRepo.findUserById = originalFind;
+    if (previousNodeEnv === undefined) delete process.env.NODE_ENV;
+    else process.env.NODE_ENV = previousNodeEnv;
+    if (previousSessionSecret === undefined) delete process.env.SESSION_SECRET;
+    else process.env.SESSION_SECRET = previousSessionSecret;
+  }
+});
+
+test('middleware fails closed without a session secret and exposes only the payment callback', () => {
+  const middleware = fs.readFileSync(path.join(__dirname, '..', 'middleware.ts'), 'utf8');
+  assert.match(middleware, /const secret = process\.env\.SESSION_SECRET;/);
+  assert.match(middleware, /if \(!secret \|\| secret\.length < 32\) return false;/);
+  assert.doesNotMatch(middleware, /development-session-secret/);
+  assert.match(middleware, /PUBLIC_API_PATHS = new Set\(\['\/api\/subscription\/payments\/callback'\]\)/);
+  assert.match(middleware, /PUBLIC_API_PATHS\.has\(pathname\)/);
 });
 
 test('super admin access is allowed only for the single authoritative platform account', async () => {
