@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 
 const { getAuthenticatedUser } = require('@/lib/security/authenticate.js');
+const { requireActiveSubscription } = require('@/lib/security/subscription-access.js');
 const Centers = require('@/lib/services/collection-center-service.js');
 
 export const runtime = 'nodejs';

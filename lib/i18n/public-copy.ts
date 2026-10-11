@@ -30,6 +30,8 @@ export const publicCopy = {
     passwordMismatch: 'Amagambo y\'ibanga ntiyahuye.',
 
     accountSettings: 'Igenamiterere rya konti',
+    myAccount: 'Konti yanjye',
+    accountManagement: 'Imicungire ya konti',
     accountProfile: 'Amakuru ya konti',
     accountProfileDescription: 'Tunganya amakuru akoreshwa mu kwinjira no kwishyura.',
     accountName: 'Amazina',
@@ -165,6 +167,8 @@ export const publicCopy = {
     dashboardNoCenter: 'Nta kigo cy\'ikusanyirizo cyagenwe',
     dashboardLoading: 'Birimo gukurura amakuru…',
     dashboardOpen: 'Fungura',
+    selectCenterToView: 'Hitamo ikigo cy\'ikusanyirizo',
+    selectCenterToViewHint: 'Hitamo ikigo cy\'ikusanyirizo mu rutonde kugira ngo urebe amata y\'uyu munsi.',
 
     milkCollectionDate: 'Itariki yo gukusanya',
     collectorActualMilk: 'Amata yose umucunda yakusanyije',
@@ -529,6 +533,8 @@ export const publicCopy = {
     passwordMismatch: 'The passwords do not match.',
 
     accountSettings: 'Account settings',
+    myAccount: 'My Account',
+    accountManagement: 'Account Management',
     accountProfile: 'Account information',
     accountProfileDescription: 'Update the details used for sign-in and payments.',
     accountName: 'Name',
@@ -663,6 +669,8 @@ export const publicCopy = {
     dashboardNoCenter: 'No collection center assigned',
     dashboardLoading: 'Loading authorized data…',
     dashboardOpen: 'Open',
+    selectCenterToView: 'Select a collection center',
+    selectCenterToViewHint: 'Choose a center from the dropdown to view daily milk collection.',
 
     milkCollectionDate: 'Collection date',
     collectorActualMilk: 'Collector total collected milk',

@@ -27,7 +27,7 @@ type OwnerIfishiHistory = { owner: { name: string }; startDate: string; endDate:
 type MilkRecord = { id: number; farmer_id: number; owner_user_id: number; date: string; volumeMorning: number; volumeEvening: number; volume: number; originalVolumeLiters: number; validVolumeLiters: number; lostVolumeLiters: number; originalAmount: number; validAmount: number; amount: number; pricePerLiter: number; status: string; adjustmentReason: string | null; adjustedBy: number | null; adjustedAt: string | null; collectionCenter?: string | null };
 type Notice = { id: number; title: string; message: string; notification_type: string; isRead: boolean; createdAt: string };
 type ReportFarmerRow = { farmerId: number; farmerName: string; nationalId?: string | null; idNumber?: string | null; phone?: string | null; accountNumber?: string | null; totalVolume: number; originalVolume?: number; lostVolume?: number; pricePerLiter?: number; grossAmount: number; totalTransport: number | null; transportIsComplete?: boolean; totalDeductions: number; ifishiTotalDeductions?: number; ifishiNetAmount?: number | null; netAmount: number | null };
-type ReportOwnerRow = { farmerId: null; farmerName: string; name: string; isOwner: true; nationalId?: string | null; idNumber?: string | null; phone?: string | null; accountNumber?: string | null; totalVolume: number; pricePerLiter: number | null; grossAmount: number | null; totalTransport: number; totalDeductions: number; netAmount: number | null };
+type ReportOwnerRow = { farmerId: null; farmerName: string; name: string; isOwner: true; nationalId?: string | null; idNumber?: string | null; phone?: string | null; accountNumber?: string | null; totalVolume: number; pricePerLiter: number | null; grossAmount: number | null; totalTransport: number | null; totalDeductions: number; farmerPayable?: number; netAmount: number | null };
 type Report = { totalFarmers: number; totalVolume: number; totalMorning: number; totalEvening: number; totalRevenueMonth: number; ownerGeneratedGross?: number | null; ownerGeneratedVolume?: number; totalDeductionsMonth: number; totalTransportFeesMonth: number; netRevenueMonth: number; todayTotal: number; todayMorning: number; todayEvening: number; rangeStart: string; rangeEnd: string; collectorPayable: number | null; collectorGross?: number | null; collectorActualVolume?: number; collectorOriginalVolume?: number; collectorLostVolume?: number; collectorFarmersValidLiters?: number; collectorTotalFarmersPayable?: number; collectorFarmerDeductions?: number; collectorFarmerTransport?: number; collectorSurplusAmount?: number | null; collectorPayableFromBreakdown?: number | null; collectorIsReconciled?: boolean | null; collectorProfile?: { name: string } | null; collectorEntries?: Array<{ id: number; date: string; status: string; volumeLiters: number; effectiveVolumeLiters: number; farmerLostLiters: number; voidReason?: string | null; voidedBy?: number | null; voidedAt?: string | null }>; milkLossRecords?: Array<{ id: number; farmerId: number; farmerName: string; date: string; status: string; originalVolume: number; validVolume: number; lostVolume: number; reason: string | null; adjustedBy: number | null; adjustedAt: string | null }>; collectorSettlementRows?: any[]; ownerSettlementRow?: ReportOwnerRow | null; farmerPayments: ReportFarmerRow[] };
 type Account = { user_id: number; account_name: string; account_email: string; account_type: string; account_status: string; effective_status: string; farmer_count: number; center_count: number };
 type AdminSummary = { accounts: { total_accounts: number; without_subscription: number; pending: number; trial: number; active: number; suspended: number; expired: number }; registrations_last_30_days: number };
@@ -87,6 +87,7 @@ const dairyTabs: Array<{ id: Tab; label: string; icon: typeof Milk }> = [
   { id: 'milk', label: 'Milk', icon: Milk },
   { id: 'reports', label: 'Reports', icon: FileBarChart2 },
   { id: 'ukwezi', label: 'Ukwezi', icon: Wallet },
+  { id: 'settings', label: 'Settings', icon: Settings },
 ];
 
 const navigationCopy = {
@@ -305,6 +306,7 @@ const [report, setReport] = useState<Report | null>(null);
   const [adminPaymentPage, setAdminPaymentPage] = useState(1);
   const [adminPaymentStatus, setAdminPaymentStatus] = useState('');
   const [accountProfile, setAccountProfile] = useState<AccountProfile | null>(null);
+  const [accountSettingsTab, setAccountSettingsTab] = useState<'personal' | 'management'>('personal');
   const [accountForm, setAccountForm] = useState({ name: '', email: '', phone: '', nationalId: '', accountNumber: '', profilePicture: '' });
   const [currentPassword, setCurrentPassword] = useState('');
   const [newAccountPassword, setNewAccountPassword] = useState('');
@@ -533,6 +535,7 @@ const visibleTabs = (isAdmin
       const params = new URLSearchParams({ month, year, periodType: ownerIfishiPeriod });
       const history = await api<OwnerIfishiHistory>(`/api/ifishi/owner?${params}`, { cache: 'no-store' });
       setOwnerIfishiHistory(history);
+      setError((current) => current === 'Failed to load Owner Ifishi history.' ? '' : current);
     } catch (reason) {
       const message = reason instanceof Error ? reason.message : 'Failed to load Owner Ifishi history.';
       setOwnerIfishiError(message);
@@ -559,6 +562,11 @@ const visibleTabs = (isAdmin
   const loadDaily = async (cursor?: string | null, append = false) => {
     setDailyLoading(true);
     setDailyError('');
+    if (isDairy && !selectedCenter) {
+      setDailyError('No collection center selected. Please choose an active center.');
+      setDailyLoading(false);
+      return;
+    }
     const params = new URLSearchParams({ date: collectionDate, limit: '50' });
     if (user?.accountType === 'COLLECTOR') params.set('collectorUserId', String(user.id));
     if (selectedCenter) params.set('centerId', selectedCenter);
@@ -784,7 +792,7 @@ const visibleTabs = (isAdmin
     if (user && tab === 'milk' && ifishiOpen && ifishiFarmerId) loadIfishiRecords().catch((reason) => setError(reason.message));
   }, [user, tab, ifishiOpen, ifishiFarmerId, ifishiMonth, ifishiDate]);
   useEffect(() => {
-    if (user && isCollector && tab === 'milk' && (ownerIfishiOpen || ownerIfishiHistoryOpen)) loadOwnerIfishiHistory().catch((reason) => setError(reason.message));
+    if (user && isCollector && tab === 'milk' && (ownerIfishiOpen || ownerIfishiHistoryOpen)) loadOwnerIfishiHistory().catch(() => undefined);
   }, [user, isCollector, tab, ownerIfishiOpen, ownerIfishiHistoryOpen, ifishiMonth, ownerIfishiPeriod]);
   useEffect(() => {
     if (user && (tab === 'ukwezi' || tab === 'transport')) loadUkwezi().catch((reason) => setError(reason.message));
@@ -1376,8 +1384,16 @@ const visibleTabs = (isAdmin
       </div>
       <div className="metric-strip milk-summary"><div><span>{accountCopy('dashboardFarmers', 'dashboardAbacundaToday')}</span><b>{dailySummary.presentCount} / {dailySummary.totalFarmers}</b></div><div><span>{publicLanguage.t('dashboardCollected')}</span><b>{liters(dailySummary.totalVolume)} L</b></div><div><span>{publicLanguage.t('dashboardMorning')}</span><b>{liters(dailySummary.totalMorning)} L</b></div><div><span>{publicLanguage.t('dashboardEvening')}</span><b>{liters(dailySummary.totalEvening)} L</b></div><div><span>{publicLanguage.t('dashboardAccounting')}</span><b>{money(dailySummary.totalAmount)} RWF</b></div></div>
       <div className="panel-heading"><div><span className="eyebrow">{isCollector ? 'ABOROZI' : 'ACTIVE IKIGO'}</span><h2>{accountCopy('navFarmers', 'navAbacunda')}</h2></div><span className="count-label">{isDairy ? `${dailySummary.presentCount} milk entries · ${dailySummary.totalFarmers} Abacunda` : `${visibleRows.length} ${accountCopy('navFarmers', 'navAbacunda').toLowerCase()}`}</span></div>
-      {isDairy && !selectedCenter ? <div className="workspace-empty" role="status"><b>No active Ikigo is available for this account.</b></div>
-        : dailyLoading ? <div className="workspace-empty workspace-loading" role="status"><span className="loading-indicator" />Loading daily milk…</div>
+      {isDairy && !selectedCenter ? (
+        centers.length ? (
+          <div className="workspace-empty" role="status">
+            <b>{publicLanguage.t('selectCenterToView')}</b>
+            <p>{publicLanguage.t('selectCenterToViewHint')}</p>
+          </div>
+        ) : (
+          <div className="workspace-empty" role="status"><b>No active Ikigo is available for this account.</b></div>
+        )
+      ) : dailyLoading ? <div className="workspace-empty workspace-loading" role="status"><span className="loading-indicator" />Loading daily milk…</div>
         : dailyError ? <div className="workspace-empty" role="alert"><b>{dailyError}</b><button type="button" className="button button-secondary small-button" onClick={() => loadDaily().catch(() => undefined)}>Retry</button></div>
         : visibleRows.length ? <>
         <div className="table-scroll milk-desktop-list"><table><thead><tr><th>{accountCopy('milkFarmer', 'milkAbacunda')}</th><th>{publicLanguage.t('dashboardMorning')} · L</th><th>{publicLanguage.t('dashboardEvening')} · L</th><th>{publicLanguage.t('milkTotal')} · L</th><th>{publicLanguage.t('milkAmount')} · RWF</th><th>{publicLanguage.t('navIfishi')}</th><th>{publicLanguage.t('milkAction')}</th></tr></thead><tbody>{visibleRows.map((row) => <tr key={row.farmerId}><td className="strong-cell">{row.farmerName}{isDairy ? <small>{row.presentCount || 0} / {row.abacundaCount || 0} Abacunda</small> : null}</td><td>{isCollector ? volumeInput(row, 'morning') : liters(row.volumeMorning)}</td><td>{isCollector ? volumeInput(row, 'evening') : liters(row.volumeEvening)}</td><td>{liters(row.totalVolume)}</td><td>{money(row.amount)}</td><td><button type="button" className="text-button" onClick={() => openIfishiForFarmer(row.farmerId, row.farmerName)}>{publicLanguage.t('navIfishi')}</button></td><td className="milk-table-action">{isCollector ? <><span className={`milk-entry-state ${entryState(row)}`}>{publicLanguage.t(entryState(row) === 'saved' ? 'milkSaved' : 'milkUnsaved')}</span><button className="button button-secondary small-button" onClick={() => saveMilk(row)} disabled={busy}>{publicLanguage.t('milkSave')}</button></> : null}</td></tr>)}</tbody></table></div>
@@ -1422,7 +1438,7 @@ const visibleTabs = (isAdmin
       ...(ownerIfishiReport?.ownerSettlementRow ? [{
         ...ownerIfishiReport.ownerSettlementRow,
         farmerName: ownerIfishiReport.ownerSettlementRow.farmerName,
-        totalTransport: ownerIfishiReport.collectorFarmerTransport || 0,
+        totalTransport: ownerIfishiReport.collectorFarmerTransport ?? null,
         totalDeductions: ownerIfishiReport.collectorFarmerDeductions || 0,
         netAmount: ownerIfishiReport.collectorPayable,
         isOwner: true,
@@ -1465,7 +1481,7 @@ const visibleTabs = (isAdmin
             <div className="metric-strip owner-ifishi-accounting-summary">
               <div><span>{publicLanguage.t('reportsGross')}</span><b>{ownerIfishiReport.ownerGeneratedGross == null ? '—' : `${money(ownerIfishiReport.ownerGeneratedGross)} RWF`}</b></div>
               <div><span>{publicLanguage.t('dashboardDeductions')}</span><b>{money(ownerIfishiReport.collectorFarmerDeductions || 0)} RWF</b></div>
-              <div><span>{publicLanguage.t('reportsTransport')}</span><b>{money(ownerIfishiReport.collectorFarmerTransport || 0)} RWF</b></div>
+              <div><span>{publicLanguage.t('reportsTransport')}</span><b>{ownerIfishiReport.collectorFarmerTransport == null ? '—' : `${money(ownerIfishiReport.collectorFarmerTransport)} RWF`}</b></div>
               <div><span>{publicLanguage.t('reportsNet')}</span><b>{ownerIfishiReport.collectorPayable == null ? '—' : `${money(ownerIfishiReport.collectorPayable)} RWF`}</b></div>
             </div>
             <section className="settlement-reconciliation" role="status"><b>{ownerIfishiReport.collectorIsReconciled ? publicLanguage.t('ukweziReconciled') : publicLanguage.t('ukweziReconciliationPending')}</b><span>{ownerIfishiReport.collectorPayableFromBreakdown == null ? publicLanguage.t('collectorPriceMissing') : `${publicLanguage.t('ukweziBreakdown')}: ${money(ownerIfishiReport.collectorSurplusAmount || 0)} + ${money(ownerIfishiReport.collectorFarmerDeductions || 0)} + ${money(ownerIfishiReport.collectorFarmerTransport || 0)} = ${money(ownerIfishiReport.collectorPayableFromBreakdown)} RWF`}</span></section>
@@ -1739,75 +1755,99 @@ const visibleTabs = (isAdmin
     <p className="muted-note">{publicLanguage.t('collectorTransportRule')}</p>
   </section>;
 
-  const renderAccountSettings = () => (
-    <div className="account-settings-view">
-      {isCollector ? <section className="panel panel-wide">
-        <div className="panel-heading"><div><span className="eyebrow">{publicLanguage.t('dashboardAccounting')}</span><h2>{publicLanguage.t('collectorPriceTitle')}</h2></div><CircleDollarSign size={20} aria-hidden="true" /></div>
-        <p className="muted-note">{publicLanguage.t('collectorPriceSubtitle')}</p>
-        <form className="toolbar" onSubmit={saveCollectorPrice}>
-          <label>{publicLanguage.t('collectorPriceLabel')}<input type="number" min="0.01" step="0.01" required value={collectorPriceForm.pricePerLiter} onChange={(event) => setCollectorPriceForm({ ...collectorPriceForm, pricePerLiter: event.target.value })} /></label>
-          <label>{publicLanguage.t('collectorPriceDate')}<input type="date" required value={collectorPriceForm.effectiveDate} onChange={(event) => setCollectorPriceForm({ ...collectorPriceForm, effectiveDate: event.target.value })} /></label>
-          <button className="button button-primary" disabled={busy}>{publicLanguage.t('collectorPriceSave')}</button>
-        </form>
-        {collectorPrices.length ? <ul className="notice-list">{collectorPrices.map((price) => <li className="notice-row" key={price.id}><b>{String(price.effectiveDate).slice(0, 10)}</b><span>{money(price.pricePerLiter)} RWF/L</span></li>)}</ul> : <p className="muted-note">{publicLanguage.t('collectorPriceEmpty')}</p>}
-      </section> : null}
-      {isCollector ? renderCenters() : null}
-      <section className="panel account-settings-overview">
-        <div className="panel-heading">
-          <div><span className="eyebrow">{publicLanguage.t('accountSettings')}</span><h2>{publicLanguage.t('accountProfile')}</h2></div>
-          <UserRound size={20} aria-hidden="true" />
-        </div>
-        {accountProfile ? <div className="account-settings-summary">
-          <div><span>{publicLanguage.t('accountTypeLabel')}</span><strong>{accountProfile.accountType === 'COLLECTION_CENTER' ? publicLanguage.t('collectionCenter') : accountProfile.role === 'super_admin' ? publicLanguage.t('platformAdmin') : publicLanguage.t('collector')}</strong></div>
-          <div><span>{publicLanguage.t('accountStatusLabel')}</span><strong className={`status-text status-${accountProfile.accountStatus}`}>{publicLanguage.t(accountStatusCopy[accountProfile.accountStatus as keyof typeof accountStatusCopy] || 'statusNone')}</strong></div>
-          <div><span>{publicLanguage.t('email')}</span><strong>{accountProfile.email}</strong></div>
-          <div><span>{publicLanguage.t('emailVerificationStatus')}</span><strong>{accountProfile.emailVerified ? publicLanguage.t('emailVerifiedValue') : publicLanguage.t('emailNotVerifiedValue')}</strong></div>
-          {billing?.subscription ? <div><span>{publicLanguage.t('navSubscription')}</span><strong>{billing.subscription.effective_status || billing.subscription.status}</strong></div> : null}
-        </div> : <div className="workspace-empty workspace-loading" role="status"><span className="loading-indicator" />{publicLanguage.t('accountLoading')}</div>}
-        <div className="account-settings-quick-actions">
-          <div className="language-setting"><span>{publicLanguage.t('accountLanguage')}</span><div className="public-language-switch" role="group" aria-label={publicLanguage.t('languageLabel')}>
-            <button type="button" aria-label={publicLanguage.t('languageKinyarwanda')} aria-pressed={publicLanguage.language === 'rw'} onClick={() => publicLanguage.setLanguage('rw')}>RW</button>
-            <button type="button" aria-label={publicLanguage.t('languageEnglish')} aria-pressed={publicLanguage.language === 'en'} onClick={() => publicLanguage.setLanguage('en')}>EN</button>
-          </div></div>
-        </div>
-      </section>
+  const renderAccountSettings = () => {
+    const handleTabKeyDown = (event: React.KeyboardEvent<HTMLButtonElement>) => {
+      let nextTab: 'personal' | 'management' | null = null;
+      if (event.key === 'ArrowRight' || event.key === 'ArrowDown') nextTab = accountSettingsTab === 'personal' ? 'management' : 'personal';
+      if (event.key === 'ArrowLeft' || event.key === 'ArrowUp') nextTab = accountSettingsTab === 'personal' ? 'management' : 'personal';
+      if (event.key === 'Home') nextTab = 'personal';
+      if (event.key === 'End') nextTab = 'management';
+      if (!nextTab) return;
+      event.preventDefault();
+      setAccountSettingsTab(nextTab);
+      document.getElementById(`account-settings-tab-${nextTab}`)?.focus();
+    };
 
-      {!isAdmin ? renderBilling() : null}
+    return <div className="account-settings-view">
+      <div className="account-settings-tabs" role="tablist" aria-label={publicLanguage.t('accountSettings')}>
+        <button type="button" id="account-settings-tab-personal" className="account-settings-tab" role="tab" aria-selected={accountSettingsTab === 'personal'} aria-controls="account-settings-panel-personal" tabIndex={accountSettingsTab === 'personal' ? 0 : -1} onClick={() => setAccountSettingsTab('personal')} onKeyDown={handleTabKeyDown}>
+          <UserRound size={17} aria-hidden="true" />{publicLanguage.t('myAccount')}
+        </button>
+        <button type="button" id="account-settings-tab-management" className="account-settings-tab" role="tab" aria-selected={accountSettingsTab === 'management'} aria-controls="account-settings-panel-management" tabIndex={accountSettingsTab === 'management' ? 0 : -1} onClick={() => setAccountSettingsTab('management')} onKeyDown={handleTabKeyDown}>
+          <Building2 size={17} aria-hidden="true" />{publicLanguage.t('accountManagement')}
+        </button>
+      </div>
 
-      <section className="panel panel-wide account-settings-profile">
-        <div className="panel-heading"><div><span className="eyebrow">{publicLanguage.t('accountProfile')}</span><h2>{publicLanguage.t('accountProfileDescription')}</h2></div></div>
-        {accountProfile ? <form className="form-stack account-settings-form" onSubmit={saveAccountSettings}>
-          <div className="account-avatar-row">
-            <div className="account-avatar-preview">{accountForm.profilePicture ? <img src={accountForm.profilePicture} alt="" /> : <span>{accountForm.name.trim().slice(0, 1).toUpperCase() || '?'}</span>}</div>
-            <div><label className="button button-secondary account-avatar-upload">{publicLanguage.t('accountAvatarUpload')}<input type="file" accept="image/*" onChange={updateAccountAvatar} /></label>
-              {accountForm.profilePicture ? <button type="button" className="text-button" onClick={() => setAccountForm((form) => ({ ...form, profilePicture: '' }))}>{publicLanguage.t('accountAvatarRemove')}</button> : null}
-              {accountAvatarError ? <p className="form-error" role="alert">{accountAvatarError}</p> : null}
+      <section className="account-settings-panel" id="account-settings-panel-personal" role="tabpanel" aria-labelledby="account-settings-tab-personal" tabIndex={0} hidden={accountSettingsTab !== 'personal'}>
+        <section className="panel panel-wide account-settings-profile">
+          <div className="panel-heading"><div><span className="eyebrow">{publicLanguage.t('myAccount')}</span><h2>{publicLanguage.t('accountProfileDescription')}</h2></div><UserRound size={20} aria-hidden="true" /></div>
+          {accountProfile ? <form className="form-stack account-settings-form" onSubmit={saveAccountSettings}>
+            <div className="account-avatar-row">
+              <div className="account-avatar-preview">{accountForm.profilePicture ? <img src={accountForm.profilePicture} alt="" /> : <span>{accountForm.name.trim().slice(0, 1).toUpperCase() || '?'}</span>}</div>
+              <div><label className="button button-secondary account-avatar-upload">{publicLanguage.t('accountAvatarUpload')}<input type="file" accept="image/*" onChange={updateAccountAvatar} /></label>
+                {accountForm.profilePicture ? <button type="button" className="text-button" onClick={() => setAccountForm((form) => ({ ...form, profilePicture: '' }))}>{publicLanguage.t('accountAvatarRemove')}</button> : null}
+                {accountAvatarError ? <p className="form-error" role="alert">{accountAvatarError}</p> : null}
+              </div>
             </div>
-          </div>
-          <div className="account-settings-fields">
-            <label>{publicLanguage.t('accountName')}<input autoComplete="name" required maxLength={255} value={accountForm.name} onChange={(event) => setAccountForm({ ...accountForm, name: event.target.value })} /></label>
-            <label>{publicLanguage.t('email')}<input type="email" autoComplete="email" required maxLength={255} readOnly={accountProfile.role === 'super_admin'} value={accountForm.email} onChange={(event) => setAccountForm({ ...accountForm, email: event.target.value })} />{accountEmailChangePending ? <small role="status">{publicLanguage.t('accountEmailChangeTarget').replace('{email}', accountPendingEmail)}</small> : null}</label>
-            <label>{publicLanguage.t('accountPhone')}<input type="tel" inputMode="tel" autoComplete="tel" value={accountForm.phone} onChange={(event) => setAccountForm({ ...accountForm, phone: event.target.value })} /></label>
-            {accountProfile.role !== 'super_admin' ? <>
-              <label>{publicLanguage.t('accountNationalId')}<input value={accountForm.nationalId} maxLength={50} onChange={(event) => setAccountForm({ ...accountForm, nationalId: event.target.value })} /></label>
-              <label>{publicLanguage.t('accountNumber')}<input value={accountForm.accountNumber} maxLength={255} onChange={(event) => setAccountForm({ ...accountForm, accountNumber: event.target.value })} /></label>
-            </> : null}
-          </div>
-          <button className="button button-primary" disabled={busy}><Check size={16} aria-hidden="true" />{publicLanguage.t('saveAccountProfile')}</button>
-        </form> : null}
-      </section>
+            <div className="account-settings-fields">
+              <label>{publicLanguage.t('accountName')}<input autoComplete="name" required maxLength={255} value={accountForm.name} onChange={(event) => setAccountForm({ ...accountForm, name: event.target.value })} /></label>
+              <label>{publicLanguage.t('email')}<input type="email" autoComplete="email" required maxLength={255} readOnly={accountProfile.role === 'super_admin'} value={accountForm.email} onChange={(event) => setAccountForm({ ...accountForm, email: event.target.value })} />{accountEmailChangePending ? <small role="status">{publicLanguage.t('accountEmailChangeTarget').replace('{email}', accountPendingEmail)}</small> : null}</label>
+              <label>{publicLanguage.t('accountPhone')}<input type="tel" inputMode="tel" autoComplete="tel" value={accountForm.phone} onChange={(event) => setAccountForm({ ...accountForm, phone: event.target.value })} /></label>
+              {accountProfile.role !== 'super_admin' ? <>
+                <label>{publicLanguage.t('accountNationalId')}<input value={accountForm.nationalId} maxLength={50} onChange={(event) => setAccountForm({ ...accountForm, nationalId: event.target.value })} /></label>
+                <label>{publicLanguage.t('accountNumber')}<input value={accountForm.accountNumber} maxLength={255} onChange={(event) => setAccountForm({ ...accountForm, accountNumber: event.target.value })} /></label>
+              </> : null}
+            </div>
+            <button className="button button-primary" disabled={busy}><Check size={16} aria-hidden="true" />{publicLanguage.t('saveAccountProfile')}</button>
+          </form> : <div className="workspace-empty workspace-loading" role="status"><span className="loading-indicator" />{publicLanguage.t('accountLoading')}</div>}
+        </section>
 
-      <section className="panel account-settings-security">
-        <div className="panel-heading"><div><span className="eyebrow">{publicLanguage.t('accountSecurity')}</span><h2>{publicLanguage.t('accountChangePassword')}</h2></div><Shield size={20} aria-hidden="true" /></div>
-        <form className="form-stack compact" onSubmit={changeAccountPassword}>
-          <label>{publicLanguage.t('accountCurrentPassword')}<span className="password-field"><input type={accountPasswordVisible ? 'text' : 'password'} autoComplete="current-password" required value={currentPassword} onChange={(event) => setCurrentPassword(event.target.value)} /><button className="password-toggle" type="button" aria-label={accountPasswordVisible ? publicLanguage.t('hidePassword') : publicLanguage.t('showPassword')} aria-pressed={accountPasswordVisible} onClick={() => setAccountPasswordVisible((visible) => !visible)}>{accountPasswordVisible ? <EyeOff size={19} aria-hidden="true" /> : <Eye size={19} aria-hidden="true" />}</button></span></label>
-          <label>{publicLanguage.t('accountNewPassword')}<span className="password-field"><input type={accountPasswordVisible ? 'text' : 'password'} autoComplete="new-password" minLength={8} required value={newAccountPassword} onChange={(event) => setNewAccountPassword(event.target.value)} /><button className="password-toggle" type="button" aria-label={accountPasswordVisible ? publicLanguage.t('hidePassword') : publicLanguage.t('showPassword')} aria-pressed={accountPasswordVisible} onClick={() => setAccountPasswordVisible((visible) => !visible)}>{accountPasswordVisible ? <EyeOff size={19} aria-hidden="true" /> : <Eye size={19} aria-hidden="true" />}</button></span></label>
-          <label>{publicLanguage.t('accountConfirmPassword')}<span className="password-field"><input type={accountPasswordVisible ? 'text' : 'password'} autoComplete="new-password" minLength={8} required value={confirmAccountPassword} onChange={(event) => setConfirmAccountPassword(event.target.value)} /><button className="password-toggle" type="button" aria-label={accountPasswordVisible ? publicLanguage.t('hidePassword') : publicLanguage.t('showPassword')} aria-pressed={accountPasswordVisible} onClick={() => setAccountPasswordVisible((visible) => !visible)}>{accountPasswordVisible ? <EyeOff size={19} aria-hidden="true" /> : <Eye size={19} aria-hidden="true" />}</button></span></label>
-          <button className="button button-primary" disabled={busy}>{publicLanguage.t('accountChangePassword')}<ArrowRight size={16} aria-hidden="true" /></button>
-        </form>
+        <section className="panel account-settings-preferences">
+          <div className="panel-heading"><div><span className="eyebrow">{publicLanguage.t('accountLanguage')}</span><h2>{publicLanguage.t('languageLabel')}</h2></div></div>
+          <div className="account-settings-quick-actions">
+            <div className="language-setting"><span>{publicLanguage.t('accountLanguage')}</span><div className="public-language-switch" role="group" aria-label={publicLanguage.t('languageLabel')}>
+              <button type="button" aria-label={publicLanguage.t('languageKinyarwanda')} aria-pressed={publicLanguage.language === 'rw'} onClick={() => publicLanguage.setLanguage('rw')}>RW</button>
+              <button type="button" aria-label={publicLanguage.t('languageEnglish')} aria-pressed={publicLanguage.language === 'en'} onClick={() => publicLanguage.setLanguage('en')}>EN</button>
+            </div></div>
+          </div>
+        </section>
+
+        <section className="panel account-settings-security">
+          <div className="panel-heading"><div><span className="eyebrow">{publicLanguage.t('accountSecurity')}</span><h2>{publicLanguage.t('accountChangePassword')}</h2></div><Shield size={20} aria-hidden="true" /></div>
+          <form className="form-stack compact" onSubmit={changeAccountPassword}>
+            <label>{publicLanguage.t('accountCurrentPassword')}<span className="password-field"><input type={accountPasswordVisible ? 'text' : 'password'} autoComplete="current-password" required value={currentPassword} onChange={(event) => setCurrentPassword(event.target.value)} /><button className="password-toggle" type="button" aria-label={accountPasswordVisible ? publicLanguage.t('hidePassword') : publicLanguage.t('showPassword')} aria-pressed={accountPasswordVisible} onClick={() => setAccountPasswordVisible((visible) => !visible)}>{accountPasswordVisible ? <EyeOff size={19} aria-hidden="true" /> : <Eye size={19} aria-hidden="true" />}</button></span></label>
+            <label>{publicLanguage.t('accountNewPassword')}<span className="password-field"><input type={accountPasswordVisible ? 'text' : 'password'} autoComplete="new-password" minLength={8} required value={newAccountPassword} onChange={(event) => setNewAccountPassword(event.target.value)} /><button className="password-toggle" type="button" aria-label={accountPasswordVisible ? publicLanguage.t('hidePassword') : publicLanguage.t('showPassword')} aria-pressed={accountPasswordVisible} onClick={() => setAccountPasswordVisible((visible) => !visible)}>{accountPasswordVisible ? <EyeOff size={19} aria-hidden="true" /> : <Eye size={19} aria-hidden="true" />}</button></span></label>
+            <label>{publicLanguage.t('accountConfirmPassword')}<span className="password-field"><input type={accountPasswordVisible ? 'text' : 'password'} autoComplete="new-password" minLength={8} required value={confirmAccountPassword} onChange={(event) => setConfirmAccountPassword(event.target.value)} /><button className="password-toggle" type="button" aria-label={accountPasswordVisible ? publicLanguage.t('hidePassword') : publicLanguage.t('showPassword')} aria-pressed={accountPasswordVisible} onClick={() => setAccountPasswordVisible((visible) => !visible)}>{accountPasswordVisible ? <EyeOff size={19} aria-hidden="true" /> : <Eye size={19} aria-hidden="true" />}</button></span></label>
+            <button className="button button-primary" disabled={busy}>{publicLanguage.t('accountChangePassword')}<ArrowRight size={16} aria-hidden="true" /></button>
+          </form>
+        </section>
       </section>
-    </div>
-  );
+      <section className="account-settings-panel" id="account-settings-panel-management" role="tabpanel" aria-labelledby="account-settings-tab-management" tabIndex={0} hidden={accountSettingsTab !== 'management'}>
+        <section className="panel account-settings-overview">
+          <div className="panel-heading"><div><span className="eyebrow">{publicLanguage.t('accountManagement')}</span><h2>{publicLanguage.t('accountSettings')}</h2></div><Building2 size={20} aria-hidden="true" /></div>
+          {accountProfile ? <div className="account-settings-summary">
+            <div><span>{publicLanguage.t('accountTypeLabel')}</span><strong>{accountProfile.accountType === 'COLLECTION_CENTER' ? publicLanguage.t('collectionCenter') : accountProfile.role === 'super_admin' ? publicLanguage.t('platformAdmin') : publicLanguage.t('collector')}</strong></div>
+            <div><span>{publicLanguage.t('accountStatusLabel')}</span><strong className={`status-text status-${accountProfile.accountStatus}`}>{publicLanguage.t(accountStatusCopy[accountProfile.accountStatus as keyof typeof accountStatusCopy] || 'statusNone')}</strong></div>
+            <div><span>{publicLanguage.t('emailVerificationStatus')}</span><strong>{accountProfile.emailVerified ? publicLanguage.t('emailVerifiedValue') : publicLanguage.t('emailNotVerifiedValue')}</strong></div>
+            {billing?.subscription ? <div><span>{publicLanguage.t('navSubscription')}</span><strong>{billing.subscription.effective_status || billing.subscription.status}</strong></div> : null}
+          </div> : <div className="workspace-empty workspace-loading" role="status"><span className="loading-indicator" />{publicLanguage.t('accountLoading')}</div>}
+        </section>
+
+        {isCollector ? <section className="panel panel-wide">
+          <div className="panel-heading"><div><span className="eyebrow">{publicLanguage.t('dashboardAccounting')}</span><h2>{publicLanguage.t('collectorPriceTitle')}</h2></div><CircleDollarSign size={20} aria-hidden="true" /></div>
+          <p className="muted-note">{publicLanguage.t('collectorPriceSubtitle')}</p>
+          <form className="toolbar" onSubmit={saveCollectorPrice}>
+            <label>{publicLanguage.t('collectorPriceLabel')}<input type="number" min="0.01" step="0.01" required value={collectorPriceForm.pricePerLiter} onChange={(event) => setCollectorPriceForm({ ...collectorPriceForm, pricePerLiter: event.target.value })} /></label>
+            <label>{publicLanguage.t('collectorPriceDate')}<input type="date" required value={collectorPriceForm.effectiveDate} onChange={(event) => setCollectorPriceForm({ ...collectorPriceForm, effectiveDate: event.target.value })} /></label>
+            <button className="button button-primary" disabled={busy}>{publicLanguage.t('collectorPriceSave')}</button>
+          </form>
+          {collectorPrices.length ? <ul className="notice-list">{collectorPrices.map((price) => <li className="notice-row" key={price.id}><b>{String(price.effectiveDate).slice(0, 10)}</b><span>{money(price.pricePerLiter)} RWF/L</span></li>)}</ul> : <p className="muted-note">{publicLanguage.t('collectorPriceEmpty')}</p>}
+        </section> : null}
+        {isCollector ? renderCenters() : null}
+        {!isAdmin ? renderBilling() : null}
+      </section>
+    </div>;
+  };
 
   const renderBilling = () => {
     const isCollectionCenterAccount = billing?.account?.accountType === 'COLLECTION_CENTER';

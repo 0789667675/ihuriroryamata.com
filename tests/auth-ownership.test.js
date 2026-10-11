@@ -70,6 +70,18 @@ test('registration recognizes the configured authoritative Super Admin email', a
   }
 });
 
+test('registration validation and duplicate errors retain safe client statuses', async () => {
+  await assert.rejects(
+    () => registerUser({ repository, email: 'not-an-email', password: 'StrongPass123!' }),
+    (error) => error.statusCode === 400 && error.message === 'A valid email is required.'
+  );
+  await registerUser({ repository, name: 'Milk User', email: 'milk@example.com', password: 'StrongPass123!' });
+  await assert.rejects(
+    () => registerUser({ repository, name: 'Milk User', email: 'milk@example.com', password: 'StrongPass123!' }),
+    (error) => error.statusCode === 400 && error.message === 'User already exists.'
+  );
+});
+
 test('registration persistence creates the 15-day trial in the same transaction connection', async () => {
   const statements = [];
   const client = {

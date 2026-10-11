@@ -58,11 +58,11 @@ test('Collection Center Abacunda uses owner-scoped farmer management without Col
   }
 });
 
-test('Dairy navigation excludes Settings and Dairy Amata is read-only Abacunda aggregation', () => {
+test('Dairy navigation includes Settings and Dairy Amata is read-only Abacunda aggregation', () => {
   const dairyTabs = workspace.slice(workspace.indexOf('const dairyTabs'), workspace.indexOf('const navigationCopy'));
   const milkEntry = workspace.slice(workspace.indexOf('const renderMilk'), workspace.indexOf('const renderOwnerIfishi'));
 
-  assert.doesNotMatch(dairyTabs, /id: 'settings'/);
+  assert.match(dairyTabs, /id: 'settings'/);
   assert.match(milkEntry, /isCollector \? volumeInput\(row, 'morning'\) : liters\(row\.volumeMorning\)/);
   assert.match(milkEntry, /row\.presentCount \|\| 0/);
   assert.match(milkEntry, /\$\{dailySummary\.presentCount\} milk entries · \$\{dailySummary\.totalFarmers\} Abacunda/);
@@ -202,11 +202,19 @@ test('Collector Settings exposes only owned collection sites while Dairy has no 
   const centers = workspace.slice(workspace.indexOf('const renderCenters'), workspace.indexOf('const renderMilk'));
 
   assert.match(collectorTabs, /id: 'settings'/);
+  assert.match(settings, /role="tablist"/);
+  assert.match(settings, /publicLanguage\.t\('myAccount'\)/);
+  assert.match(settings, /publicLanguage\.t\('accountManagement'\)/);
+  assert.match(settings, /role="tabpanel"/);
+  assert.match(settings, /event\.key === 'ArrowRight'/);
+  assert.match(settings, /event\.key === 'Home'/);
   assert.match(settings, /isCollector \? renderCenters\(\) : null/);
+  assert.match(settings, /!isAdmin \? renderBilling\(\) : null/);
   assert.match(centers, /centers\.filter\(\(center\) => Number\(center\.owner_user_id\) === Number\(user\?\.id\)\)/);
   assert.match(workspace, /collectorOwnedCenters\.map\(\(center\)/);
   assert.match(workspace, /collectorOwnedCenters\.find\(\(center\)/);
-  assert.doesNotMatch(workspace.slice(workspace.indexOf('const dairyTabs'), workspace.indexOf('const navigationCopy')), /id: 'settings'|id: 'centers'/);
+  assert.doesNotMatch(workspace.slice(workspace.indexOf('const dairyTabs'), workspace.indexOf('const navigationCopy')), /id: 'centers'/);
+  assert.match(workspace.slice(workspace.indexOf('const dairyTabs'), workspace.indexOf('const navigationCopy')), /id: 'settings'/);
 });
 
 test('Super Admin subscriptions editor saves only five controlled Collector tier prices', () => {

@@ -6,6 +6,7 @@ const path = require('node:path');
 const OwnerIfishi = require('../lib/services/owner-ifishi-service.js');
 const CollectorMilkRepository = require('../lib/repositories/collectorMilkRepository.js');
 const ReportRepository = require('../lib/repositories/reportRepository.js');
+const { requireActiveSubscription } = require('../lib/security/subscription-access.js');
 
 const ownerUserId = 42;
 const fixedNow = new Date('2026-10-06T12:00:00.000Z');
@@ -134,6 +135,21 @@ test('Owner Ifishi rejects an entry without an effective price before writing', 
   assert.equal(repository.saved.length, 0);
 });
 
+test('Owner Ifishi rejects invalid dates and volumes before reading prices or writing', async () => {
+  let priceReads = 0;
+  let writes = 0;
+  const repository = {
+    getPriceAtDate: async () => { priceReads += 1; return { pricePerLiter: 400 }; },
+    createOwnerEntry: async () => { writes += 1; return {}; },
+  };
+
+  await assert.rejects(() => OwnerIfishi.createEntry({ ownerUserId, date: '2026-02-30', volumeLiters: 10, repository, now: fixedNow }), /valid date/i);
+  await assert.rejects(() => OwnerIfishi.createEntry({ ownerUserId, date: '2026-10-02', volumeLiters: 0, repository, now: fixedNow }), /greater than zero/i);
+  await assert.rejects(() => OwnerIfishi.createEntry({ ownerUserId, date: '2026-10-11', volumeLiters: 10, repository, now: fixedNow }), /future/i);
+  assert.equal(priceReads, 0);
+  assert.equal(writes, 0);
+});
+
 test('Owner Ifishi returns the committed record without a post-save history read', async () => {
   const repository = inMemoryRepository();
   repository.getOwnerIfishiHistory = async () => { throw new Error('history query unavailable'); };
@@ -197,6 +213,7 @@ test('Owner Ifishi repository writes milk_records with owner scope and audit his
   assert.equal(result.id, 801);
   assert.match(insert.text, /farmer_id, owner_user_id/);
   assert.match(insert.text, /is_owner_milk/);
+  assert.match(insert.text, /\$6::numeric \* \$7::numeric/);
   assert.equal(insert.values[0], ownerUserId);
   assert.equal(insert.values[5], 25);
   assert.match(audit.text, /VALUES \('milk_record'/);
@@ -235,6 +252,19 @@ test('Owner Ifishi cross-owner history is empty under the requested authenticate
   assert.equal(scopedOwner, 99);
   assert.deepEqual(history.entries, []);
   assert.deepEqual(history.totals, { originalVolumeLiters: 0, ownerVolumeLiters: 0, lostVolumeLiters: 0, ownerMilkGross: 0, assignedFarmerLiters: 0, surplusLiters: 0, ownerMilkValueComplete: true });
+});
+
+test('Owner Ifishi returns a valid empty history when the owner has no milk records in range', async () => {
+  const history = await OwnerIfishi.getHistory({
+    ownerUserId,
+    startDate: '2026-10-01',
+    endDate: '2026-10-15',
+    repository: { getOwnerIfishiHistory: async () => [] },
+  });
+
+  assert.deepEqual(history.entries, []);
+  assert.equal(history.totals.ownerMilkGross, 0);
+  assert.equal(history.totals.ownerMilkValueComplete, true);
 });
 
 test('Owner Ifishi correction SQL rejects cross-owner record IDs and audits legitimate corrections', async () => {
@@ -281,6 +311,7 @@ test('Owner Ifishi legitimate correction updates milk_records and records the ac
 
   assert.equal(result.volumeLiters, 31);
   assert.match(update.text, /WHERE id = \$7 AND owner_user_id = \$8 AND is_owner_milk = TRUE/);
+  assert.match(update.text, /\$5::numeric \* \$6::numeric/);
   assert.equal(update.values[4], 31);
   assert.equal(audit.values[1], 'owner_ifishi_corrected');
   assert.equal(audit.values[3], ownerUserId);
@@ -319,6 +350,7 @@ test('Owner Ifishi API derives owner scope from authentication and keeps financi
   const ownerScreen = workspace.slice(workspace.indexOf('const renderOwnerIfishi'), workspace.indexOf('const renderIfishi ='));
   assert.match(ownerScreen, /ownerIfishiLoading/);
   assert.match(ownerScreen, /ownerIfishiError/);
+  assert.match(workspace, /loadOwnerIfishiHistory\(\)\.catch\(\(\) => undefined\)/);
   assert.match(ownerScreen, /ownerIfishiEmpty/);
   assert.match(ownerScreen, /type="date"/);
   assert.match(ownerScreen, /owner-ifishi-mobile-list/);
@@ -328,6 +360,25 @@ test('Owner Ifishi API derives owner scope from authentication and keeps financi
   assert.match(ownerScreen, /ownerIfishiReport\.collectorFarmerDeductions/);
   assert.match(styles, /\.owner-ifishi-desktop-list \{ display: none; \}/);
   assert.match(styles, /\.owner-ifishi-mobile-list \{ display: grid;/);
+});
+
+test('Owner Ifishi subscription guard reads the exported subscription repository and blocks only expired customers', async () => {
+  const calls = [];
+  const repository = {
+    getSubscription: async (userId) => {
+      calls.push(userId);
+      return { effective_status: userId === ownerUserId ? 'trial' : 'expired' };
+    },
+  };
+
+  await requireActiveSubscription({ id: ownerUserId, role: 'user' }, repository);
+  assert.deepEqual(calls, [ownerUserId]);
+  await assert.rejects(
+    () => requireActiveSubscription({ id: ownerUserId + 1, role: 'user' }, repository),
+    (error) => error.statusCode === 403 && error.code === 'SUBSCRIPTION_EXPIRED'
+  );
+  await requireActiveSubscription({ id: ownerUserId + 1, role: 'super_admin' }, repository);
+  assert.deepEqual(calls, [ownerUserId, ownerUserId + 1]);
 });
 
 test('Owner Ifishi resolves half-month history dates on the server', async () => {

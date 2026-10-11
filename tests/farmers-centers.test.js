@@ -1,5 +1,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const path = require('node:path');
 
 const Farmers = require('../lib/services/farmer-service.js');
 const Centers = require('../lib/services/collection-center-service.js');
@@ -364,6 +366,12 @@ test('center create and update carry only authenticated owner identity', async (
   assert.equal(calls[0].input.transportRatePerLiter, 20);
   assert.equal(calls[1].ownerUserId, 42);
   assert.deepEqual(calls[1].input, { eveningEnd: '19:30:00', transportRatePerLiter: 25, name: 'North Annex' });
+});
+
+test('collection center update route imports and enforces the active subscription guard', () => {
+  const route = fs.readFileSync(path.join(__dirname, '../app/api/collection-centers/[id]/route.js'), 'utf8');
+  assert.match(route, /require\(['"]@\/lib\/security\/subscription-access\.js['"]\)/);
+  assert.match(route, /await requireActiveSubscription\(user\)/);
 });
 
 test('collection-site create and edit persist settings and audit using owner-scoped transactions', async () => {

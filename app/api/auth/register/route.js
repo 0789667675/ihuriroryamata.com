@@ -29,10 +29,12 @@ export async function POST(request) {
       verificationRequired: true,
     }, { status: 201 });
   } catch (error) {
+    const statusCode = error.statusCode || (error.code === 'DATABASE_NOT_CONFIGURED' || error.code === 'SESSION_SECRET_NOT_CONFIGURED' || error.code === 'EMAIL_DELIVERY_UNAVAILABLE' ? 503 : 500);
+    const isClientError = statusCode >= 400 && statusCode < 500;
     return NextResponse.json({
       ok: false,
-      message: error.message,
-      ...(error.code ? { code: error.code } : {}),
-    }, { status: error.statusCode || (error.code === 'DATABASE_NOT_CONFIGURED' || error.code === 'SESSION_SECRET_NOT_CONFIGURED' ? 503 : 400) });
+      message: isClientError ? error.message : 'Unable to register account.',
+      ...(isClientError && error.code ? { code: error.code } : {}),
+    }, { status: statusCode });
   }
 }

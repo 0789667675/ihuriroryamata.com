@@ -170,14 +170,60 @@ test('collector report reconciles historical milk, farmer payable, transport, de
   assert.equal(summary.ownerGeneratedGross, 36000);
   assert.equal(summary.ownerGeneratedVolume, 90);
   assert.equal(summary.totalRevenueMonth, 36000);
-  assert.equal(summary.totalDeductionsMonth, 34000);
+  assert.equal(summary.totalDeductionsMonth, 1500);
   assert.equal(summary.netRevenueMonth, 6000);
   assert.equal(summary.ownerSettlementRow.name, 'Collector A');
   assert.equal(summary.ownerSettlementRow.totalVolume, 90);
   assert.equal(summary.ownerSettlementRow.grossAmount, 36000);
-  assert.equal(summary.ownerSettlementRow.totalDeductions, 34000);
+  assert.equal(summary.ownerSettlementRow.totalDeductions, 1500);
+  assert.equal(summary.ownerSettlementRow.farmerPayable, 34000);
   assert.equal(summary.ownerSettlementRow.netAmount, 6000);
   assert.equal(summary.ownerSettlementRow.isOwner, true);
+});
+
+test('Ukwezi owner settlement calculates 69L at its saved 400 RWF price before farmer payable', async () => {
+  const ownerEntry = {
+    ...collectorEntry,
+    date: '2026-10-01',
+    volumeLiters: 50,
+    effectiveVolumeLiters: 50,
+    validVolumeLiters: 50,
+    farmerLostLiters: 0,
+    pricePerLiter: 400,
+  };
+  const farmer = {
+    ...farmerRows[0],
+    farmerId: 7,
+    totalVolume: 19,
+    grossAmount: 7600,
+    totalTransport: 0,
+    totalDeductions: 0,
+    otherDeductions: 0,
+    transportIsComplete: true,
+    netAmount: 7600,
+  };
+  const summary = await Reports.getSummary({
+    ownerUserId: 42,
+    query: { periodType: 'first-half', month: '10', year: '2026' },
+    now: new Date('2026-10-10T12:00:00.000Z'),
+    repository: {
+      ...reportRepository({ entries: [ownerEntry] }),
+      getPeriodTotals: async () => ({ totalVolume: 19, totalAmount: 7600 }),
+      getFarmerTotals: async () => [farmer],
+      getCollectorEntries: async () => [ownerEntry],
+      getFarmerValidLitersByDate: async () => new Map([['2026-10-02', 19]]),
+      getFarmerValidTotalsByDate: async () => new Map([['2026-10-02', { validLiters: 19, grossAmount: 7600, originalLiters: 19, lostLiters: 0 }]]),
+    },
+  });
+
+  assert.equal(summary.ownerSettlementRow.totalVolume, 69);
+  assert.equal(summary.ownerSettlementRow.pricePerLiter, 400);
+  assert.equal(summary.ownerSettlementRow.grossAmount, 27600);
+  assert.equal(summary.ownerSettlementRow.totalDeductions, 0);
+  assert.equal(summary.ownerSettlementRow.farmerPayable, 7600);
+  assert.equal(summary.ownerSettlementRow.netAmount, 20000);
+  assert.equal(summary.collectorFarmerTransport, 0);
+  assert.equal(summary.collectorIsReconciled, true);
 });
 
 test('Collector settlement stays unavailable when historical transport snapshots are missing', async () => {
@@ -199,6 +245,7 @@ test('Collector settlement stays unavailable when historical transport snapshots
   assert.equal(summary.farmerPayments[0].totalTransport, null);
   assert.equal(summary.farmerPayments[0].netAmount, null);
   assert.equal(summary.collectorFarmerTransport, null);
+  assert.equal(summary.ownerSettlementRow.totalTransport, null);
   assert.equal(summary.collectorPayable, null);
   assert.equal(summary.collectorIsReconciled, null);
   assert.equal(summary.collectorTransportIsComplete, false);

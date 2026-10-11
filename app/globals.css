@@ -210,10 +210,14 @@ img, svg { max-width: 100%; }
 .welcome-footer p { margin: 0; }
 .welcome-contact { display: grid; justify-items: end; gap: 2px; }
 .welcome-contact a { color: var(--blue-pressed); font-weight: 600; }
-.account-settings-view { display: grid; grid-template-columns: minmax(0, 1.2fr) minmax(280px, .8fr); gap: 16px; align-items: start; }
-.account-settings-view > .account-settings-subscription { grid-column: 1 / -1; }
+.account-settings-view { display: grid; grid-template-columns: minmax(0, 1fr); gap: 16px; align-items: start; }
+.account-settings-tabs { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 4px; width: min(100%, 540px); padding: 4px; border: 1px solid var(--blue-line); border-radius: var(--radius-md); background: var(--blue-pale); }
+.account-settings-tab { min-width: 0; min-height: 48px; display: inline-flex; align-items: center; justify-content: center; gap: 8px; padding: 7px 8px; border: 1px solid transparent; border-radius: var(--radius-sm); background: transparent; color: var(--muted-strong); font: inherit; font-weight: 600; line-height: 1.25; text-align: center; cursor: pointer; }
+.account-settings-tab[aria-selected="true"] { border-color: var(--blue-line); background: var(--surface); color: var(--blue-pressed); }
+.account-settings-tab:focus-visible, .account-settings-panel:focus-visible { outline: 2px solid var(--blue-pressed); outline-offset: 2px; }
+.account-settings-panel { display: grid; gap: 16px; min-width: 0; }
+.account-settings-panel[hidden] { display: none; }
 .account-settings-overview, .account-settings-profile, .account-settings-security { min-width: 0; }
-.account-settings-profile { grid-column: 1 / -1; }
 .account-settings-summary { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); border: 1px solid var(--blue-line); border-radius: var(--radius-md); background: var(--blue-pale); }
 .account-settings-summary > div { min-width: 0; min-height: 66px; display: grid; align-content: center; gap: 3px; padding: 10px 12px; border-right: 1px solid var(--blue-line); border-bottom: 1px solid var(--blue-line); }
 .account-settings-summary > div:nth-child(4n) { border-right: 0; }
@@ -604,7 +608,6 @@ code { max-width: 420px; display: block; overflow: hidden; text-overflow: ellips
   .auth-rule { display: none; }
   .auth-panel { width: 100%; padding: 31px 24px 38px; }
   .account-settings-view { grid-template-columns: minmax(0, 1fr); }
-  .account-settings-profile { grid-column: 1; }
   .account-settings-summary { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .account-settings-summary > div:nth-child(2n) { border-right: 0; }
   .account-settings-summary > div:nth-child(-n+2) { border-bottom: 1px solid var(--blue-line); }

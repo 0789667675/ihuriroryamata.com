@@ -1,10 +1,21 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const path = require('node:path');
 
 const Milk = require('../lib/services/milk-service.js');
 const MilkAdjustment = require('../lib/services/milk-adjustment-service.js');
 const MilkRepository = require('../lib/repositories/milkRepository.js');
 const { buildIfishiVolumeRows } = require('../lib/utils/ifishi-ledger.js');
+
+test('daily milk API keeps database diagnostics out of client responses', () => {
+  const route = fs.readFileSync(path.join(__dirname, '..', 'app', 'api', 'milk', 'daily', 'route.js'), 'utf8');
+
+  assert.match(route, /Failed to load daily collection\.'/);
+  assert.match(route, /console\.error\('\[milk\/daily\] Failed to load daily collection\.'/);
+  assert.doesNotMatch(route, /Database error:|\.\.\.\(error\.code \?/);
+  assert.doesNotMatch(route, /NextResponse\.json\(\{ message, \?\.\.\.\(error\.code/);
+});
 
 const ownerUserId = 42;
 const farmer = {
