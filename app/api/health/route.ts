@@ -5,7 +5,7 @@ import { getSupabaseStatus } from '@/lib/supabase';
 
 const REQUIRED_MIGRATIONS = [
   '001', '002', '003', '004', '005', '006', '007',
-  '008', '009', '010', '011', '012', '013',
+  '008', '009', '010', '011', '012', '013', '014',
 ];
 
 export async function GET() {

@@ -160,6 +160,29 @@ test('loginUser authenticates valid credentials and returns session user data', 
   assert.equal(result.user.role, 'user');
 });
 
+test('login promotes the configured Super Admin email even when its stored role is stale', async () => {
+  const previousEmail = process.env.SUPER_ADMIN_EMAIL;
+  process.env.SUPER_ADMIN_EMAIL = 'configured-admin@example.com';
+  try {
+    const storedUser = await registerUser({
+      repository,
+      name: 'Configured Admin',
+      email: 'configured-admin@example.com',
+      password: 'StrongPass123!',
+    });
+    storedUser.role = 'user';
+
+    const session = makeSession();
+    const result = await loginUser({ repository, email: 'CONFIGURED-ADMIN@example.com', password: 'StrongPass123!', session });
+
+    assert.equal(result.user.role, 'super_admin');
+    assert.equal(session.user.role, 'super_admin');
+  } finally {
+    if (previousEmail === undefined) delete process.env.SUPER_ADMIN_EMAIL;
+    else process.env.SUPER_ADMIN_EMAIL = previousEmail;
+  }
+});
+
 test('loginUser rejects invalid credentials before creating a session', async () => {
   await registerUser({ repository, name: 'Milk User', email: 'milk@example.com', password: 'StrongPass123!' });
 
