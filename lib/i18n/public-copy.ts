@@ -57,7 +57,7 @@ export const publicCopy = {
     registrationVerificationSuccess: 'Imeyili yawe yemejwe neza. Konti yawe iriteguye gukoresha.',
     registrationVerificationInvalid: 'Iyi link yo kwemeza imeyili ntiyemewe cyangwa igihe cyayo cyarangiye.',
 
-    initialAccessDisclosure: 'Iminsi {days} yo gukoresha sisitemu itangira konti imaze kwemezwa; ubwishyu bwa mbere buteganyijwe mbere y’uko igihe kirangiye.',
+    initialAccessDisclosure: 'Iminsi {days} yo gukoresha sisitemu itangira konti ikozwe; ubwishyu bwa mbere buteganyijwe mbere y’uko igihe kirangiye.',
     accountOpenBilling: 'Fungura amakuru yo kwishyura',
     accountLanguage: 'Ururimi',
     accountLoading: 'Birimo gufungura amakuru ya konti…',
@@ -599,7 +599,7 @@ export const publicCopy = {
     registrationVerificationTitle: 'Verify your email',
     registrationVerificationSuccess: 'Your email has been verified successfully. Your account is ready to use.',
     registrationVerificationInvalid: 'This email verification link is invalid or has expired.',
-    initialAccessDisclosure: 'The initial access period is {days} days from account activation after email verification. Payment is due before the configured deadline.',
+    initialAccessDisclosure: 'The initial access period is {days} days from account creation. Payment is due before the configured deadline.',
     accountOpenBilling: 'Open billing details',
     accountLanguage: 'Language',
     accountLoading: 'Loading account details…',

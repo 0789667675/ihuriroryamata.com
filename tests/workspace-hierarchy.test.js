@@ -284,8 +284,19 @@ test('Login and Register use the existing visible brand lockup', () => {
   assert.match(login, /<BrandLockup className="auth-brand-lockup" imageSize=\{72\} \/>/);
   assert.match(styles, /\.auth-brand-lockup \.brand-lockup-image \{ width: 72px; height: 72px; \}/);
   assert.match(styles, /\.auth-brand-lockup \.brand-lockup-image \{ width: 52px; height: 52px; \}/);
-  assert.match(login, /registering \? t\('createTitle'\) : t\('loginTitle'\)/);
-  assert.match(login, /registering \? t\('registerDescription'\) : t\('loginDescription'\)/);
+  assert.match(login, /forgotPassword \? t\('forgotTitle'\) : registering \? t\('createTitle'\) : t\('loginTitle'\)/);
+  assert.match(login, /forgotPassword \? t\('forgotDescription'\) : registering \? t\('registerDescription'\) : t\('loginDescription'\)/);
+});
+
+test('Forgot Password link opens the route-specific reset flow using existing APIs', () => {
+  const login = workspace.slice(workspace.indexOf('function Login'), workspace.indexOf('export default function Workspace'));
+  const forgotPage = fs.readFileSync(path.join(__dirname, '..', 'app', '(auth)', 'forgot-password', 'page.tsx'), 'utf8');
+  assert.match(login, /const forgotPassword = pathname === '\/forgot-password'/);
+  assert.match(login, /<Link className="auth-forgot-link" href="\/forgot-password">/);
+  assert.match(login, /api\('\/api\/auth\/password-reset\/request'/);
+  assert.match(login, /api\('\/api\/auth\/password-reset\/verify'/);
+  assert.match(login, /api\('\/api\/auth\/password-reset'/);
+  assert.match(forgotPage, /return <Workspace \/>/);
 });
 
 test('Ifishi has no PDF controls while Ukwezi retains its checked PDF download', () => {

@@ -121,6 +121,7 @@ type PublicLanguageState = ReturnType<typeof usePublicLanguage>;
 function Login({ onLogin, language, setLanguage, t }: { onLogin: (user: User) => void } & PublicLanguageState) {
   const pathname = usePathname();
   const searchParams = useSearchParams();
+  const forgotPassword = pathname === '/forgot-password';
   const registering = pathname === '/register' || searchParams?.get('mode') === 'register';
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -131,6 +132,11 @@ function Login({ onLogin, language, setLanguage, t }: { onLogin: (user: User) =>
   const [registrationAccessDays, setRegistrationAccessDays] = useState(15);
   const [registrationPlansLoading, setRegistrationPlansLoading] = useState(false);
   const [selectedPlanCode, setSelectedPlanCode] = useState('');
+  const [resetStep, setResetStep] = useState<'request' | 'verify' | 'password' | 'complete'>('request');
+  const [resetCode, setResetCode] = useState('');
+  const [newPassword, setNewPassword] = useState('');
+  const [confirmNewPassword, setConfirmNewPassword] = useState('');
+  const [resetMessage, setResetMessage] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
 
@@ -150,6 +156,60 @@ function Login({ onLogin, language, setLanguage, t }: { onLogin: (user: User) =>
     });
     return () => { mounted = false; };
   }, [registering, accountType]);
+
+  const requestResetCode = async () => {
+    setBusy(true);
+    setError('');
+    setResetMessage('');
+    try {
+      await api('/api/auth/password-reset/request', json('POST', { email, language }));
+      setResetStep('verify');
+      setResetMessage(t('resetEmailInstructions'));
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : t('resetUnavailable'));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const submitResetRequest = (event: React.FormEvent) => {
+    event.preventDefault();
+    void requestResetCode();
+  };
+
+  const submitResetCode = async (event: React.FormEvent) => {
+    event.preventDefault();
+    setBusy(true);
+    setError('');
+    setResetMessage('');
+    try {
+      await api('/api/auth/password-reset/verify', json('POST', { email, code: resetCode }));
+      setResetStep('password');
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : t('resetCodeInvalid'));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const submitNewPassword = async (event: React.FormEvent) => {
+    event.preventDefault();
+    if (newPassword !== confirmNewPassword) {
+      setError(t('passwordMismatch'));
+      return;
+    }
+    setBusy(true);
+    setError('');
+    setResetMessage('');
+    try {
+      await api('/api/auth/password-reset', json('POST', { password: newPassword }));
+      setResetStep('complete');
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : t('resetUnavailable'));
+    } finally {
+      setBusy(false);
+    }
+  };
 
   const submit = async (event: React.FormEvent) => {
     event.preventDefault();
@@ -172,9 +232,9 @@ function Login({ onLogin, language, setLanguage, t }: { onLogin: (user: User) =>
     <main className="auth-layout">
       <section className="auth-brand">
         <BrandLockup className="auth-brand-lockup" imageSize={72} />
-        <p className="eyebrow">{t('loginEyebrow')}</p>
-        <h1>{registering ? t('createTitle') : t('loginTitle')}</h1>
-        <p className="auth-subtitle">{registering ? t('registerDescription') : t('loginDescription')}</p>
+        <p className="eyebrow">{forgotPassword ? t('forgotEyebrow') : t('loginEyebrow')}</p>
+        <h1>{forgotPassword ? t('forgotTitle') : registering ? t('createTitle') : t('loginTitle')}</h1>
+        <p className="auth-subtitle">{forgotPassword ? t('forgotDescription') : registering ? t('registerDescription') : t('loginDescription')}</p>
       </section>
       <section className="auth-panel">
         <div className="auth-panel-topbar">
@@ -185,9 +245,31 @@ function Login({ onLogin, language, setLanguage, t }: { onLogin: (user: User) =>
           </div>
         </div>
         <div className="auth-heading">
-          <span className="eyebrow">{registering ? t('register') : t('login')}</span>
-          <h2>{registering ? t('createTitle') : t('loginTitle')}</h2>
+          <span className="eyebrow">{forgotPassword ? t('forgotEyebrow') : registering ? t('register') : t('login')}</span>
+          <h2>{forgotPassword ? t('forgotTitle') : registering ? t('createTitle') : t('loginTitle')}</h2>
         </div>
+        {forgotPassword ? <>
+          {resetStep === 'request' ? <form onSubmit={submitResetRequest} className="form-stack auth-reset-form">
+            <label>{t('email')}<input type="email" autoComplete="email" required value={email} onChange={(event) => setEmail(event.target.value)} disabled={busy} /></label>
+            {error ? <p className="form-error" role="alert">{error}</p> : null}
+            <button className="button button-primary button-wide" disabled={busy}>{busy ? t('wait') : t('requestResetCode')}<ArrowRight size={17} /></button>
+          </form> : null}
+          {resetStep === 'verify' ? <form onSubmit={submitResetCode} className="form-stack auth-reset-form">
+            <label>{t('email')}<input type="email" autoComplete="email" required value={email} onChange={(event) => setEmail(event.target.value)} disabled={busy} /></label>
+            <p className="auth-feedback auth-success" role="status">{resetMessage}</p>
+            <label>{t('resetCodeLabel')}<input className="auth-code-input" type="text" inputMode="numeric" autoComplete="one-time-code" pattern="[0-9]{6}" maxLength={6} required value={resetCode} onChange={(event) => setResetCode(event.target.value.replace(/\D/g, '').slice(0, 6))} disabled={busy} /></label>
+            {error ? <p className="form-error" role="alert">{error}</p> : null}
+            <div className="auth-reset-actions"><button className="button button-primary button-wide" disabled={busy || resetCode.length !== 6}>{busy ? t('wait') : t('verifyResetCode')}<ArrowRight size={17} /></button><button type="button" className="text-button" onClick={() => void requestResetCode()} disabled={busy}>{t('resendResetCode')}</button><button type="button" className="text-button" onClick={() => { setResetStep('request'); setError(''); setResetMessage(''); }} disabled={busy}>{t('backToEmail')}</button></div>
+          </form> : null}
+          {resetStep === 'password' ? <form onSubmit={submitNewPassword} className="form-stack auth-reset-form">
+            <label>{t('newPassword')}<input type="password" autoComplete="new-password" minLength={8} required value={newPassword} onChange={(event) => setNewPassword(event.target.value)} disabled={busy} /></label>
+            <label>{t('confirmPassword')}<input type="password" autoComplete="new-password" minLength={8} required value={confirmNewPassword} onChange={(event) => setConfirmNewPassword(event.target.value)} disabled={busy} /></label>
+            {error ? <p className="form-error" role="alert">{error}</p> : null}
+            <button className="button button-primary button-wide" disabled={busy}>{busy ? t('wait') : t('updatePassword')}<ArrowRight size={17} /></button>
+          </form> : null}
+          {resetStep === 'complete' ? <div className="form-stack"><strong>{t('resetSuccessTitle')}</strong><p className="auth-feedback auth-success" role="status">{t('resetSuccessDescription')}</p><Link className="button button-primary button-wide" href="/login">{t('returnToLogin')}<ArrowRight size={17} /></Link></div> : null}
+          <div className="auth-navigation"><Link className="text-button auth-switch" href="/login">{t('returnToLogin')}</Link></div>
+        </> : <>
         <form onSubmit={submit} className="form-stack">
           {registering ? <label>{t('fullName')}<input autoComplete="name" required value={name} onChange={(event) => setName(event.target.value)} /></label> : null}
           <label>{t('email')}<input type="email" autoComplete="email" required value={email} onChange={(event) => setEmail(event.target.value)} /></label>
@@ -214,6 +296,7 @@ function Login({ onLogin, language, setLanguage, t }: { onLogin: (user: User) =>
             {registering ? t('alreadyHaveAccount') : t('newToSystem')}
           </Link>
         </div>
+        </>}
       </section>
     </main>
   );

@@ -106,15 +106,14 @@ test('registration persistence creates configured initial access in the same tra
   assert.equal(result.subscription.status, 'pending');
   assert.equal(statements.length, 2);
   assert.match(statements[0].text, /email_verified\)\s+VALUES \(\$1, \$2, \$3, \$4, \$5, 'active', FALSE\)/);
-  assert.match(statements[1].text, /SELECT \$1, 'pending', NULL, NULL/);
+  assert.match(statements[1].text, /SELECT \$1, 'pending', u\.created_at/);
   assert.match(statements[1].text, /access_started_at, payment_due_at/);
   assert.deepEqual(statements[1].values, [15, 'USAGE_0_5000_MONTHLY']);
-  const userRepositorySource = fs.readFileSync(path.join(__dirname, '..', 'lib', 'repositories', 'userRepository.js'), 'utf8');
-  assert.match(userRepositorySource, /access_started_at = u\.email_verified_at/);
-  assert.match(userRepositorySource, /policy\.initial_access_days \+ policy\.grace_period_days/);
+  assert.match(statements[1].text, /u\.created_at AT TIME ZONE policy\.time_zone/);
+  assert.match(statements[1].text, /policy\.initial_access_days \+ policy\.grace_period_days/);
 });
 
-test('unverified accounts cannot sign in before email confirmation', async () => {
+test('unverified accounts can sign in without being marked email-verified', async () => {
   const unverifiedUsers = new Map();
   const unverifiedRepository = {
     findUserByEmail: async (email) => unverifiedUsers.get(String(email).toLowerCase()) || null,
@@ -126,10 +125,17 @@ test('unverified accounts cannot sign in before email confirmation', async () =>
   };
   await registerUser({ repository: unverifiedRepository, name: 'Pending User', email: 'pending@example.com', password: 'StrongPass123!' });
 
-  await assert.rejects(
-    () => loginUser({ repository: unverifiedRepository, email: 'pending@example.com', password: 'StrongPass123!' }),
-    (error) => error.code === 'EMAIL_NOT_VERIFIED' && error.statusCode === 403
-  );
+  const session = makeSession();
+  const result = await loginUser({ repository: unverifiedRepository, email: 'pending@example.com', password: 'StrongPass123!', session });
+  assert.equal(result.user.emailVerified, false);
+  assert.equal(session.userId, result.user.id);
+});
+
+test('registration does not dispatch verification email or require verification completion', () => {
+  const registrationRoute = fs.readFileSync(path.join(__dirname, '..', 'app', 'api', 'auth', 'register', 'route.js'), 'utf8');
+  assert.doesNotMatch(registrationRoute, /sendRegistrationEmailVerification/);
+  assert.match(registrationRoute, /verificationRequired: false/);
+  assert.match(registrationRoute, /registerUser\(/);
 });
 
 test('registerUser rejects duplicate email addresses', async () => {

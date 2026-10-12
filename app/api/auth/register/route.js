@@ -2,7 +2,6 @@ import { NextResponse } from 'next/server';
 
 const { registerUser } = require('@/lib/services/auth-service.js');
 const { repository } = require('@/lib/repositories/userRepository.js');
-const Accounts = require('@/lib/services/account-service.js');
 
 export const runtime = 'nodejs';
 
@@ -22,17 +21,11 @@ export async function POST(request) {
       accountType,
       selectedPlanCode,
     });
-    await Accounts.sendRegistrationEmailVerification({
-      userId: user.id,
-      baseUrl: process.env.NEXT_PUBLIC_APP_URL || process.env.FRONTEND_URL || new URL(request.url).origin,
-      language: body.language,
-    });
-
     const { passwordHash, ...publicUser } = user;
     return NextResponse.json({
       ok: true,
       user: publicUser,
-      verificationRequired: true,
+      verificationRequired: false,
     }, { status: 201 });
   } catch (error) {
     const statusCode = error.statusCode || (error.code === 'DATABASE_NOT_CONFIGURED' || error.code === 'SESSION_SECRET_NOT_CONFIGURED' || error.code === 'EMAIL_DELIVERY_UNAVAILABLE' ? 503 : 500);
