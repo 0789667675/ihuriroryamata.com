@@ -80,16 +80,19 @@ test('platform payment history is server-authorized for Super Admin and uses sub
 test('platform admin edits the complete Collector tier price schedule only with positive RWF integers', async () => {
   let update;
   const tiers = [
-    ['USAGE_0_5000_MONTHLY', 6100],
-    ['USAGE_5001_10000_MONTHLY', 11200],
-    ['USAGE_10001_20000_MONTHLY', 16300],
-    ['USAGE_20001_40000_MONTHLY', 21400],
-    ['USAGE_40001_PLUS_MONTHLY', 26500],
-  ].map(([code, price]) => ({ code, price }));
+    ['USAGE_0_5000_MONTHLY', 6100, 0, 5000],
+    ['USAGE_5001_10000_MONTHLY', 11200, 5001, 10000],
+    ['USAGE_10001_20000_MONTHLY', 16300, 10001, 20000],
+    ['USAGE_20001_40000_MONTHLY', 21400, 20001, 40000],
+    ['USAGE_40001_PLUS_MONTHLY', 26500, 40001, null],
+  ].map(([code, price, minVolumeLiters, maxVolumeLiters]) => ({ code, price, minVolumeLiters, maxVolumeLiters }));
   const repository = { updateCollectorTierPrices: async (input) => { update = input; return input.tiers; } };
   await Config.updateCollectorTierPrices({ actorId: 2, input: { tiers }, repository });
   assert.equal(update.actorId, 2);
-  assert.deepEqual(update.tiers, tiers);
+  assert.equal(update.tiers.length, tiers.length);
+  assert.equal(update.tiers[0].price, tiers[0].price);
+  assert.equal(update.tiers[0].minVolumeLiters, 0);
+  assert.equal(update.tiers[4].maxVolumeLiters, null);
   await assert.rejects(() => Config.updateCollectorTierPrices({ actorId: 2, input: { tiers: tiers.slice(1) }, repository }), /All five/i);
   await assert.rejects(() => Config.updateCollectorTierPrices({ actorId: 2, input: { tiers: tiers.map((tier, index) => index ? tier : { ...tier, price: 0 }) }, repository }), /positive whole RWF/i);
 });

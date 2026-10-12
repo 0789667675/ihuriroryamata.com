@@ -24,12 +24,12 @@ test('platform plan views are delegated to the server repository', async () => {
 test('admin tier pricing accepts the five active Collector tier codes', async () => {
   let written;
   const tiers = [
-    ['USAGE_0_5000_MONTHLY', 5000],
-    ['USAGE_5001_10000_MONTHLY', 10000],
-    ['USAGE_10001_20000_MONTHLY', 17000],
-    ['USAGE_20001_40000_MONTHLY', 20000],
-    ['USAGE_40001_PLUS_MONTHLY', 25000],
-  ].map(([code, price]) => ({ code, price }));
+    ['USAGE_0_5000_MONTHLY', 5000, 0, 5000],
+    ['USAGE_5001_10000_MONTHLY', 10000, 5001, 10000],
+    ['USAGE_10001_20000_MONTHLY', 17000, 10001, 20000],
+    ['USAGE_20001_40000_MONTHLY', 20000, 20001, 40000],
+    ['USAGE_40001_PLUS_MONTHLY', 25000, 40001, null],
+  ].map(([code, price, minVolumeLiters, maxVolumeLiters]) => ({ code, price, minVolumeLiters, maxVolumeLiters }));
 
   await Config.updateCollectorTierPrices({
     actorId: 1,
@@ -37,17 +37,20 @@ test('admin tier pricing accepts the five active Collector tier codes', async ()
     repository: { updateCollectorTierPrices: async (input) => { written = input; return input; } },
   });
 
-  assert.deepEqual(written, { actorId: 1, tiers });
+  assert.deepEqual(written, { actorId: 1, tiers: tiers.map((tier, index) => ({
+    ...tier,
+    name: ['0-5,000 L / Monthly', '5,001-10,000 L / Monthly', '10,001-20,000 L / Monthly', '20,001-40,000 L / Monthly', '40,001+ L / Monthly'][index],
+  })) });
 });
 
 test('admin tier pricing rejects non-positive or fractional RWF prices without writing', async () => {
   const tiers = [
-    ['USAGE_0_5000_MONTHLY', 5000],
-    ['USAGE_5001_10000_MONTHLY', 10000],
-    ['USAGE_10001_20000_MONTHLY', 17000],
-    ['USAGE_20001_40000_MONTHLY', 20000],
-    ['USAGE_40001_PLUS_MONTHLY', 25000],
-  ].map(([code, price]) => ({ code, price }));
+    ['USAGE_0_5000_MONTHLY', 5000, 0, 5000],
+    ['USAGE_5001_10000_MONTHLY', 10000, 5001, 10000],
+    ['USAGE_10001_20000_MONTHLY', 17000, 10001, 20000],
+    ['USAGE_20001_40000_MONTHLY', 20000, 20001, 40000],
+    ['USAGE_40001_PLUS_MONTHLY', 25000, 40001, null],
+  ].map(([code, price, minVolumeLiters, maxVolumeLiters]) => ({ code, price, minVolumeLiters, maxVolumeLiters }));
   let writes = 0;
   const repository = { updateCollectorTierPrices: async () => { writes += 1; } };
 
@@ -58,17 +61,22 @@ test('admin tier pricing rejects non-positive or fractional RWF prices without w
       repository,
     }), /positive whole RWF/i);
   }
+  await assert.rejects(() => Config.updateCollectorTierPrices({
+    actorId: 1,
+    input: { tiers: tiers.map((tier, index) => index === 1 ? { ...tier, minVolumeLiters: 5002 } : tier) },
+    repository,
+  }), /no gaps or overlaps/i);
   assert.equal(writes, 0);
 });
 
 test('Collector tier pricing rejects the protected Dairy monthly plan code', async () => {
   const tiers = [
-    ['COLLECTION_CENTER_MONTHLY', 30000],
-    ['USAGE_5001_10000_MONTHLY', 10000],
-    ['USAGE_10001_20000_MONTHLY', 17000],
-    ['USAGE_20001_40000_MONTHLY', 20000],
-    ['USAGE_40001_PLUS_MONTHLY', 25000],
-  ].map(([code, price]) => ({ code, price }));
+    ['COLLECTION_CENTER_MONTHLY', 30000, 0, 5000],
+    ['USAGE_5001_10000_MONTHLY', 10000, 5001, 10000],
+    ['USAGE_10001_20000_MONTHLY', 17000, 10001, 20000],
+    ['USAGE_20001_40000_MONTHLY', 20000, 20001, 40000],
+    ['USAGE_40001_PLUS_MONTHLY', 25000, 40001, null],
+  ].map(([code, price, minVolumeLiters, maxVolumeLiters]) => ({ code, price, minVolumeLiters, maxVolumeLiters }));
 
   await assert.rejects(() => Config.updateCollectorTierPrices({
     actorId: 1,

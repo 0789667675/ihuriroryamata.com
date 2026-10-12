@@ -234,12 +234,22 @@ test('customer payment history is owner-scoped and bounded to the newest 100 row
   assert.deepEqual(statement.values, [42, 100]);
 });
 
-test('collector billing accepts the current stored price while preserving the approved tier ranges', () => {
-  const adjustedPlans = usagePlans.map((item, index) => ({ ...item, price: 6200 + index * 1000 }));
+test('collector billing accepts editable contiguous tier ranges and current stored prices', async () => {
+  const ranges = [[0, 4500], [4501, 9000], [9001, 18000], [18001, 36000], [36001, null]];
+  const adjustedPlans = usagePlans.map((item, index) => ({
+    ...item,
+    price: 6200 + index * 1000,
+    min_volume_liters: ranges[index][0],
+    max_volume_liters: ranges[index][1],
+  }));
   const validated = Subscriptions.validatePricingTiers(adjustedPlans);
   assert.equal(validated[0].price, 6200);
   assert.equal(validated[4].price, 10200);
-  assert.equal(validated[4].max_volume_liters, null);
+  assert.equal(validated[3].max_volume_liters, 36000);
+  assert.equal(validated[4].min_volume_liters, 36001);
+  assert.equal((await Subscriptions.getTierForVolume(4500, { getActivePlans: async () => adjustedPlans })).code, usagePlans[0].code);
+  assert.equal((await Subscriptions.getTierForVolume(4501, { getActivePlans: async () => adjustedPlans })).code, usagePlans[1].code);
+  assert.throws(() => Subscriptions.validatePricingTiers(adjustedPlans.map((tier, index) => index === 1 ? { ...tier, min_volume_liters: 4502 } : tier)), /invalid volume range/i);
 });
 
 test('Collection Center customer pricing is a single server-calculated flat monthly amount', async () => {

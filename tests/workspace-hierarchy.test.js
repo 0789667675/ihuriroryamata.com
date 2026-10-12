@@ -230,25 +230,49 @@ test('Collector Settings exposes only owned collection sites while Dairy has no 
   assert.match(workspace.slice(workspace.indexOf('const dairyTabs'), workspace.indexOf('const navigationCopy')), /id: 'settings'/);
 });
 
-test('Super Admin subscriptions editor saves only five controlled Collector tier prices', () => {
-  const loader = workspace.slice(workspace.indexOf("if (tab === 'subscriptions')"), workspace.indexOf("if (tab === 'system-health')"));
+test('Super Admin pricing editor saves all five prices and volume ranges without duplicate views', () => {
+  const loader = workspace.slice(workspace.indexOf("if (tab === 'config')"), workspace.indexOf("if (tab === 'settings')"));
   const save = workspace.slice(workspace.indexOf('const saveAdminCollectorPrices'), workspace.indexOf('const saveAccountSettings'));
-  const editor = workspace.slice(workspace.indexOf('const renderAdminSubscriptions'), workspace.indexOf('const renderSystemHealth'));
+  const editor = workspace.slice(workspace.indexOf('const renderAdminCollectorPricing'), workspace.indexOf('const renderSystemHealth'));
+  const pricingView = workspace.slice(workspace.indexOf("{tab === 'config' && isAdmin"), workspace.indexOf("{tab === 'system-health' && isAdmin"));
   const plansRoute = fs.readFileSync(path.join(__dirname, '..', 'app', 'api', 'admin', 'config', 'plans', 'route.js'), 'utf8');
 
   assert.match(loader, /api<SubscriptionPlan\[]>\('\/api\/admin\/config\/plans'\)/);
   assert.match(loader, /plans\.filter\(\(plan\) => isCollectorTier\(plan\) && plan\.is_active\)/);
   assert.match(loader, /setCollectorTierEdits\(Object\.fromEntries/);
-  assert.match(editor, /collectorPlans\.map\(\(plan\)/);
-  assert.match(editor, /value=\{collectorTierEdits\[plan\.code\] \?\? String\(plan\.price\)\}/);
-  assert.match(editor, /setCollectorTierEdits\(\(current\) => \(\{ \.\.\.current, \[plan\.code\]: event\.target\.value \}\)\)/);
+  assert.match(pricingView, /renderAdminCollectorPricing\(\)/);
+  assert.doesNotMatch(pricingView, /renderAdminSubscriptions/);
+  assert.match(editor, /collectorPlans\.map\(\(plan, index\)/);
+  assert.match(editor, /minVolumeLiters/);
+  assert.match(editor, /maxVolumeLiters/);
+  assert.match(editor, /adminTierMinimum/);
+  assert.match(editor, /adminTierMaximum/);
+  assert.match(workspace, /MtnMoMoBrand/);
+  assert.match(workspace, /admin-pricing-layout/);
+  assert.match(editor, /value=\{price\}/);
   assert.match(editor, /onClick=\{\(\) => \{ void saveAdminCollectorPrices\(\); \}\}/);
   assert.match(editor, /disabled=\{busy\}/);
   assert.match(save, /for \(const code of COLLECTOR_TIER_CODES\)/);
   assert.match(save, /if \(!plan\) throw new Error/);
   assert.match(save, /Number\.isSafeInteger\(tier\.price\)/);
+  assert.match(save, /adminTierVolumeValidation/);
+  assert.match(save, /minVolumeLiters/);
+  assert.match(save, /maxVolumeLiters/);
   assert.match(save, /\/api\/admin\/config\/plans/);
   assert.match(plansRoute, /user\.role !== 'super_admin'/);
+});
+
+test('Super Admin System Health displays fetched database, migration, and API status', () => {
+  const healthView = workspace.slice(workspace.indexOf('const renderSystemHealth'), workspace.indexOf('const activeTab ='));
+  const healthLoader = workspace.slice(workspace.indexOf("if (tab === 'system-health')"), workspace.indexOf("if (tab === 'notifications-admin')"));
+
+  assert.match(healthLoader, /fetch\('\/api\/health'\)/);
+  assert.match(healthLoader, /setSystemHealth\(await response\.json\(\)\)/);
+  assert.match(healthView, /systemHealth\?\.database\.connected/);
+  assert.match(healthView, /systemHealth\?\.migrated/);
+  assert.match(healthView, /systemHealth\?\.ok/);
+  assert.doesNotMatch(healthView, />Healthy</);
+  assert.doesNotMatch(healthView, />Operational</);
 });
 
 test('Login and Register use the existing visible brand lockup', () => {
@@ -274,4 +298,8 @@ test('Ifishi has no PDF controls while Ukwezi retains its checked PDF download',
 test('registration exposes Collection Center selection only outside production', () => {
   const login = workspace.slice(workspace.indexOf('function Login'), workspace.indexOf('export default function Workspace'));
   assert.match(login, /process\.env\.NODE_ENV !== 'production' \? <option value="COLLECTION_CENTER">/);
+});
+
+test('Super Admin Alerts tab renders the notifications it loads', () => {
+  assert.match(workspace, /tab === 'notifications-admin' && isAdmin \? renderNotifications\(\) : null/);
 });
