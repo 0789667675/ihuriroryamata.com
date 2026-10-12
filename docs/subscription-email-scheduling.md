@@ -10,7 +10,7 @@
 
 The current local configuration indicates Resend is intended. Production Resend delivery requires server-side `EMAIL_PROVIDER=resend`, `RESEND_API_KEY`, and an approved `RESEND_FROM` sender. The application no longer falls back to Resend's sample sender. SMTP remains available only when explicitly selected/configured and is used by the same account and subscription email service.
 
-Existing account emails are password reset and email-change confirmation. Payment confirmation is queued transactionally with successful subscription activation. Subscription reminders and expiry notices are queued by the job below. Account approval/registration emails are not currently implemented.
+Existing account emails are password reset and email-change confirmation. Payment confirmation is queued transactionally with successful subscription activation. Subscription reminders, access-suspension notices, and usage-tier alerts use the same outbox. Account approval/registration emails are not currently implemented.
 
 ## Job Endpoint
 
@@ -22,13 +22,15 @@ Send this header from the scheduler:
 
 `Authorization: Bearer <CRON_SECRET>`
 
-Set `CRON_SECRET` in server-side deployment settings. Set `SUBSCRIPTION_REMINDER_DAYS` to the business-approved comma-separated day offsets before expiry, for example only after those offsets are approved by the product owner. It is intentionally blank by default; no reminder intervals are assumed. The job computes dates in `Africa/Kigali`, marks active/trial subscriptions expired after their end date, suppresses pre-expiry reminders while a payment is pending, and uses unique event keys to avoid duplicate reminders/expiry emails.
+Set `CRON_SECRET` in server-side deployment settings. Set `SUBSCRIPTION_REMINDER_DAYS` to the business-approved comma-separated day offsets before renewal, only after those offsets are approved by the product owner. It is intentionally blank by default; no reminder intervals are assumed. The job uses `Africa/Kigali` policy deadlines, suspends unpaid initial access at the configured instant, expires ended paid periods, suppresses pre-expiry reminders while a payment is pending, and uses unique event keys to avoid duplicate messages. Access enforcement also occurs in authenticated API requests and does not depend on this daily job running on time.
+
+Usage-tier threshold alerts are queued when server-derived valid milk volume exceeds the selected tier. Their period-and-tier keys prevent duplicate in-app notices and emails for the same threshold. Emails use the same retryable outbox and do not change the customer’s tier or initiate a payment.
 
 Successful payment settlement creates one outbox event in the same transaction as payment/subscription updates. The callback attempts delivery after commit. The scheduled job retries failed delivery with backoff. Provider failures remain pending and are audited; an API success response does not mean an email was delivered.
 
 ## Deployment Verification
 
-- Apply `supabase/migrations/009_subscription_email_outbox.sql` through the normal deployment migration process.
+- Reconcile the target migration ledger/schema, then apply `009_subscription_email_outbox.sql` if absent and `014_configurable_subscription_lifecycle.sql` through the approved migration process. Do not apply migrations based solely on repository order when the live ledger and schema disagree.
 - Configure the chosen provider and approved sender in deployment secret storage.
 - Configure the daily external scheduler and the approved reminder offsets.
 - Verify the endpoint using a secret held by the scheduler; never put the secret in source, logs, or browser code.

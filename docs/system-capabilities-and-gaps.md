@@ -38,7 +38,8 @@ The repository now builds and its automated suite passes. The LMBTech MTN MoMo p
 ### Subscription and Platform Management
 
 - Calculate Collector usage-tier pricing and Collection Center subscription pricing, track usage and subscription state, and display payment attempts.
-- Integrate MTN MoMo/LMBTech initiation, callback and status reconciliation. Customer billing supports monthly, 6-month, and yearly terms; subscription state changes only after provider status confirmation. Automated tests use mocked provider responses; no live transaction was performed.
+- Integrate MTN MoMo/LMBTech initiation, callback and status reconciliation. Customer billing is monthly; subscription state changes only after provider status confirmation. Automated tests use mocked provider responses; no live transaction was performed.
+- Configure Collector monthly volume tiers and initial-access/enforcement policy through audited Super Admin settings. Customer paid-period tier terms are snapshotted; volume-exceeded alerts do not upgrade or charge accounts automatically.
 - Provide platform account search/actions, subscription-plan management, payment configuration, and audit-log views.
 
 ### Web App Shell
@@ -56,9 +57,9 @@ The repository now builds and its automated suite passes. The LMBTech MTN MoMo p
 
 ### Operational Readiness
 
-- The repository contains migrations `001`-`013`. The configured remote database ledger reports only `001`-`006`, while read-only schema checks found objects from later migrations already present and `subscription_email_events` from `009` absent. The target environment (staging vs production) is not identified. Reconcile ledger and schema before applying any migration.
+- The repository contains migrations `001`-`014`. The documented configured remote database ledger reports only `001`-`006`, while read-only schema checks found objects from later migrations already present and `subscription_email_events` from `009` absent. The target environment (staging vs production) is not identified. Reconcile ledger and schema before applying any migration.
 - Read-only prechecks found two active Collection Center accounts, one owner/date overlap relevant to the `010` Owner Ifishi backfill, zero duplicate active Collector assignments for `011`, and five valid-volume records without a transport-rate snapshot for `013`.
-- Migration `008` updates the existing `USAGE_10001_20000_MONTHLY` price from the observed `15,000` RWF to `17,000` RWF. `008`/`012` require explicit price approval. Migration `009` is required by the successful-payment transaction's email-outbox insert and is missing from the configured schema.
+- Migration `008` updates the existing `USAGE_10001_20000_MONTHLY` price from the observed `15,000` RWF to `17,000` RWF. `008`/`012` require explicit price approval. Migration `009` is required by the successful-payment transaction's email-outbox insert and is documented as missing from the configured schema. New lifecycle migration `014` depends on the existing subscription, plan, notification, audit, and email-outbox schema; validate the actual target before any migration sequence.
 - Migrations `010`-`013` have partial schema footprints despite being absent from the ledger. Back up and inspect existing objects/data, reconcile the Owner Ifishi overlap without deleting rows, and use the approved migration process. No migration was applied during this audit. Some transformations have no safe automatic rollback; validate backup/restore rather than assuming rollback SQL is sufficient.
 - A consolidated production setup, migration, rollback, backup/restore, and incident runbook is still required.
 - Required production configuration needs a verified Supabase/PostgreSQL connection, a strong `SESSION_SECRET`, email delivery configuration, public application origin, Super Admin identity, and (if billing is enabled) `LMBTECH_APP_KEY`, `LMBTECH_SECRET_KEY`, `LMBTECH_BASE_URL`, `LMBTECH_CALLBACK_URL`, and `LMBTECH_ALLOW_REAL_PAYMENTS` in server-side secret/config storage.

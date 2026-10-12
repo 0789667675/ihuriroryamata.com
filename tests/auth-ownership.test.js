@@ -7,7 +7,7 @@ const { registerUser, loginUser, getCurrentUser } = require('../lib/services/aut
 const { assertUserCanAccessOwnerScopedResource, buildOwnerScope } = require('../lib/security/ownership.js');
 const { requireAccountType } = require('../lib/security/account-access.js');
 const { createSessionToken } = require('../lib/security/session.js');
-const { getAuthenticatedUser } = require('../lib/security/authenticate.js');
+const { getAuthenticatedUser, isSubscriptionRecoveryRequest } = require('../lib/security/authenticate.js');
 const { createUserWithConnection } = require('../lib/repositories/userRepository.js');
 
 const makeSession = (userId = null) => ({ userId });
@@ -84,29 +84,34 @@ test('registration validation and duplicate errors retain safe client statuses',
   );
 });
 
-test('registration persistence creates the 15-day trial in the same transaction connection', async () => {
+test('registration persistence creates configured initial access in the same transaction connection', async () => {
   const statements = [];
   const client = {
     query: async (text, values) => {
       statements.push({ text, values });
       if (text.includes('INSERT INTO users')) {
-        return { rows: [{ id: 15, name: 'Trial User', email: 'trial@example.com', role: 'user', accountType: 'COLLECTOR' }] };
+        return { rows: [{ id: 15, name: 'Milk User', email: 'milk@example.com', role: 'user', accountType: 'COLLECTOR' }] };
       }
-      return { rows: [{ id: 99, user_id: 15, status: 'trial', trial_ends_at: '2026-10-16T00:00:00.000Z' }] };
+      return { rows: [{ id: 99, user_id: 15, status: 'pending', access_started_at: '2026-10-01T10:00:00.000Z', payment_due_at: '2026-10-15T22:00:00.000Z' }] };
     },
   };
   const result = await createUserWithConnection(client, {
-    name: 'Trial User',
-    email: 'TRIAL@example.com',
+    name: 'Milk User',
+    email: 'MILK@example.com',
     passwordHash: 'hashed',
     role: 'user',
     accountType: 'COLLECTOR',
+    selectedPlanCode: 'USAGE_0_5000_MONTHLY',
   });
-  assert.equal(result.subscription.status, 'trial');
+  assert.equal(result.subscription.status, 'pending');
   assert.equal(statements.length, 2);
   assert.match(statements[0].text, /email_verified\)\s+VALUES \(\$1, \$2, \$3, \$4, \$5, 'active', FALSE\)/);
-  assert.match(statements[1].text, /NOW\(\) \+ INTERVAL '15 days'/);
-  assert.deepEqual(statements[1].values, [15]);
+  assert.match(statements[1].text, /SELECT \$1, 'pending', NULL, NULL/);
+  assert.match(statements[1].text, /access_started_at, payment_due_at/);
+  assert.deepEqual(statements[1].values, [15, 'USAGE_0_5000_MONTHLY']);
+  const userRepositorySource = fs.readFileSync(path.join(__dirname, '..', 'lib', 'repositories', 'userRepository.js'), 'utf8');
+  assert.match(userRepositorySource, /access_started_at = u\.email_verified_at/);
+  assert.match(userRepositorySource, /policy\.initial_access_days \+ policy\.grace_period_days/);
 });
 
 test('unverified accounts cannot sign in before email confirmation', async () => {
@@ -250,13 +255,22 @@ test('production public launch accepts Collectors but blocks Collection Center p
   }
 });
 
-test('middleware fails closed without a session secret and exposes only the payment callback', () => {
+test('middleware fails closed without a session secret and exposes only intended public APIs', () => {
   const middleware = fs.readFileSync(path.join(__dirname, '..', 'middleware.ts'), 'utf8');
   assert.match(middleware, /const secret = process\.env\.SESSION_SECRET;/);
   assert.match(middleware, /if \(!secret \|\| secret\.length < 32\) return false;/);
   assert.doesNotMatch(middleware, /development-session-secret/);
-  assert.match(middleware, /PUBLIC_API_PATHS = new Set\(\['\/api\/subscription\/payments\/callback'\]\)/);
+  assert.match(middleware, /PUBLIC_API_PATHS = new Set\(\['\/api\/subscription\/payments\/callback', '\/api\/subscription\/plans'\]\)/);
   assert.match(middleware, /PUBLIC_API_PATHS\.has\(pathname\)/);
+});
+
+test('subscription API gate keeps recovery routes open and blocks restricted data APIs', () => {
+  const request = (pathname, method = 'GET') => ({ url: `https://milk.example.test${pathname}`, method });
+  assert.equal(isSubscriptionRecoveryRequest(request('/api/subscription')), true);
+  assert.equal(isSubscriptionRecoveryRequest(request('/api/subscription/payments', 'POST')), true);
+  assert.equal(isSubscriptionRecoveryRequest(request('/api/notifications/14/read', 'PATCH')), true);
+  assert.equal(isSubscriptionRecoveryRequest(request('/api/notifications/evaluate', 'POST')), false);
+  assert.equal(isSubscriptionRecoveryRequest(request('/api/farmers')), false);
 });
 
 test('super admin access is allowed only for the single authoritative platform account', async () => {

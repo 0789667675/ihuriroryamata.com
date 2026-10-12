@@ -230,21 +230,26 @@ test('Collector Settings exposes only owned collection sites while Dairy has no 
   assert.match(workspace.slice(workspace.indexOf('const dairyTabs'), workspace.indexOf('const navigationCopy')), /id: 'settings'/);
 });
 
-test('Super Admin pricing editor saves all five prices and volume ranges without duplicate views', () => {
+test('Super Admin pricing editor manages dynamic tiers and timing policy without duplicate views', () => {
   const loader = workspace.slice(workspace.indexOf("if (tab === 'config')"), workspace.indexOf("if (tab === 'settings')"));
   const save = workspace.slice(workspace.indexOf('const saveAdminCollectorPrices'), workspace.indexOf('const saveAccountSettings'));
   const editor = workspace.slice(workspace.indexOf('const renderAdminCollectorPricing'), workspace.indexOf('const renderSystemHealth'));
   const pricingView = workspace.slice(workspace.indexOf("{tab === 'config' && isAdmin"), workspace.indexOf("{tab === 'system-health' && isAdmin"));
   const plansRoute = fs.readFileSync(path.join(__dirname, '..', 'app', 'api', 'admin', 'config', 'plans', 'route.js'), 'utf8');
 
-  assert.match(loader, /api<SubscriptionPlan\[]>\('\/api\/admin\/config\/plans'\)/);
-  assert.match(loader, /plans\.filter\(\(plan\) => isCollectorTier\(plan\) && plan\.is_active\)/);
+  assert.match(loader, /api<SubscriptionPlan\[]>\('\/api\/admin\/config\/plans', \{ cache: 'no-store' \}\)/);
+  assert.match(loader, /api<SubscriptionPolicy>\('\/api\/admin\/config\/subscription', \{ cache: 'no-store' \}\)/);
+  assert.match(loader, /plans\.filter\(isCollectorTier\)/);
   assert.match(loader, /setCollectorTierEdits\(Object\.fromEntries/);
   assert.match(pricingView, /renderAdminCollectorPricing\(\)/);
+  assert.match(pricingView, /renderAdminSubscriptionPolicy\(\)/);
   assert.doesNotMatch(pricingView, /renderAdminSubscriptions/);
-  assert.match(editor, /collectorPlans\.map\(\(plan, index\)/);
+  assert.match(editor, /collectorPlans\.map\(\(plan\)/);
+  assert.match(editor, /const addTier =/);
   assert.match(editor, /minVolumeLiters/);
   assert.match(editor, /maxVolumeLiters/);
+  assert.match(editor, /isActive/);
+  assert.match(editor, /adminAddTier/);
   assert.match(editor, /adminTierMinimum/);
   assert.match(editor, /adminTierMaximum/);
   assert.match(workspace, /MtnMoMoBrand/);
@@ -252,10 +257,9 @@ test('Super Admin pricing editor saves all five prices and volume ranges without
   assert.match(editor, /value=\{price\}/);
   assert.match(editor, /onClick=\{\(\) => \{ void saveAdminCollectorPrices\(\); \}\}/);
   assert.match(editor, /disabled=\{busy\}/);
-  assert.match(save, /for \(const code of COLLECTOR_TIER_CODES\)/);
-  assert.match(save, /if \(!plan\) throw new Error/);
-  assert.match(save, /Number\.isSafeInteger\(tier\.price\)/);
-  assert.match(save, /adminTierVolumeValidation/);
+  assert.match(save, /subscriptionPlans\.filter\(isCollectorTier\)\.map/);
+  assert.match(save, /isActive:/);
+  assert.match(save, /initialAccessDays/);
   assert.match(save, /minVolumeLiters/);
   assert.match(save, /maxVolumeLiters/);
   assert.match(save, /\/api\/admin\/config\/plans/);

@@ -31,12 +31,14 @@ type ReportOwnerRow = { farmerId: null; farmerName: string; name: string; isOwne
 type Report = { totalFarmers: number; totalVolume: number; totalMorning: number; totalEvening: number; totalRevenueMonth: number; ownerGeneratedGross?: number | null; ownerGeneratedVolume?: number; totalDeductionsMonth: number; totalTransportFeesMonth: number; netRevenueMonth: number; todayTotal: number; todayMorning: number; todayEvening: number; rangeStart: string; rangeEnd: string; collectorPayable: number | null; collectorGross?: number | null; collectorActualVolume?: number; collectorOriginalVolume?: number; collectorLostVolume?: number; collectorFarmersValidLiters?: number; collectorTotalFarmersPayable?: number; collectorFarmerDeductions?: number; collectorFarmerTransport?: number; collectorSurplusAmount?: number | null; collectorPayableFromBreakdown?: number | null; collectorIsReconciled?: boolean | null; collectorProfile?: { name: string } | null; collectorEntries?: Array<{ id: number; date: string; status: string; volumeLiters: number; effectiveVolumeLiters: number; farmerLostLiters: number; voidReason?: string | null; voidedBy?: number | null; voidedAt?: string | null }>; milkLossRecords?: Array<{ id: number; farmerId: number; farmerName: string; date: string; status: string; originalVolume: number; validVolume: number; lostVolume: number; reason: string | null; adjustedBy: number | null; adjustedAt: string | null }>; collectorSettlementRows?: any[]; ownerSettlementRow?: ReportOwnerRow | null; farmerPayments: ReportFarmerRow[] };
 type CollectorSettlementFields = { collectorFarmerMilkValue?: number | null; collectorFarmerPayable?: number | null; collectorAccountingComplete?: boolean | null; collectorAccountingMissingInputs?: string[] };
 type Account = { user_id: number; account_name: string; account_email: string; account_type: string; account_status: string; effective_status: string; farmer_count: number; center_count: number };
-type AdminAccountDetails = { account: { id: number; name: string; email: string; account_type: string; account_status: string; email_verified: boolean; phone: string | null; created_at: string }; subscription: { status: string; plan_id: number | null; current_price: number | string | null; currency: string | null; tier_code: string | null; subscription_started_at: string | null; subscription_ends_at: string | null; trial_ends_at: string | null } | null; counts: { centers: number; farmers: number; milk_records: number; deductions: number; payments: number; notifications: number } };
+type AdminAccountDetails = { account: { id: number; name: string; email: string; account_type: string; account_status: string; email_verified: boolean; phone: string | null; created_at: string }; subscription: { status: string; plan_id: number | null; current_price: number | string | null; currency: string | null; tier_code: string | null; access_started_at: string | null; payment_due_at: string | null; subscription_started_at: string | null; subscription_ends_at: string | null } | null; counts: { centers: number; farmers: number; milk_records: number; deductions: number; payments: number; notifications: number } };
 type AdminPaymentSummary = { successfulCount: number; successfulAmount: number; pendingCount: number; failedCount: number; cancelledCount: number; expiredCount: number };
-type AdminSummary = { accounts: { total_accounts: number; without_subscription: number; not_approved: number; pending: number; trial: number; active: number; suspended: number; expired: number }; registrations_last_30_days: number };
+type AdminSummary = { accounts: { total_accounts: number; without_subscription: number; not_approved: number; pending: number; active: number; suspended: number; expired: number }; registrations_last_30_days: number };
 type SystemHealth = { ok: boolean; service: string; database: { configured: boolean; provider: string; connected: boolean }; supabase: { configured: boolean; url: string | null }; migrated: boolean };
 type SubscriptionPlan = { id: number; code: string; name: string; price: number | string; currency: string; billing_period: string; min_volume_liters: number | string | null; max_volume_liters: number | string | null; is_active: boolean };
-type CollectorTierEdit = { price: string; minVolumeLiters: string; maxVolumeLiters: string };
+type CollectorTierEdit = { name: string; price: string; minVolumeLiters: string; maxVolumeLiters: string; isActive: boolean };
+type SubscriptionPolicy = { initial_access_days: number; grace_period_days: number; enforcement_time: string; time_zone: string };
+type RegistrationConfiguration = { plans: SubscriptionPlan[]; policy: SubscriptionPolicy };
 type PaymentConfiguration = { provider: string; paymentMethod: string; displayName: string; currency: string; payerAccount: string; payerPhoneSource: string; realPaymentsEnabled: boolean; credentialsConfigured: boolean; apiConfigured: boolean; callbackConfigured: boolean; ready: boolean };
 type AdminPayment = { id: number; account_name: string; account_email: string; subscription_status: string; plan_name: string | null; plan_code: string | null; amount: number; currency: string; status: string; payment_method: string; provider: string | null; billing_period: string; provider_reference: string; provider_transaction_id: string | null; mobile_money_phone: string | null; created_at: string; completed_at: string | null };
 type CollectorAssignment = { id: number; collector_user_id: number; collector_name: string; collector_account_number: string | null; collector_national_id: string | null; collector_phone: string | null; abacunda_count: number };
@@ -70,14 +72,7 @@ const money = (value: number | null | undefined) => value === null || value === 
   ? '—'
   : new Intl.NumberFormat('rw-RW', { maximumFractionDigits: 0 }).format(Number(value || 0));
 const liters = (value: number) => new Intl.NumberFormat('rw-RW', { maximumFractionDigits: 2 }).format(Number(value || 0));
-const COLLECTOR_TIER_CODES = [
-  'USAGE_0_5000_MONTHLY',
-  'USAGE_5001_10000_MONTHLY',
-  'USAGE_10001_20000_MONTHLY',
-  'USAGE_20001_40000_MONTHLY',
-  'USAGE_40001_PLUS_MONTHLY',
-] as const;
-const isCollectorTier = (plan: SubscriptionPlan) => COLLECTOR_TIER_CODES.includes(plan.code as typeof COLLECTOR_TIER_CODES[number]);
+const isCollectorTier = (plan: SubscriptionPlan) => plan.code.startsWith('USAGE_');
 
 const collectorTabs: Array<{ id: Tab; label: string; icon: typeof Milk }> = [
   { id: 'dashboard', label: 'Dashboard', icon: Activity },
@@ -107,11 +102,18 @@ const navigationCopy = {
 const accountStatusCopy = {
   not_approved: 'statusNotApproved',
   pending: 'statusPending',
-  trial: 'statusTrial',
   active: 'statusActive',
   suspended: 'statusSuspended',
   expired: 'statusExpired',
   none: 'statusNone',
+} as const;
+const subscriptionStatusCopy = {
+  pending: 'statusPending',
+  trial: 'statusPending',
+  active: 'statusActive',
+  suspended: 'statusSuspended',
+  expired: 'statusExpired',
+  cancelled: 'statusExpired',
 } as const;
 
 type PublicLanguageState = ReturnType<typeof usePublicLanguage>;
@@ -125,8 +127,29 @@ function Login({ onLogin, language, setLanguage, t }: { onLogin: (user: User) =>
   const [passwordVisible, setPasswordVisible] = useState(false);
   const [name, setName] = useState('');
   const [accountType, setAccountType] = useState('COLLECTOR');
+  const [registrationPlans, setRegistrationPlans] = useState<SubscriptionPlan[]>([]);
+  const [registrationAccessDays, setRegistrationAccessDays] = useState(15);
+  const [registrationPlansLoading, setRegistrationPlansLoading] = useState(false);
+  const [selectedPlanCode, setSelectedPlanCode] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
+
+  useEffect(() => {
+    if (!registering || accountType !== 'COLLECTOR') return;
+    let mounted = true;
+    setRegistrationPlansLoading(true);
+    api<RegistrationConfiguration>('/api/subscription/plans', { cache: 'no-store' }).then((config) => {
+      if (mounted) {
+        setRegistrationPlans(config.plans);
+        setRegistrationAccessDays(config.policy.initial_access_days);
+      }
+    }).catch((reason) => {
+      if (mounted) setError(reason instanceof Error ? reason.message : 'Subscription pricing is unavailable.');
+    }).finally(() => {
+      if (mounted) setRegistrationPlansLoading(false);
+    });
+    return () => { mounted = false; };
+  }, [registering, accountType]);
 
   const submit = async (event: React.FormEvent) => {
     event.preventDefault();
@@ -134,7 +157,7 @@ function Login({ onLogin, language, setLanguage, t }: { onLogin: (user: User) =>
     setError('');
     try {
       if (registering) {
-        await api('/api/auth/register', json('POST', { name, email, password, accountType }));
+        await api('/api/auth/register', json('POST', { name, email, password, accountType, selectedPlanCode, language }));
       }
       const result = await api<{ user: User }>('/api/auth/login', json('POST', { email, password }));
       onLogin(result.user);
@@ -170,16 +193,21 @@ function Login({ onLogin, language, setLanguage, t }: { onLogin: (user: User) =>
           <label>{t('email')}<input type="email" autoComplete="email" required value={email} onChange={(event) => setEmail(event.target.value)} /></label>
           <label>{t('password')}<span className="password-field"><input type={passwordVisible ? 'text' : 'password'} autoComplete={registering ? 'new-password' : 'current-password'} required minLength={8} value={password} onChange={(event) => setPassword(event.target.value)} /><button className="password-toggle" type="button" aria-label={passwordVisible ? t('hidePassword') : t('showPassword')} aria-pressed={passwordVisible} onClick={() => setPasswordVisible((visible) => !visible)}>{passwordVisible ? <EyeOff size={19} aria-hidden="true" /> : <Eye size={19} aria-hidden="true" />}</button></span></label>
           {!registering ? <Link className="auth-forgot-link" href="/forgot-password">{t('forgotPassword')}</Link> : null}
-          {registering ? <label>{t('accountType')}<select value={accountType} onChange={(event) => setAccountType(event.target.value)}><option value="COLLECTOR">{t('collector')}</option>{process.env.NODE_ENV !== 'production' ? <option value="COLLECTION_CENTER">{t('collectionCenter')}</option> : null}</select></label> : null}
-          {registering ? (
-            <p className="trial-pricing-disclosure">
-              <strong>{t('trialPricingTitle')}</strong>
-              <br />
-              {t('trialPricingBody')}
-            </p>
-          ) : null}
+          {registering ? <label>{t('accountType')}<select value={accountType} onChange={(event) => { setAccountType(event.target.value); setSelectedPlanCode(''); }}><option value="COLLECTOR">{t('collector')}</option>{process.env.NODE_ENV !== 'production' ? <option value="COLLECTION_CENTER">{t('collectionCenter')}</option> : null}</select></label> : null}
+          {registering && accountType === 'COLLECTOR' ? <>
+            <fieldset className="registration-tier-options">
+              <legend>{t('subscriptionSelectTier')}</legend>
+              {registrationPlansLoading ? <p>{t('dashboardLoading')}</p> : registrationPlans.map((plan) => <label className="registration-tier-option" key={plan.id}>
+                <input type="radio" name="registration-tier" value={plan.code} checked={selectedPlanCode === plan.code} onChange={() => setSelectedPlanCode(plan.code)} />
+                <span><b>{plan.name}</b><small>{Number(plan.min_volume_liters).toLocaleString()}–{plan.max_volume_liters === null ? '∞' : Number(plan.max_volume_liters).toLocaleString()} L / {t('billingMonthly')}</small></span>
+                <strong>{money(Number(plan.price))} {plan.currency}</strong>
+              </label>)}
+              {!registrationPlansLoading && !registrationPlans.length ? <p role="status">{t('subscriptionUnavailable')}</p> : null}
+            </fieldset>
+            <p className="subscription-registration-period">{t('initialAccessDisclosure').replace('{days}', String(registrationAccessDays))}</p>
+          </> : null}
           {error ? <p className="form-error" role="alert">{error}</p> : null}
-          <button className="button button-primary button-wide" disabled={busy}>{busy ? t('wait') : registering ? t('createAccount') : t('signIn')}<ArrowRight size={17} /></button>
+          <button className="button button-primary button-wide" disabled={busy || (registering && accountType === 'COLLECTOR' && (!selectedPlanCode || registrationPlansLoading))}>{busy ? t('wait') : registering ? t('createAccount') : t('signIn')}<ArrowRight size={17} /></button>
         </form>
         <div className="auth-navigation">
           <Link className="text-button auth-switch" href={registering ? '/login' : '/register'}>
@@ -312,7 +340,8 @@ const [report, setReport] = useState<Report | null>(null);
   const [billing, setBilling] = useState<any>(null);
   const [billingLoading, setBillingLoading] = useState(false);
   const [billingError, setBillingError] = useState('');
-  const [billingPeriod, setBillingPeriod] = useState<'monthly' | '6_months' | 'yearly'>('monthly');
+  const billingPeriod = 'monthly';
+  const [selectedSubscriptionPlanCode, setSelectedSubscriptionPlanCode] = useState('');
   const [paymentPhone, setPaymentPhone] = useState('');
   const [collectorPrices, setCollectorPrices] = useState<CollectorMilkPrice[]>([]);
   const [collectorPriceForm, setCollectorPriceForm] = useState({ pricePerLiter: '', effectiveDate: today() });
@@ -322,6 +351,7 @@ const [report, setReport] = useState<Report | null>(null);
   const [adminConfigLoading, setAdminConfigLoading] = useState(false);
   const [subscriptionPlans, setSubscriptionPlans] = useState<SubscriptionPlan[]>([]);
   const [collectorTierEdits, setCollectorTierEdits] = useState<Record<string, CollectorTierEdit>>({});
+  const [subscriptionPolicy, setSubscriptionPolicy] = useState<SubscriptionPolicy | null>(null);
   const [paymentConfiguration, setPaymentConfiguration] = useState<PaymentConfiguration | null>(null);
   const [adminPayments, setAdminPayments] = useState<AdminPayment[]>([]);
   const [adminPaymentTotal, setAdminPaymentTotal] = useState(0);
@@ -342,6 +372,9 @@ const [report, setReport] = useState<Report | null>(null);
   const isAdmin = user?.role === 'super_admin';
   const isCollector = !!user && user.role !== 'super_admin' && user.accountType === 'COLLECTOR';
   const isDairy = !!user && user.role !== 'super_admin' && user.accountType === 'COLLECTION_CENTER';
+  const subscriptionStatusLabel = (status?: string | null) => status
+    ? publicLanguage.t(subscriptionStatusCopy[status.toLowerCase() as keyof typeof subscriptionStatusCopy] || 'statusPending')
+    : publicLanguage.t('subscriptionNoAccount');
   const accountCopy = (collectorKey: Parameters<PublicLanguageState['t']>[0], centerKey: Parameters<PublicLanguageState['t']>[0]) => publicLanguage.t(isDairy ? centerKey : collectorKey);
   const collectorOwnedCenters = centers.filter((center) => Number(center.owner_user_id) === Number(user?.id));
 const visibleTabs = (isAdmin
@@ -741,13 +774,16 @@ const visibleTabs = (isAdmin
     setAdminSummary(await api<AdminSummary>('/api/admin/accounts/summary'));
   };
 
-  const loadBilling = async () => {
+  const loadBilling = async (planCode = selectedSubscriptionPlanCode) => {
     setBillingLoading(true);
     setBillingError('');
     try {
-      const data = await api<any>(`/api/subscription?billingPeriod=${billingPeriod}`, { cache: 'no-store' });
+      const params = new URLSearchParams({ billingPeriod });
+      if (planCode) params.set('planCode', planCode);
+      const data = await api<any>(`/api/subscription?${params}`, { cache: 'no-store' });
       setBilling(data);
       setPaymentPhone(data.account?.phone || '');
+      if (data.pricing?.planCode) setSelectedSubscriptionPlanCode(data.pricing.planCode);
     } catch (reason) {
       setBillingError(reason instanceof Error ? reason.message : 'Failed to load subscription.');
       throw reason;
@@ -807,18 +843,22 @@ const visibleTabs = (isAdmin
         setAdminConfigLoading(true);
         Promise.all([
           api('/api/admin/config/collection-center'),
-          api<SubscriptionPlan[]>('/api/admin/config/plans'),
+          api<SubscriptionPlan[]>('/api/admin/config/plans', { cache: 'no-store' }),
+          api<SubscriptionPolicy>('/api/admin/config/subscription', { cache: 'no-store' }),
           api<PaymentConfiguration>('/api/admin/config/payments'),
           loadAdminPayments(),
-        ]).then(([center, plans, payments]) => {
+        ]).then(([center, plans, policy, payments]) => {
           setCenterPricing(center);
-          const collectorPlans = plans.filter((plan) => isCollectorTier(plan) && plan.is_active);
+          const collectorPlans = plans.filter(isCollectorTier);
           setSubscriptionPlans(collectorPlans);
-          setCollectorTierEdits(Object.fromEntries(collectorPlans.map((plan) => [plan.code, {
+          setCollectorTierEdits(Object.fromEntries(collectorPlans.map((plan) => [String(plan.id), {
+            name: plan.name,
             price: String(plan.price),
             minVolumeLiters: String(plan.min_volume_liters ?? 0),
             maxVolumeLiters: plan.max_volume_liters === null ? '' : String(plan.max_volume_liters),
+            isActive: plan.is_active,
           }])));
+          setSubscriptionPolicy(policy);
           setPaymentConfiguration(payments);
         }).catch((reason) => setError(reason.message)).finally(() => setAdminConfigLoading(false));
       }
@@ -851,7 +891,7 @@ const visibleTabs = (isAdmin
     }
     if (tab === 'billing') loadBilling().catch((reason) => setError(reason.message));
     if (tab === 'notifications') loadNotifications().catch((reason) => setError(reason.message));
-  }, [user, tab, billingPeriod, selectedCenter]);
+  }, [user, tab, selectedCenter]);
 
   useEffect(() => {
     if (user && tab === 'dashboard' && !isCollector && selectedCenter) {
@@ -1167,7 +1207,7 @@ const visibleTabs = (isAdmin
 
   const paySubscription = async () => run(async () => {
     if (!billing?.pricing) throw new Error(publicLanguage.t('subscriptionUnavailable'));
-    const result = await api<any>('/api/subscription/payments', json('POST', { billingPeriod }));
+    const result = await api<any>('/api/subscription/payments', json('POST', { billingPeriod, planCode: selectedSubscriptionPlanCode }));
     setNotice(result.message || 'Payment request submitted.');
     await loadBilling().catch(() => undefined);
   });
@@ -1198,47 +1238,46 @@ const visibleTabs = (isAdmin
   };
 
   const saveAdminCollectorPrices = async () => run(async () => {
-    const collectorPlans = subscriptionPlans.filter((plan) => isCollectorTier(plan) && plan.is_active);
-    const plansByCode = new Map(collectorPlans.map((plan) => [plan.code, plan]));
-    if (plansByCode.size !== COLLECTOR_TIER_CODES.length) {
-      throw new Error(publicLanguage.t('adminCollectorPlansIncomplete'));
-    }
-    const tiers: Array<{ code: typeof COLLECTOR_TIER_CODES[number]; price: number; minVolumeLiters: number; maxVolumeLiters: number | null }> = [];
-    for (const code of COLLECTOR_TIER_CODES) {
-      const plan = plansByCode.get(code);
-      if (!plan) throw new Error(publicLanguage.t('adminCollectorPlansIncomplete'));
-      const edit = collectorTierEdits[code];
-      const maxInput = edit?.maxVolumeLiters ?? (plan.max_volume_liters === null ? '' : String(plan.max_volume_liters));
-      tiers.push({
-        code,
+    const tiers = subscriptionPlans.filter(isCollectorTier).map((plan, sortOrder) => {
+      const edit = collectorTierEdits[String(plan.id)];
+      const maximum = edit?.maxVolumeLiters ?? (plan.max_volume_liters === null ? '' : String(plan.max_volume_liters));
+      return {
+        id: plan.id > 0 ? plan.id : null,
+        name: edit?.name ?? plan.name,
         price: Number(edit?.price ?? plan.price),
         minVolumeLiters: Number(edit?.minVolumeLiters ?? plan.min_volume_liters ?? 0),
-        maxVolumeLiters: maxInput.trim() === '' ? null : Number(maxInput),
-      });
-    }
-    if (tiers.some((tier) => !Number.isSafeInteger(tier.price) || tier.price <= 0)) {
-      throw new Error(publicLanguage.t('adminCollectorPriceValidation'));
-    }
-    let expectedMin = 0;
-    for (let index = 0; index < tiers.length; index += 1) {
-      const tier = tiers[index];
-      const isLastTier = index === tiers.length - 1;
-      if (!Number.isSafeInteger(tier.minVolumeLiters) || tier.minVolumeLiters !== expectedMin
-        || (isLastTier ? tier.maxVolumeLiters !== null : !Number.isSafeInteger(tier.maxVolumeLiters) || tier.maxVolumeLiters! < tier.minVolumeLiters)) {
-        throw new Error(publicLanguage.t('adminTierVolumeValidation'));
-      }
-      if (!isLastTier) expectedMin = tier.maxVolumeLiters! + 1;
-    }
+        maxVolumeLiters: maximum.trim() === '' ? null : Number(maximum),
+        isActive: edit?.isActive ?? plan.is_active,
+        sortOrder,
+      };
+    });
     const plans = await api<SubscriptionPlan[]>('/api/admin/config/plans', json('PUT', { tiers }));
-    const savedCollectorPlans = plans.filter((plan) => isCollectorTier(plan) && plan.is_active);
+    const savedCollectorPlans = plans.filter(isCollectorTier);
     setSubscriptionPlans(savedCollectorPlans);
-    setCollectorTierEdits(Object.fromEntries(savedCollectorPlans.map((plan) => [plan.code, {
+    setCollectorTierEdits(Object.fromEntries(savedCollectorPlans.map((plan) => [String(plan.id), {
+      name: plan.name,
       price: String(plan.price),
       minVolumeLiters: String(plan.min_volume_liters ?? 0),
       maxVolumeLiters: plan.max_volume_liters === null ? '' : String(plan.max_volume_liters),
+      isActive: plan.is_active,
     }])));
     setNotice(publicLanguage.t('pricingSaved'));
   });
+
+  const saveSubscriptionPolicy = async (event: React.FormEvent) => {
+    event.preventDefault();
+    await run(async () => {
+      if (!subscriptionPolicy) return;
+      const saved = await api<SubscriptionPolicy>('/api/admin/config/subscription', json('PUT', {
+        initialAccessDays: Number(subscriptionPolicy.initial_access_days),
+        gracePeriodDays: Number(subscriptionPolicy.grace_period_days),
+        enforcementTime: subscriptionPolicy.enforcement_time.slice(0, 5),
+        timeZone: subscriptionPolicy.time_zone,
+      }));
+      setSubscriptionPolicy(saved);
+      setNotice(publicLanguage.t('subscriptionPolicySaved'));
+    });
+  };
 
   const saveAccountSettings = async (event: React.FormEvent) => {
     event.preventDefault();
@@ -1309,7 +1348,7 @@ const visibleTabs = (isAdmin
   };
 
   const adminAction = async (account: Account, action: string) => run(async () => {
-    await api(`/api/admin/accounts/${account.user_id}/${action}`, json('POST', action === 'extend-trial' ? { days: 15, reason: 'Admin dashboard request' } : {}));
+    await api(`/api/admin/accounts/${account.user_id}/${action}`, json('POST', {}));
     await loadAccounts();
     setNotice(`Account ${action} complete.`);
   });
@@ -1722,7 +1761,7 @@ const visibleTabs = (isAdmin
         </div>
         <div className="dashboard-side">
           <section className="panel dashboard-accounting"><div className="panel-heading"><div><span className="eyebrow">{publicLanguage.t('dashboardPeriod')}</span><h2>{publicLanguage.t('dashboardAccounting')}</h2></div><Wallet size={19} aria-hidden="true" /></div><dl><div><dt>{publicLanguage.t('dashboardDeductions')}</dt><dd>{dashboardLoading || !report ? '…' : `${money(report.totalDeductionsMonth)} RWF`}</dd></div><div><dt>{publicLanguage.t('dashboardNet')}</dt><dd>{dashboardLoading || !report ? '…' : `${money(report.netRevenueMonth)} RWF`}</dd></div>{isCollector ? <div><dt>{publicLanguage.t('dashboardPayable')}</dt><dd>{dashboardLoading || !report || report.collectorPayable === null ? '—' : `${money(report.collectorPayable)} RWF`}</dd></div> : null}</dl></section>
-          <button type="button" className="panel dashboard-subscription" onClick={() => setTab('billing')}><span><span className="eyebrow">{publicLanguage.t('dashboardSubscription')}</span><b>{billing?.subscription?.effective_status || billing?.subscription?.status || '—'}</b></span><ArrowRight size={17} aria-hidden="true" /></button>
+          <button type="button" className="panel dashboard-subscription" onClick={() => setTab('billing')}><span><span className="eyebrow">{publicLanguage.t('dashboardSubscription')}</span><b>{subscriptionStatusLabel(billing?.subscription?.effective_status || billing?.subscription?.status)}</b></span><ArrowRight size={17} aria-hidden="true" /></button>
         </div>
       </section>
     </div>;
@@ -1946,7 +1985,7 @@ const visibleTabs = (isAdmin
             <div><span>{publicLanguage.t('accountTypeLabel')}</span><strong>{accountProfile.accountType === 'COLLECTION_CENTER' ? publicLanguage.t('collectionCenter') : accountProfile.role === 'super_admin' ? publicLanguage.t('platformAdmin') : publicLanguage.t('collector')}</strong></div>
             <div><span>{publicLanguage.t('accountStatusLabel')}</span><strong className={`status-text status-${accountProfile.accountStatus}`}>{publicLanguage.t(accountStatusCopy[accountProfile.accountStatus as keyof typeof accountStatusCopy] || 'statusNone')}</strong></div>
             <div><span>{publicLanguage.t('emailVerificationStatus')}</span><strong>{accountProfile.emailVerified ? publicLanguage.t('emailVerifiedValue') : publicLanguage.t('emailNotVerifiedValue')}</strong></div>
-            {billing?.subscription ? <div><span>{publicLanguage.t('navSubscription')}</span><strong>{billing.subscription.effective_status || billing.subscription.status}</strong></div> : null}
+            {billing?.subscription ? <div><span>{publicLanguage.t('navSubscription')}</span><strong>{subscriptionStatusLabel(billing.subscription.effective_status || billing.subscription.status)}</strong></div> : null}
           </div> : <div className="workspace-empty workspace-loading" role="status"><span className="loading-indicator" />{publicLanguage.t('accountLoading')}</div>}
         </section>
 
@@ -1987,17 +2026,43 @@ const visibleTabs = (isAdmin
     const paymentDateLabel = (value: string | null) => value
       ? new Date(value).toLocaleString(publicLanguage.language === 'rw' ? 'rw-RW' : 'en-GB')
       : '—';
+    const policyDateLabel = (value: string | null | undefined) => value
+      ? new Intl.DateTimeFormat(publicLanguage.language === 'rw' ? 'rw-RW' : 'en-GB', {
+        dateStyle: 'medium', timeStyle: 'short', timeZone: 'Africa/Kigali',
+      }).format(new Date(value))
+      : '—';
+    const selectedTier = billing?.plans?.find((plan: SubscriptionPlan) => plan.code === selectedSubscriptionPlanCode);
+    const currentTier = billing?.usage?.currentTier;
+    const recommendedTier = billing?.usage?.recommendedTier;
     return <div className="subscription-layout account-settings-subscription">
       <section className="panel subscription-overview" id="account-subscription-status">
         <div className="panel-heading"><div><span className="eyebrow">{publicLanguage.t('accountStatus')}</span><h2>{publicLanguage.t('navSubscription')}</h2></div><ClipboardList size={20} aria-hidden="true" /></div>
         {billingError ? <div className="form-error" role="alert">{billingError}<button type="button" className="text-button" onClick={() => loadBilling().catch(() => undefined)}>{publicLanguage.t('reportsRefresh')}</button></div> : null}
-        {billingError && !billing ? null : billingLoading && !billing ? <div className="workspace-empty workspace-loading" role="status"><span className="loading-indicator" />{publicLanguage.t('dashboardLoading')}</div> : <div className="subscription-state"><span className={`status-dot status-${billing?.subscription?.effective_status || billing?.subscription?.status || 'pending'}`} />{billing?.subscription?.effective_status || billing?.subscription?.status || publicLanguage.t('subscriptionNoAccount')}</div>}
-        {!isCollectionCenterAccount && billing?.usage ? <div className="subscription-usage"><div><span>{publicLanguage.t('subscriptionActualUsage')}</span><b>{liters(billing.usage.actualLiters)} L</b></div><div><span>{publicLanguage.t('subscriptionEstimatedUsage')}</span><b>{liters(pricing?.estimatedMonthlyLiters ?? billing.usage.projectedMonthlyLiters)} L</b></div></div> : null}
+        {billingError && !billing ? null : billingLoading && !billing ? <div className="workspace-empty workspace-loading" role="status"><span className="loading-indicator" />{publicLanguage.t('dashboardLoading')}</div> : <div className="subscription-state"><span className={`status-dot status-${billing?.subscription?.effective_status || billing?.subscription?.status || 'pending'}`} />{subscriptionStatusLabel(billing?.subscription?.effective_status || billing?.subscription?.status)}</div>}
+        {billing?.subscription?.effective_status === 'suspended' || billing?.subscription?.effective_status === 'expired' ? <p className="form-error subscription-overdue" role="status">{publicLanguage.t('subscriptionOverdue')}</p> : null}
+        {billing?.subscription ? <dl className="subscription-period-details">
+          <div><dt>{publicLanguage.t('initialAccessStarted')}</dt><dd>{policyDateLabel(billing.subscription.access_started_at)}</dd></div>
+          <div><dt>{publicLanguage.t('paymentDeadline')}</dt><dd>{policyDateLabel(billing.subscription.payment_due_at)}</dd></div>
+          <div><dt>{publicLanguage.t('subscriptionStatus')}</dt><dd>{billing.payments?.[0] ? paymentStatusLabel(billing.payments[0].status) : publicLanguage.t('paymentPending')}</dd></div>
+          {billing.subscription.subscription_ends_at ? <div><dt>{publicLanguage.t('nextRenewalDate')}</dt><dd>{policyDateLabel(billing.subscription.subscription_ends_at)}</dd></div> : null}
+          {billing.subscription.next_period_started_at ? <div><dt>{publicLanguage.t('tierEffectiveDate')}</dt><dd>{policyDateLabel(billing.subscription.next_period_started_at)}</dd></div> : null}
+        </dl> : null}
+        {!isCollectionCenterAccount && billing?.usage ? <div className="subscription-usage"><div><span>{publicLanguage.t('subscriptionActualUsage')}</span><b>{liters(billing.usage.actualLiters)} L</b></div><div><span>{publicLanguage.t('subscriptionCurrentTier')}</span><b>{currentTier?.name || '—'}</b></div></div> : null}
+        {!isCollectionCenterAccount && billing?.usage?.limitExceeded ? <div className="subscription-tier-warning" role="status">
+          <strong>{publicLanguage.t('subscriptionTierExceeded')}</strong>
+          <p>{liters(billing.usage.actualLiters)} L · {publicLanguage.t('subscriptionCurrentTier')}: {currentTier?.name} · {publicLanguage.t('subscriptionSuggestedTier')}: {recommendedTier?.name}</p>
+          <p>{Number(recommendedTier?.min_volume_liters || 0).toLocaleString()}–{recommendedTier?.max_volume_liters == null ? '∞' : Number(recommendedTier.max_volume_liters).toLocaleString()} L · {money(Number(recommendedTier?.price))} {recommendedTier?.currency} / {publicLanguage.t('billingMonthly')}</p>
+          <p>{publicLanguage.t('subscriptionUpgradeConsent')} {policyDateLabel(billing.subscription?.subscription_ends_at)}</p>
+        </div> : null}
         <div className="subscription-calculated">
           <span className="eyebrow">{publicLanguage.t(isCollectionCenterAccount ? 'subscriptionFixedMonthly' : 'subscriptionCalculatedAmount')}</span>
-          {pricing ? <><strong>{money(pricing.amount)} <small>{pricing.currency}</small></strong><span>{pricing.planName}</span></> : billingLoading ? <p>{publicLanguage.t('dashboardLoading')}</p> : billingError ? null : <p>{publicLanguage.t('subscriptionUnavailable')}</p>}
+          {pricing ? <><strong>{money(pricing.amount)} <small>{pricing.currency} / {publicLanguage.t('billingMonthly')}</small></strong><span>{pricing.planName}</span>{!isCollectionCenterAccount ? <small>{Number(pricing.minVolumeLiters || 0).toLocaleString()}–{pricing.maxVolumeLiters == null ? '∞' : Number(pricing.maxVolumeLiters).toLocaleString()} L</small> : null}</> : billingLoading ? <p>{publicLanguage.t('dashboardLoading')}</p> : billingError ? null : <p>{publicLanguage.t('subscriptionUnavailable')}</p>}
         </div>
-        <label className="field-block">{publicLanguage.t('subscriptionBillingPeriod')}<select value={billingPeriod} onChange={(event) => { setBilling(null); setBillingPeriod(event.target.value as typeof billingPeriod); }}><option value="monthly">{publicLanguage.t('billingMonthly')}</option><option value="6_months">{publicLanguage.t('billingSixMonths')}</option><option value="yearly">{publicLanguage.t('billingYearly')}</option></select></label>
+        {!isCollectionCenterAccount ? <label className="field-block">{publicLanguage.t('subscriptionSelectTier')}<select value={selectedSubscriptionPlanCode} onChange={(event) => {
+          const code = event.target.value;
+          setSelectedSubscriptionPlanCode(code);
+          loadBilling(code).catch((reason) => setError(reason.message));
+        }}>{(billing?.plans || []).map((plan: SubscriptionPlan) => <option key={plan.id} value={plan.code}>{plan.name} · {Number(plan.min_volume_liters || 0).toLocaleString()}–{plan.max_volume_liters == null ? '∞' : Number(plan.max_volume_liters).toLocaleString()} L · {money(Number(plan.price))} {plan.currency} / {publicLanguage.t('billingMonthly')}</option>)}</select></label> : null}
         <label className="field-block">{publicLanguage.t('subscriptionSavedPhone')}<input inputMode="tel" value={paymentPhone} readOnly aria-readonly="true" /></label>
         <div className="payment-method-details">
           <div><span>{publicLanguage.t('billingPaymentProvider')}</span><div className="payment-provider-inline"><MtnMoMoBrand compact /><small>{payment?.paymentMethod || 'MTN_MOMO_RWA'} · RWF</small></div></div>
@@ -2007,7 +2072,7 @@ const visibleTabs = (isAdmin
         </div>
         <button type="button" className="dashboard-text-link billing-phone-settings" onClick={() => setTab('settings')}>{publicLanguage.t('accountSettings')} <ArrowRight size={14} aria-hidden="true" /></button>
         {billing && !paymentPhoneValid ? <p className="form-error" role="status">{publicLanguage.t('billingPhoneMissing')}</p> : null}
-        <button type="button" className="button button-primary subscription-pay" onClick={() => paySubscription()} disabled={busy || billingLoading || !pricing || !payment?.ready || !paymentPhoneValid}>{publicLanguage.t('subscriptionPay')} <ArrowRight size={17} aria-hidden="true" /></button>
+        <button type="button" className="button button-primary subscription-pay" onClick={() => paySubscription()} disabled={busy || billingLoading || !pricing || !payment?.ready || !paymentPhoneValid || Boolean(billing?.subscription?.next_period_started_at)}>{publicLanguage.t('subscriptionPay')} <ArrowRight size={17} aria-hidden="true" /></button>
       </section>
       <section className="panel panel-wide subscription-history">
         <div className="panel-heading"><div><span className="eyebrow">{publicLanguage.t('dashboardAccounting')}</span><h2>{publicLanguage.t('subscriptionPaymentHistory')}</h2></div></div>
@@ -2032,7 +2097,7 @@ const visibleTabs = (isAdmin
 
   const renderNotifications = () => <section className="panel"><div className="panel-heading"><div><span className="eyebrow">{publicLanguage.t('alertsInbox')}</span><h2>{publicLanguage.t('navAlerts')}</h2></div><button className="button button-secondary" onClick={() => run(async () => { await api('/api/notifications/read-all', { method: 'PATCH' }); await loadNotifications(); })}>{publicLanguage.t('markAllRead')}</button></div><div className="notice-list">{notifications.map((item) => <article className={`notice-row${item.isRead ? '' : ' unread'}`} key={item.id}><div><span className="eyebrow">{item.notification_type.replaceAll('_', ' ')}</span><h3>{item.title}</h3><p>{item.message}</p><small>{new Date(item.createdAt).toLocaleString()}</small></div>{!item.isRead ? <button className="button button-secondary small-button" onClick={() => markRead(item)}>{publicLanguage.t('markRead')}</button> : <Check size={17} />}</article>)}{!notifications.length ? <div className="workspace-empty" role="status"><span className="workspace-empty-icon"><Bell size={21} aria-hidden="true" /></span><b>{publicLanguage.t('notificationsEmptyTitle')}</b></div> : null}</div></section>;
 
-  const renderAdminAccounts = () => <section className="panel"><div className="panel-heading"><div><span className="eyebrow">{publicLanguage.t('platform')}</span><h2>{publicLanguage.t('customerAccounts')}</h2></div><span className="count-label">{accounts ? `${accounts.total} ${publicLanguage.t('accountsCount')}` : '…'}</span></div><div className="toolbar"><form className="search-form" onSubmit={(event) => { event.preventDefault(); loadAccounts(); }}><Search size={17} /><input placeholder={publicLanguage.t('searchNameEmail')} value={accountSearch} onChange={(event) => setAccountSearch(event.target.value)} /><button className="button button-secondary">{publicLanguage.t('search')}</button></form><select value={accountStatus} onChange={(event) => setAccountStatus(event.target.value)}><option value="">{publicLanguage.t('allStatuses')}</option>{Object.keys(accountStatusCopy).map((status) => <option key={status} value={status}>{publicLanguage.t(accountStatusCopy[status as keyof typeof accountStatusCopy])}</option>)}</select></div><div className="table-scroll"><table><thead><tr><th>{publicLanguage.t('account')}</th><th>{publicLanguage.t('accountType')}</th><th>{publicLanguage.t('status')}</th><th>{publicLanguage.t('farmers')}</th><th>{publicLanguage.t('navCenters')}</th><th>{publicLanguage.t('actions')}</th></tr></thead><tbody>{accounts?.accounts.map((account) => <tr key={account.user_id}><td><b>{account.account_name}</b><small className="block-muted">{account.account_email}</small></td><td>{account.account_type === 'COLLECTION_CENTER' ? publicLanguage.t('collectionCenter') : publicLanguage.t('collector')}</td><td>{publicLanguage.t(accountStatusCopy[(account.effective_status || account.account_status) as keyof typeof accountStatusCopy] || 'statusActive')}</td><td>{account.farmer_count}</td><td>{account.center_count}</td><td className="actions-cell"><button type="button" className="text-button" onClick={() => { void loadAdminAccountDetails(account.user_id); }}>{publicLanguage.t('adminViewAccount')}</button><button className="text-button" onClick={() => adminAction(account, 'activate')}>{publicLanguage.t('activate')}</button><button className="text-button" onClick={() => adminAction(account, 'grant-trial')}>{publicLanguage.t('grantTrial')}</button><button className="text-button" onClick={() => adminAction(account, account.account_status === 'suspended' ? 'reactivate' : 'suspend')}>{publicLanguage.t(account.account_status === 'suspended' ? 'reactivate' : 'suspend')}</button></td></tr>)}</tbody></table></div></section>;
+  const renderAdminAccounts = () => <section className="panel"><div className="panel-heading"><div><span className="eyebrow">{publicLanguage.t('platform')}</span><h2>{publicLanguage.t('customerAccounts')}</h2></div><span className="count-label">{accounts ? `${accounts.total} ${publicLanguage.t('accountsCount')} ` : '…'}</span></div><div className="toolbar"><form className="search-form" onSubmit={(event) => { event.preventDefault(); loadAccounts(); }}><Search size={17} /><input placeholder={publicLanguage.t('searchNameEmail')} value={accountSearch} onChange={(event) => setAccountSearch(event.target.value)} /><button className="button button-secondary">{publicLanguage.t('search')}</button></form><select value={accountStatus} onChange={(event) => setAccountStatus(event.target.value)}><option value="">{publicLanguage.t('allStatuses')}</option>{Object.keys(accountStatusCopy).map((status) => <option key={status} value={status}>{publicLanguage.t(accountStatusCopy[status as keyof typeof accountStatusCopy])}</option>)}</select></div><div className="table-scroll"><table><thead><tr><th>{publicLanguage.t('account')}</th><th>{publicLanguage.t('accountType')}</th><th>{publicLanguage.t('status')}</th><th>{publicLanguage.t('farmers')}</th><th>{publicLanguage.t('navCenters')}</th><th>{publicLanguage.t('actions')}</th></tr></thead><tbody>{accounts?.accounts.map((account) => <tr key={account.user_id}><td><b>{account.account_name}</b><small className="block-muted">{account.account_email}</small></td><td>{account.account_type === 'COLLECTION_CENTER' ? publicLanguage.t('collectionCenter') : publicLanguage.t('collector')}</td><td>{publicLanguage.t(accountStatusCopy[(account.effective_status || account.account_status) as keyof typeof accountStatusCopy] || 'statusActive')}</td><td>{account.farmer_count}</td><td>{account.center_count}</td><td className="actions-cell"><button type="button" className="text-button" onClick={() => { void loadAdminAccountDetails(account.user_id); }}>{publicLanguage.t('adminViewAccount')}</button><button className="text-button" onClick={() => adminAction(account, account.account_status === 'suspended' ? 'reactivate' : 'suspend')}>{publicLanguage.t(account.account_status === 'suspended' ? 'reactivate' : 'suspend')}</button></td></tr>)}</tbody></table></div></section>;
 
   const renderAdminAccountDetailsModal = () => (
     <Modal ariaLabel={publicLanguage.t('customerAccounts')} onClose={closeAdminAccountDetails}>
@@ -2065,6 +2130,17 @@ const visibleTabs = (isAdmin
 
   const renderAdminConfig = () => <section className="panel"><div className="panel-heading"><div><span className="eyebrow">{publicLanguage.t('pricingPlatform')}</span><h2>{publicLanguage.t('centerPlan')}</h2></div><CircleDollarSign size={20} /></div><div className="config-callout">{adminConfigLoading ? publicLanguage.t('dashboardLoading') : `${centerPricing?.plan?.name || 'Collection Center Monthly'} · ${money(centerPricing?.plan?.price || centerPricing?.config?.monthly_amount || 0)} RWF`}</div><form key={centerPricing?.config?.updated_at || 'collection-center-pricing-loading'} className="form-stack compact config-form" onSubmit={(event) => { event.preventDefault(); run(async () => { const formData = new FormData(event.currentTarget); await api('/api/admin/config/collection-center', json('PUT', { monthlyAmount: Number(formData.get('amount')), firstVolumeBoundaryLiters: Number(formData.get('boundary')) })); const updated = await api('/api/admin/config/collection-center'); setCenterPricing(updated); setNotice(publicLanguage.t('pricingSaved')); }); }}><label>{publicLanguage.t('monthlyAmount')}<input name="amount" type="number" min="0" disabled={adminConfigLoading} defaultValue={centerPricing?.config?.monthly_amount || centerPricing?.plan?.price || 30000} /></label><label>{publicLanguage.t('firstVolumeBoundary')}<input name="boundary" type="number" min="0" disabled={adminConfigLoading} defaultValue={centerPricing?.config?.first_volume_boundary_liters || 50000} /></label><button className="button button-primary" disabled={busy || adminConfigLoading}>{publicLanguage.t('savePricing')}</button></form></section>;
 
+  const renderAdminSubscriptionPolicy = () => <section className="panel">
+    <div className="panel-heading"><div><span className="eyebrow">{publicLanguage.t('pricingPlatform')}</span><h2>{publicLanguage.t('subscriptionPolicyTitle')}</h2></div><CalendarDays size={20} aria-hidden="true" /></div>
+    {subscriptionPolicy ? <form className="form-stack compact config-form" onSubmit={saveSubscriptionPolicy}>
+      <label>{publicLanguage.t('initialAccessDays')}<input type="number" min="1" max="90" step="1" required value={subscriptionPolicy.initial_access_days} onChange={(event) => setSubscriptionPolicy({ ...subscriptionPolicy, initial_access_days: Number(event.target.value) })} /></label>
+      <label>{publicLanguage.t('gracePeriodDays')}<input type="number" min="0" max="90" step="1" required value={subscriptionPolicy.grace_period_days} onChange={(event) => setSubscriptionPolicy({ ...subscriptionPolicy, grace_period_days: Number(event.target.value) })} /></label>
+      <label>{publicLanguage.t('enforcementTime')}<input type="time" required value={subscriptionPolicy.enforcement_time.slice(0, 5)} onChange={(event) => setSubscriptionPolicy({ ...subscriptionPolicy, enforcement_time: event.target.value })} /></label>
+      <div className="config-callout">{publicLanguage.t('subscriptionPolicyTimezone')}: {subscriptionPolicy.time_zone}</div>
+      <button className="button button-primary" disabled={busy || adminConfigLoading}>{publicLanguage.t('savePricing')}</button>
+    </form> : <div className="workspace-empty" role="status"><b>{publicLanguage.t('dashboardLoading')}</b></div>}
+  </section>;
+
   const activeTabs = visibleTabs;
   const renderAdminDashboard = () => {
     const stats = adminSummary?.accounts;
@@ -2072,8 +2148,7 @@ const visibleTabs = (isAdmin
       { label: publicLanguage.t('adminTotalAccounts'), value: stats?.total_accounts },
       { label: publicLanguage.t('adminNoSubscription'), value: stats?.without_subscription },
       { label: publicLanguage.t('adminActiveAccounts'), value: stats?.active },
-      { label: publicLanguage.t('adminTrialAccounts'), value: stats?.trial },
-      { label: publicLanguage.t('adminPendingAccounts'), value: stats?.pending },
+      { label: publicLanguage.t('adminInitialAccessAccounts'), value: stats?.pending },
       { label: publicLanguage.t('adminSuspendedAccounts'), value: stats?.suspended },
       { label: publicLanguage.t('adminExpiredAccounts'), value: stats?.expired },
     ];
@@ -2155,27 +2230,53 @@ const visibleTabs = (isAdmin
   };
 
   const renderAdminCollectorPricing = () => {
-    const collectorPlans = subscriptionPlans.filter((plan) => isCollectorTier(plan) && plan.is_active);
+    const collectorPlans = subscriptionPlans.filter(isCollectorTier);
+    const editTier = (id: number, changes: Partial<CollectorTierEdit>) => setCollectorTierEdits((current) => ({
+      ...current,
+      [String(id)]: { ...current[String(id)], ...changes },
+    }));
+    const addTier = () => {
+      const id = -Date.now();
+      const last = collectorPlans.filter((plan) => plan.is_active).at(-1);
+      const minimum = Number(last?.min_volume_liters || 0);
+      const name = publicLanguage.t('newTierName');
+      setSubscriptionPlans((plans) => [...plans, {
+        id,
+        code: `USAGE_NEW_${Math.abs(id)}`,
+        name,
+        price: 1,
+        currency: 'RWF',
+        billing_period: 'monthly',
+        min_volume_liters: minimum,
+        max_volume_liters: null,
+        is_active: true,
+      }]);
+      setCollectorTierEdits((current) => ({
+        ...current,
+        [String(id)]: { name, price: '1', minVolumeLiters: String(minimum), maxVolumeLiters: '', isActive: true },
+      }));
+    };
     return <section className="panel panel-wide">
-      <div className="panel-heading"><div><span className="eyebrow">{publicLanguage.t('pricingPlatform')}</span><h2>{publicLanguage.t('adminCollectorPricing')}</h2></div><CircleDollarSign size={20} aria-hidden="true" /></div>
+      <div className="panel-heading"><div><span className="eyebrow">{publicLanguage.t('pricingPlatform')}</span><h2>{publicLanguage.t('adminCollectorPricing')}</h2></div><div><button type="button" className="button button-secondary" onClick={addTier}><Plus size={16} aria-hidden="true" />{publicLanguage.t('adminAddTier')}</button><CircleDollarSign size={20} aria-hidden="true" /></div></div>
       <p className="muted-note">{publicLanguage.t('adminPriceContractNote')}</p>
-      {adminConfigLoading ? <div className="workspace-empty workspace-loading" role="status"><span className="loading-indicator" />{publicLanguage.t('dashboardLoading')}</div> : collectorPlans.length ? <><div className="tier-pricing-list">{collectorPlans.map((plan, index) => {
-        const edit = collectorTierEdits[plan.code];
+      {adminConfigLoading ? <div className="workspace-empty workspace-loading" role="status"><span className="loading-indicator" />{publicLanguage.t('dashboardLoading')}</div> : collectorPlans.length ? <><div className="tier-pricing-list">{collectorPlans.map((plan) => {
+        const edit = collectorTierEdits[String(plan.id)];
+        const name = edit?.name ?? plan.name;
         const minimum = edit?.minVolumeLiters ?? String(plan.min_volume_liters ?? 0);
         const maximum = edit?.maxVolumeLiters ?? (plan.max_volume_liters === null ? '' : String(plan.max_volume_liters));
         const price = edit?.price ?? String(plan.price);
-        const openEnded = plan.max_volume_liters === null;
+        const openEnded = maximum.trim() === '';
         return <div className="tier-pricing-row" key={plan.id}>
           <div className="tier-range-group">
-            <strong>{publicLanguage.t('adminTierLabel')} {index + 1}</strong>
+            <label className="tier-name-group"><span>{publicLanguage.t('adminTierLabel')}</span><input maxLength={255} required value={name} onChange={(event) => editTier(plan.id, { name: event.target.value })} /></label>
             <div className="tier-range-inputs">
-              <label><span>{publicLanguage.t('adminTierMinimum')}</span><span className="tier-volume-input"><input aria-label={`${plan.name} ${publicLanguage.t('adminTierMinimum')}`} type="number" min="0" step="1" required value={minimum} onChange={(event) => setCollectorTierEdits((current) => ({ ...current, [plan.code]: { price, minVolumeLiters: event.target.value, maxVolumeLiters: maximum } }))} /><span>L</span></span></label>
+              <label><span>{publicLanguage.t('adminTierMinimum')}</span><span className="tier-volume-input"><input aria-label={`${name} ${publicLanguage.t('adminTierMinimum')}`} type="number" min="0" step="1" required value={minimum} onChange={(event) => editTier(plan.id, { minVolumeLiters: event.target.value })} /><span>L</span></span></label>
               <span className="tier-range-separator">{publicLanguage.t('adminRangeTo')}</span>
-              <label><span>{publicLanguage.t('adminTierMaximum')}</span><span className="tier-volume-input"><input aria-label={`${plan.name} ${publicLanguage.t('adminTierMaximum')}`} type="number" min="0" step="1" required={!openEnded} disabled={openEnded} placeholder={openEnded ? publicLanguage.t('adminOpenEnded') : undefined} value={maximum} onChange={(event) => setCollectorTierEdits((current) => ({ ...current, [plan.code]: { price, minVolumeLiters: minimum, maxVolumeLiters: event.target.value } }))} />{!openEnded ? <span>L</span> : null}</span></label>
+              <label><span>{publicLanguage.t('adminTierMaximum')}</span><span className="tier-volume-input"><input aria-label={`${name} ${publicLanguage.t('adminTierMaximum')}`} type="number" min="0" step="1" required={!openEnded} placeholder={openEnded ? publicLanguage.t('adminOpenEnded') : undefined} value={maximum} onChange={(event) => editTier(plan.id, { maxVolumeLiters: event.target.value })} />{!openEnded ? <span>L</span> : null}</span></label>
             </div>
           </div>
-          <label className="tier-price-group"><span>{publicLanguage.t('adminMonthlyPrice')}</span><span className="tier-price-input"><input aria-label={`${publicLanguage.t('adminTierLabel')} ${index + 1} ${publicLanguage.t('adminMonthlyPrice')}`} type="number" min="1" step="1" required value={price} onChange={(event) => setCollectorTierEdits((current) => ({ ...current, [plan.code]: { price: event.target.value, minVolumeLiters: minimum, maxVolumeLiters: maximum } }))} /><span>{plan.currency}</span></span></label>
-          <div className="tier-status-group"><span>{publicLanguage.t('adminPlanStatus')}</span><b>{publicLanguage.t(plan.is_active ? 'statusActive' : 'statusSuspended')}</b></div>
+          <label className="tier-price-group"><span>{publicLanguage.t('adminMonthlyPrice')}</span><span className="tier-price-input"><input aria-label={`${name} ${publicLanguage.t('adminMonthlyPrice')}`} type="number" min="1" step="1" required value={price} onChange={(event) => editTier(plan.id, { price: event.target.value })} /><span>{plan.currency}</span></span></label>
+          <label className="tier-status-group"><span>{publicLanguage.t('adminPlanStatus')}</span><input type="checkbox" checked={edit?.isActive ?? plan.is_active} onChange={(event) => editTier(plan.id, { isActive: event.target.checked })} />{publicLanguage.t((edit?.isActive ?? plan.is_active) ? 'statusActive' : 'statusSuspended')}</label>
         </div>;
       })}</div><div className="panel-footer"><button type="button" className="button button-primary" onClick={() => { void saveAdminCollectorPrices(); }} disabled={busy} aria-busy={busy}>{busy ? publicLanguage.t('wait') : publicLanguage.t('adminSaveCollectorPrices')}</button></div></> : <div className="workspace-empty" role="status"><b>{publicLanguage.t('adminPlansMissing')}</b></div>}
       </section>;
@@ -2196,7 +2297,9 @@ const visibleTabs = (isAdmin
   };
 
   const activeTab = activeTabs.find((item) => item.id === tab) || activeTabs[0];
-  const activeTabLabel = tab === 'transport' ? publicLanguage.t('navTransport') : activeTab?.label || 'Workspace';
+  const activeTabLabel = tab === 'billing'
+    ? publicLanguage.t('navSubscription')
+    : tab === 'transport' ? publicLanguage.t('navTransport') : activeTab?.label || 'Workspace';
 
   return (
     <main className="workspace-shell">
@@ -2219,7 +2322,7 @@ const visibleTabs = (isAdmin
         {tab === 'settings' ? renderAccountSettings() : null}
         {tab === 'accounts' && isAdmin ? renderAdminAccounts() : null}
         {tab === 'audit' && isAdmin ? renderAdminAudit() : null}
-        {tab === 'config' && isAdmin ? <div className="admin-pricing-layout">{renderAdminCollectorPricing()}{renderAdminConfig()}{renderAdminPaymentConfiguration()}{renderAdminPayments()}</div> : null}
+        {tab === 'config' && isAdmin ? <div className="admin-pricing-layout">{renderAdminCollectorPricing()}{renderAdminConfig()}{renderAdminSubscriptionPolicy()}{renderAdminPaymentConfiguration()}{renderAdminPayments()}</div> : null}
         {tab === 'system-health' && isAdmin ? renderSystemHealth() : null}
         {tab === 'notifications-admin' && isAdmin ? renderNotifications() : null}
         {adminAccountDetailsOpen ? renderAdminAccountDetailsModal() : null}

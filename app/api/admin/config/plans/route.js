@@ -4,6 +4,7 @@ const { getAuthenticatedUser } = require('@/lib/security/authenticate.js');
 const Config = require('@/lib/services/platform-config-service.js');
 
 export const runtime = 'nodejs';
+export const dynamic = 'force-dynamic';
 
 export async function GET(request) {
   try {

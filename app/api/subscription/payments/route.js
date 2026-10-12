@@ -13,6 +13,7 @@ const errorResponse = (error) => {
   if (['TIER_TOO_LOW', 'TIER_MISMATCH'].includes(error.code)) {
     return NextResponse.json({ success: false, code: 'PAYMENT_INITIATION_FAILED', message: 'The selected plan does not match projected monthly milk volume.', usage: error.usage, requiredTier: error.requiredTier || null, upgradeRequired: true }, { status: 409 });
   }
+  if (error.code === 'NEXT_PERIOD_ALREADY_PAID') return NextResponse.json({ success: false, code: error.code, message: error.message }, { status: 409 });
   if (error.code === 'SUBSCRIPTION_NOT_FOUND') return NextResponse.json({ success: false, code: 'PAYMENT_CONFIGURATION_ERROR', message: error.message }, { status: 404 });
   if (['LMBTECH_CREDENTIALS_MISSING', 'LMBTECH_BASE_URL_INVALID', 'LMBTECH_CALLBACK_URL_MISSING', 'LMBTECH_PAYMENT_DISABLED'].includes(error.code)) {
     return NextResponse.json({ success: false, code: 'PAYMENT_CONFIGURATION_ERROR', message: 'The payment service is not ready right now. Please try again shortly.' }, { status: 503 });
@@ -44,6 +45,7 @@ export async function POST(request) {
     }
     const result = await Subscriptions.createPendingPayment({
       userId: user.id,
+      planCode: input.planCode || null,
       billingPeriod: input.billingPeriod || input.billing_period || 'monthly',
     });
     const state = result.payment?.status || 'PENDING';

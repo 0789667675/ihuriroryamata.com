@@ -24,7 +24,7 @@ Before deployment, have the database owner compare the applied migration ledger 
 
 ## Flow and Verification
 
-1. The server derives the price from the authenticated account, its usage tier or Collection Center plan, and the requested billing period. Supported periods are monthly, 6 months at a 10% discount, and yearly at a 12% discount.
+1. The server derives the price from the authenticated account, its selected Collector usage tier or separate Collection Center plan. Subscription charges are monthly only.
 2. The payer phone comes only from the authenticated account profile and must be a valid Rwanda mobile number.
 3. Initiation sends the documented `MTN_MOMO_RWA` JSON fields to `https://pay.lmbtech.rw/pay/config/api.php` with HTTP Basic authentication. An accepted or pending initiation remains `PENDING`.
 4. The callback is resolved by its exact stored `reference_id`; callback fields are treated as untrusted notification data. The server queries LMBTech's documented authenticated status endpoint by that reference and requires the callback claims and stored payment to agree with the provider response before settling.

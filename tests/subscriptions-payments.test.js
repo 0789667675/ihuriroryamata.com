@@ -22,21 +22,30 @@ const plan = {
   sort_order: 1,
 };
 
-test('subscription payment helpers preserve canonical tier aliases and discount calculations', () => {
+test('subscription payment helpers resolve legacy tier aliases and enforce monthly-only pricing', () => {
   assert.equal(Subscriptions.canonicalPlanCode('USAGE_20001_35000', 'monthly'), 'USAGE_20001_40000_MONTHLY');
   assert.equal(Subscriptions.canonicalPlanCode('USAGE_20001_35000_MONTHLY', 'monthly'), 'USAGE_20001_40000_MONTHLY');
   assert.equal(Subscriptions.canonicalPlanCode('USAGE_40001_PLUS', 'monthly'), 'USAGE_40001_PLUS_MONTHLY');
   assert.equal(Subscriptions.canonicalPlanCode('USAGE_35001_PLUS_MONTHLY', 'monthly'), 'USAGE_40001_PLUS_MONTHLY');
-  assert.equal(Subscriptions.canonicalPlanCode('USAGE_5001_10000', '6_months'), 'USAGE_5001_10000_6_MONTHS');
-  assert.equal(Subscriptions.calculatePrice({ intro_periods_used: 0 }, { ...plan, price: 10000, intro_price: 7000, intro_periods: 1 }, 'monthly').amount, 7000);
-  assert.equal(Subscriptions.calculatePrice({ intro_periods_used: 0 }, { ...plan, price: 10000, intro_price: null }, '6_months').amount, 54000);
-  assert.equal(Subscriptions.calculatePrice({ intro_periods_used: 0 }, { ...plan, price: 10000, intro_price: null }, 'yearly').amount, 105600);
+  assert.equal(Subscriptions.canonicalPlanCode('USAGE_5001_10000', 'monthly'), 'USAGE_5001_10000_MONTHLY');
+  assert.equal(Subscriptions.calculatePrice({}, { ...plan, price: 10000, intro_price: 7000, intro_periods: 1 }, 'monthly').amount, 10000);
+  assert.throws(() => Subscriptions.calculatePrice({}, plan, '6_months'), (error) => error.code === 'BILLING_PERIOD_NOT_SUPPORTED');
+  assert.throws(() => Subscriptions.calculatePrice({}, plan, 'yearly'), (error) => error.code === 'BILLING_PERIOD_NOT_SUPPORTED');
 });
 
 test('phone normalization requires a Rwanda mobile number and canonicalizes local/international forms', () => {
   assert.equal(Subscriptions.canonicalPhone('0788 000 000'), '+250788000000');
   assert.equal(Subscriptions.canonicalPhone('+250788000000'), '+250788000000');
   assert.equal(Subscriptions.canonicalPhone('1234'), null);
+});
+
+test('only a provider-confirmed success before the initial deadline qualifies', () => {
+  const paymentDueAt = '2026-10-26T22:00:00.000Z';
+  assert.equal(Subscriptions.isInitialPaymentQualifying({ payment: { status: 'SUCCESS', completed_at: '2026-10-26T21:59:59.999Z' }, paymentDueAt }), true);
+  for (const status of ['PENDING', 'FAILED', 'UNKNOWN']) {
+    assert.equal(Subscriptions.isInitialPaymentQualifying({ payment: { status, completed_at: '2026-10-26T21:00:00.000Z' }, paymentDueAt }), false);
+  }
+  assert.equal(Subscriptions.isInitialPaymentQualifying({ payment: { status: 'SUCCESS', completed_at: paymentDueAt }, paymentDueAt }), false);
 });
 
 test('payment configuration identifies MTN Rwanda flow without exposing credentials', () => {
@@ -98,13 +107,19 @@ test('LMBTech credential aliases work with canonical variables taking precedence
   }
 });
 
-test('trial usage window is 15 days and monthly usage selects farmer records when present', async () => {
-  const subscription = { status: 'trial', trial_started_at: '2026-10-01T00:00:00.000Z', trial_ends_at: '2026-10-16T00:00:00.000Z' };
+test('initial access usage window is 15 days and counts valid server-side farmer volumes', async () => {
+  const subscription = {
+    status: 'pending',
+    access_started_at: '2026-10-01T10:00:00.000Z',
+    payment_due_at: '2026-10-15T22:00:00.000Z',
+    volume_limit_liters: 5000,
+    selected_plan_snapshot: { ...plan, minVolumeLiters: 0, maxVolumeLiters: 5000 },
+  };
   assert.deepEqual(Subscriptions.getUsageWindow(subscription), {
     startDate: '2026-10-01',
     endDate: '2026-10-15',
     exclusiveEnd: '2026-10-16',
-    status: 'trial',
+    status: 'pending',
   });
   let farmerUsageWindow;
   const usage = await Subscriptions.getUsage({
@@ -112,7 +127,7 @@ test('trial usage window is 15 days and monthly usage selects farmer records whe
     subscription,
     now: new Date('2026-10-10T00:00:00.000Z'),
     repository: {
-      getCollectorMilk: async () => [{ volumeLiters: 100 }],
+      getCollectorMilk: async () => [{ volumeLiters: 100, effectiveVolumeLiters: 0 }],
       getFarmerMilkUsage: async (filters) => { farmerUsageWindow = filters; return { recordCount: 3, validLiters: 120 }; },
       getTierForVolume: async (liters) => ({ code: liters <= 5000 ? 'USAGE_0_5000_MONTHLY' : 'USAGE_5001_10000_MONTHLY', maxLiters: 5000 }),
       getTierByCode: async () => null,
@@ -120,17 +135,21 @@ test('trial usage window is 15 days and monthly usage selects farmer records whe
     },
   });
   assert.equal(usage.actualLiters, 120);
-  assert.equal(usage.projectedMonthlyLiters, 240);
+  assert.equal(usage.projectedMonthlyLiters, 120);
   assert.equal(farmerUsageWindow.endDate, '2026-10-10');
-  assert.equal(usage.estimate, true);
+  assert.equal(usage.estimate, false);
   assert.equal(usage.recommendedTier.code, 'USAGE_0_5000_MONTHLY');
 });
 
-test('expired trial still projects from the completed 15-day trial window', async () => {
+test('suspended initial access retains its completed usage window without projection', async () => {
   let farmerUsageWindow;
   const usage = await Subscriptions.getUsage({
     userId: 42,
-    subscription: { status: 'trial', effective_status: 'expired', trial_started_at: '2026-10-01', trial_ends_at: '2026-10-16' },
+    subscription: {
+      status: 'suspended', effective_status: 'suspended',
+      access_started_at: '2026-10-01T10:00:00.000Z', payment_due_at: '2026-10-15T22:00:00.000Z',
+      volume_limit_liters: 5000, selected_plan_snapshot: { ...plan, minVolumeLiters: 0, maxVolumeLiters: 5000 },
+    },
     now: new Date('2026-10-20T00:00:00.000Z'),
     repository: {
       getCollectorMilk: async () => [],
@@ -143,8 +162,8 @@ test('expired trial still projects from the completed 15-day trial window', asyn
 
   assert.equal(farmerUsageWindow.startDate, '2026-10-01');
   assert.equal(farmerUsageWindow.endDate, '2026-10-15');
-  assert.equal(usage.projectedMonthlyLiters, 300);
-  assert.equal(usage.estimate, true);
+  assert.equal(usage.projectedMonthlyLiters, 150);
+  assert.equal(usage.estimate, false);
 });
 
 test('collector farmer usage query is scoped through its dairy assignment', () => {
@@ -191,7 +210,7 @@ test('customer subscription returns validated plan and payment arrays for collec
     userId: 42,
     now: new Date('2026-10-10T00:00:00.000Z'),
     repository: {
-      getSubscription: async () => ({ status: 'trial', trial_started_at: '2026-10-01', trial_ends_at: '2026-10-16', intro_periods_used: 0 }),
+      getSubscription: async () => ({ status: 'pending', access_started_at: '2026-10-01T10:00:00.000Z', payment_due_at: '2026-10-15T22:00:00.000Z' }),
       getUser: async () => ({ id: 42, name: 'Milk User', phone: '0788000000', accountType: 'COLLECTOR' }),
       getActivePlans: async () => usagePlans,
       getPaymentsByUser: async () => [],
@@ -211,6 +230,75 @@ test('customer subscription returns validated plan and payment arrays for collec
   assert.equal(result.pricing.planCode, 'USAGE_0_5000_MONTHLY');
   assert.equal(result.pricing.amount, 5000);
   assert.equal(result.pricing.estimatedMonthlyLiters, 0);
+});
+
+test('saved current-period terms stay unchanged while a new renewal quote uses the saved live price', async () => {
+  const activePlans = usagePlans.map((item, index) => index === 0 ? { ...item, price: 6200, name: 'Repriced first tier' } : item);
+  const subscription = {
+    id: 32,
+    status: 'active',
+    effective_status: 'active',
+    plan_id: usagePlans[0].id,
+    current_price: 5000,
+    tier_code: 'USAGE_0_5000',
+    volume_limit_liters: 5000,
+    current_period_started_at: '2026-10-01T00:00:00.000Z',
+    current_period_ends_at: '2026-11-01T00:00:00.000Z',
+    current_plan_snapshot: { id: 1, code: usagePlans[0].code, name: 'Original tier', price: 5000, currency: 'RWF', minVolumeLiters: 0, maxVolumeLiters: 5000 },
+  };
+  const usageAlerts = [];
+  const result = await Subscriptions.getCustomerSubscription({
+    userId: 42,
+    planCode: usagePlans[0].code,
+    repository: {
+      getSubscription: async () => subscription,
+      getUser: async () => ({ id: 42, name: 'Milk User', phone: '0788000000', email: 'milk@example.com', language: 'rw', accountType: 'COLLECTOR' }),
+      getActivePlans: async () => activePlans,
+      getPaymentsByUser: async () => [],
+      getCollectorMilk: async () => [],
+      getFarmerMilkUsage: async () => ({ recordCount: 1, validLiters: 6000 }),
+      getTierForVolume: async () => activePlans[1],
+      getTierByCode: async () => activePlans[0],
+      getNextTier: async () => activePlans[1],
+      queueUsageExceededNotice: async (input) => usageAlerts.push(input),
+    },
+  });
+
+  assert.equal(result.pricing.amount, 6200);
+  assert.equal(subscription.current_price, 5000);
+  assert.equal(subscription.current_plan_snapshot.price, 5000);
+  assert.equal(result.usage.limitExceeded, true);
+  assert.equal(usageAlerts.length, 1);
+  assert.equal(usageAlerts[0].actualLiters, 6000);
+  assert.equal(usageAlerts[0].currentTier.name, 'Original tier');
+  assert.equal(usageAlerts[0].recommendedTier.code, activePlans[1].code);
+  assert.equal(usageAlerts[0].effectiveDate, subscription.current_period_ends_at);
+});
+
+test('Collector owner usage excludes voided volume when no farmer records are available', async () => {
+  const usage = await Subscriptions.getUsage({
+    userId: 42,
+    subscription: { status: 'pending', access_started_at: '2026-10-01T10:00:00.000Z', payment_due_at: '2026-10-15T22:00:00.000Z' },
+    now: new Date('2026-10-10T00:00:00.000Z'),
+    repository: {
+      getCollectorMilk: async () => [
+        { volumeLiters: 120, effectiveVolumeLiters: 0 },
+        { volumeLiters: 60, validVolumeLiters: 45 },
+      ],
+      getFarmerMilkUsage: async () => ({ recordCount: 0, validLiters: 0 }),
+      getTierForVolume: async () => ({ ...usagePlans[0] }),
+      getTierByCode: async () => null,
+      getNextTier: async () => usagePlans[1],
+    },
+  });
+  assert.equal(usage.actualLiters, 45);
+});
+
+test('usage alert dedupe keys are stable within a tier period and change next period', () => {
+  const buildKey = SubscriptionRepository.buildUsageExceededEventKey;
+  const key = buildKey({ subscriptionId: 7, periodStart: '2026-10-01T00:00:00.000Z', tierCode: 'USAGE_0_5000_MONTHLY' });
+  assert.equal(key, buildKey({ subscriptionId: 7, periodStart: new Date('2026-10-01T00:00:00.000Z'), tierCode: 'USAGE_0_5000_MONTHLY' }));
+  assert.notEqual(key, buildKey({ subscriptionId: 7, periodStart: '2026-11-01T00:00:00.000Z', tierCode: 'USAGE_0_5000_MONTHLY' }));
 });
 
 test('admin payment history query is customer-linked and bounded with real provider fields', () => {
@@ -252,12 +340,39 @@ test('collector billing accepts editable contiguous tier ranges and current stor
   assert.throws(() => Subscriptions.validatePricingTiers(adjustedPlans.map((tier, index) => index === 1 ? { ...tier, min_volume_liters: 4502 } : tier)), /invalid volume range/i);
 });
 
+test('public tier catalog immediately reflects saved active labels, ranges, and prices', async () => {
+  const activePlans = usagePlans.slice(0, 2).map((item, index) => ({
+    ...item,
+    name: index === 0 ? 'Small dairy' : 'Large dairy',
+    price: 7000 + (index * 3000),
+    min_volume_liters: index === 0 ? 0 : 5001,
+    max_volume_liters: index === 0 ? 5000 : null,
+  }));
+  const catalog = await Subscriptions.getAvailablePlans({ getActivePlans: async () => activePlans });
+  assert.deepEqual(catalog.map(({ name, price, min_volume_liters, max_volume_liters }) => ({ name, price, min_volume_liters, max_volume_liters })), [
+    { name: 'Small dairy', price: 7000, min_volume_liters: 0, max_volume_liters: 5000 },
+    { name: 'Large dairy', price: 10000, min_volume_liters: 5001, max_volume_liters: null },
+  ]);
+  assert.equal('metadata' in catalog[0], false);
+});
+
+test('public registration configuration reflects saved tier prices and access timing', async () => {
+  const configuration = await Subscriptions.getPublicSubscriptionConfiguration({
+    getActivePlans: async () => usagePlans,
+    getSubscriptionPolicy: async () => ({ initial_access_days: 20, grace_period_days: 0, enforcement_time: '00:00:00', time_zone: 'Africa/Kigali' }),
+  });
+  assert.equal(configuration.policy.initial_access_days, 20);
+  assert.equal(configuration.policy.grace_period_days, 0);
+  assert.equal(configuration.policy.time_zone, 'Africa/Kigali');
+  assert.equal(configuration.plans[0].price, usagePlans[0].price);
+});
+
 test('Collection Center customer pricing is a single server-calculated flat monthly amount', async () => {
   const centerPlan = { ...usagePlans[0], id: 50, code: 'COLLECTION_CENTER_MONTHLY', name: 'Collection Center Monthly', price: 30000 };
   const result = await Subscriptions.getCustomerSubscription({
     userId: 51,
     repository: {
-      getSubscription: async () => ({ id: 9, status: 'trial', intro_periods_used: 0 }),
+      getSubscription: async () => ({ id: 9, status: 'pending' }),
       getUser: async () => ({ id: 51, phone: '0788000000', accountType: 'COLLECTION_CENTER' }),
       getPlanByCode: async () => centerPlan,
       getPaymentsByUser: async () => [],
@@ -277,7 +392,7 @@ test('pending payment uses the canonical usage tier and never activates a subscr
   const repository = {
     getUser: async () => ({ id: 42, name: 'Milk User', email: 'milk@example.com', phone: '0788000000', accountType: 'COLLECTOR' }),
     findActivePayments: async () => [],
-    getSubscription: async () => ({ id: 7, status: 'trial', effective_status: 'trial', trial_started_at: '2026-10-01', trial_ends_at: '2026-10-16', intro_periods_used: 0 }),
+    getSubscription: async () => ({ id: 7, status: 'pending', effective_status: 'pending', access_started_at: '2026-10-01T10:00:00.000Z', payment_due_at: '2026-10-15T22:00:00.000Z', selected_plan_snapshot: { ...usagePlans[4], minVolumeLiters: 40001, maxVolumeLiters: null } }),
     getActivePlans: async () => adjustedPlans,
     getPlanByCode: async (code) => usagePlans.find((item) => item.code === code) || null,
     getCollectorMilk: async () => [],
@@ -297,34 +412,36 @@ test('pending payment uses the canonical usage tier and never activates a subscr
   };
   const result = await Subscriptions.createPendingPayment({
     userId: 42,
-    planIdOrCode: 'USAGE_40001_PLUS_MONTHLY',
-    amount: 1,
-    billingPeriod: '6_months',
+    planCode: 'USAGE_40001_PLUS_MONTHLY',
+    billingPeriod: 'monthly',
     repository,
     provider,
     now: new Date('2026-10-10T00:00:00.000Z'),
   });
   assert.equal(result.payment.status, 'PENDING');
-  assert.equal(reserved.amount, 33480);
-  assert.equal(reserved.billingPeriod, '6_months');
-  assert.equal(reserved.periodEnd.toISOString().slice(0, 10), '2027-04-10');
-  assert.equal(reserved.planId, 1);
+  assert.equal(reserved.amount, 25000);
+  assert.equal(reserved.billingPeriod, 'monthly');
+  assert.equal(reserved.periodEnd.toISOString().slice(0, 10), '2026-11-10');
+  assert.equal(reserved.planId, 5);
+  assert.equal(reserved.planSnapshot.maxVolumeLiters, null);
   assert.equal(reserved.paymentMethod, 'MTN_MOMO_RWA');
   assert.equal(providerRequest.phoneNumber, '0788000000');
-  assert.equal(providerRequest.amount, 33480);
+  assert.equal(providerRequest.amount, 25000);
   assert.match(reserved.providerReference, /^milk-subscription-[0-9a-f-]{36}$/i);
   assert.equal(providerRequest.referenceId, reserved.providerReference);
   assert.equal(result.payment.status, 'PENDING');
 });
 
-test('payment initiation rejects only unsupported billing periods', async () => {
+test('payment initiation rejects every non-monthly billing period', async () => {
   let reserved = false;
-  await assert.rejects(() => Subscriptions.createPendingPayment({
-    userId: 42,
-    billingPeriod: 'quarterly',
-    repository: { reservePayment: async () => { reserved = true; } },
-    provider: { assertReady() {} },
-  }), (error) => error.code === 'BILLING_PERIOD_NOT_SUPPORTED');
+  for (const billingPeriod of ['6_months', 'yearly', 'quarterly']) {
+    await assert.rejects(() => Subscriptions.createPendingPayment({
+      userId: 42,
+      billingPeriod,
+      repository: { reservePayment: async () => { reserved = true; } },
+      provider: { assertReady() {} },
+    }), (error) => error.code === 'BILLING_PERIOD_NOT_SUPPORTED');
+  }
   assert.equal(reserved, false);
 });
 
@@ -582,6 +699,40 @@ test('subscription email job schedules only explicitly configured reminder offse
   assert.equal(result.schedule.expired, 1);
 });
 
+test('daily subscription job evaluates authoritative tier usage and queues one deduplicated alert', async () => {
+  let queued = 0;
+  const repository = {
+    scheduleSubscriptionEmailEvents: async () => ({ expired: 0 }),
+    getUsageAlertCandidates: async () => [{
+      id: 12,
+      user_id: 42,
+      status: 'active',
+      current_period_started_at: '2026-10-01T00:00:00.000Z',
+      current_period_ends_at: '2026-11-01T00:00:00.000Z',
+      current_plan_snapshot: { ...usagePlans[0], minVolumeLiters: 0, maxVolumeLiters: 5000 },
+      volume_limit_liters: 5000,
+      candidate_user_id: 42,
+      candidate_email: 'owner@example.test',
+      candidate_language: 'en',
+    }],
+    getCollectorMilk: async () => [],
+    getFarmerMilkUsage: async () => ({ recordCount: 1, validLiters: 6000 }),
+    getTierForVolume: async () => usagePlans[1],
+    getTierByCode: async () => usagePlans[0],
+    getNextTier: async () => usagePlans[1],
+    queueUsageExceededNotice: async (input) => {
+      queued += 1;
+      assert.equal(input.actualLiters, 6000);
+      assert.equal(input.language, 'en');
+      return { notificationCreated: true, emailQueued: true };
+    },
+    claimSubscriptionEmailEvents: async () => [],
+  };
+  const result = await Subscriptions.runSubscriptionEmailJob({ repository, mailer: {} });
+  assert.equal(queued, 1);
+  assert.equal(result.usageAlertsQueued, 1);
+});
+
 test('Resend delivery refuses to use an implicit sample sender', async () => {
   const names = ['EMAIL_PROVIDER', 'RESEND_API_KEY', 'RESEND_FROM', 'EMAIL_FROM'];
   const previous = Object.fromEntries(names.map((name) => [name, process.env[name]]));
@@ -793,9 +944,9 @@ test('provider state reconciliation handles pending, failed, and cancelled witho
   }
 });
 
-test('prepaid amounts use the canonical server price and documented discounts', () => {
+test('monthly prices use the canonical server tier price without prepayment discounts', () => {
   const tier = usagePlans[2];
   assert.equal(Subscriptions.calculatePrice({}, tier, 'monthly').amount, 17000);
-  assert.equal(Subscriptions.calculatePrice({}, tier, '6_months').amount, 91800);
-  assert.equal(Subscriptions.calculatePrice({}, tier, 'yearly').amount, 179520);
+  assert.throws(() => Subscriptions.calculatePrice({}, tier, '6_months'), /Only monthly billing/);
+  assert.throws(() => Subscriptions.calculatePrice({}, tier, 'yearly'), /Only monthly billing/);
 });

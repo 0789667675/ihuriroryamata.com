@@ -389,7 +389,7 @@ test('Owner Ifishi subscription guard reads the exported subscription repository
   const repository = {
     getSubscription: async (userId) => {
       calls.push(userId);
-      return { effective_status: userId === ownerUserId ? 'trial' : 'expired' };
+      return { effective_status: userId === ownerUserId ? 'pending' : 'expired' };
     },
   };
 

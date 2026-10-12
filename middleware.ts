@@ -2,7 +2,7 @@
 
 const AUTH_PAGES = new Set(['/login', '/register', '/forgot-password', '/verify-email', '/verify-email-change']);
 const PUBLIC_API_PREFIXES = ['/api/auth', '/api/health'];
-const PUBLIC_API_PATHS = new Set(['/api/subscription/payments/callback']);
+const PUBLIC_API_PATHS = new Set(['/api/subscription/payments/callback', '/api/subscription/plans']);
 const COOKIE_NAME = 'milk_session';
 
 const base64UrlEncode = (bytes: Uint8Array) => {
