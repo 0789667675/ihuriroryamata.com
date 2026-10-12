@@ -77,6 +77,49 @@ test('deduction list SQL binds owner, farmer, date cursor, and page limit', () =
   assert.deepEqual(query.values, [42, 7, '2026-09-30', 18, 26]);
 });
 
+test('deduction list combines owner, text, type, status and numeric amount sort with a stable cursor', () => {
+  const query = DeductionRepository.buildDeductionListQuery({
+    ownerUserId,
+    farmerId: 7,
+    type: 'Advance',
+    status: 'Active',
+    search: 'Aline',
+    sortBy: 'amount',
+    sortDirection: 'asc',
+    cursor: { value: 1250, date: '2026-10-01', id: 22 },
+    limit: 10,
+  });
+
+  assert.match(query.text, /d\.owner_user_id = \$1/);
+  assert.match(query.text, /f\.owner_user_id = d\.owner_user_id/);
+  assert.match(query.text, /d\.farmer_id = \$2/);
+  assert.match(query.text, /d\.type = \$3/);
+  assert.match(query.text, /d\.status = \$4/);
+  assert.match(query.text, /f\.name ILIKE \$5/);
+  assert.match(query.text, /d\.amount > \$6::numeric/);
+  assert.match(query.text, /d\.date > \$7::date/);
+  assert.match(query.text, /d\.id > \$8::bigint/);
+  assert.match(query.text, /ORDER BY d\.amount ASC, d\.date ASC, d\.id ASC LIMIT \$9/);
+  assert.deepEqual(query.values, [ownerUserId, 7, 'Advance', 'Active', '%Aline%', 1250, '2026-10-01', 22, 11]);
+});
+
+test('deduction service validates sort/filter allowlists and repository emits a deterministic next cursor', async () => {
+  await assert.rejects(() => Deductions.listDeductions({ ownerUserId, sortBy: 'amount DESC;--', repository: {} }), /unsupported deduction sort field/i);
+  await assert.rejects(() => Deductions.listDeductions({ ownerUserId, status: 'Deleted', repository: {} }), /invalid deduction status/i);
+  const rows = [
+    { id: 22, owner_user_id: ownerUserId, farmer_id: 7, farmer_name: 'Aline', date: '2026-10-01', amount: '1250', type: 'Advance', status: 'Active' },
+    { id: 21, owner_user_id: ownerUserId, farmer_id: 8, farmer_name: 'Bella', date: '2026-09-30', amount: '1800', type: 'Other', status: 'Active' },
+  ];
+  const page = await DeductionRepository.listDeductions({ ownerUserId, sortBy: 'amount', sortDirection: 'asc', limit: 1 }, async (text, values) => {
+    assert.match(text, /d\.owner_user_id = \$1/);
+    assert.deepEqual(values, [ownerUserId, 2]);
+    return { rows };
+  });
+  const nextCursor = JSON.parse(Buffer.from(page.nextCursor.slice(3), 'base64url').toString('utf8'));
+  assert.equal(page.hasMore, true);
+  assert.deepEqual(nextCursor, { sortBy: 'amount', sortDirection: 'asc', value: 1250, date: '2026-10-01', id: 22 });
+});
+
 test('deduction deletion preserves the historical row by clearing it with an audit event', async () => {
   const statements = [];
   const pool = {

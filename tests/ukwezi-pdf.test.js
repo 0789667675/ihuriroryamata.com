@@ -2,7 +2,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
-const { renderUkweziPdf, buildUkweziFilename, buildUkweziResponseHeaders } = require('../lib/services/ukwezi-pdf-service.js');
+const { renderUkweziPdf, buildUkweziFilename, buildUkweziResponseHeaders, getAccountingRows } = require('../lib/services/ukwezi-pdf-service.js');
 
 const report = {
   rangeStart: '2026-10-01',
@@ -80,12 +80,45 @@ test('Ukwezi PDF renderer handles an empty accounting period without inventing r
   assert.equal(pageCount, 1);
 });
 
+test('Ukwezi PDF renderer rejects missing accounting scope with a client error', async () => {
+  await assert.rejects(
+    () => renderUkweziPdf({ report: {}, user: { id: 73, accountType: 'COLLECTOR' }, query: { periodType: 'first-half' } }),
+    (error) => error.statusCode === 400 && /valid account and accounting report/i.test(error.message)
+  );
+});
+
+test('Ukwezi PDF selects server-calculated accounting rows by account type, not performance-report rows', () => {
+  const sourceReport = {
+    farmerPayments: [{ farmerId: 5, farmerName: 'Farmer for Collector accounting', totalVolume: 12, grossAmount: 4800, totalDeductions: 400, totalTransport: 200, netAmount: 4200 }],
+    collectorSettlementRows: [{ collectorUserId: 9, name: 'Collector for Dairy accounting', totalVolume: 20, grossAmount: 8000, totalDeductions: 500, netAmount: 7500 }],
+    ownerSettlementRow: { isOwner: true, name: 'Owner settlement', totalVolume: 30, grossAmount: 12000, netAmount: 11500 },
+    performanceRows: [{ name: 'Must not appear in Ukwezi' }],
+  };
+
+  assert.deepEqual(getAccountingRows({ report: sourceReport, isCollector: true, isDairy: false }).map((row) => row.farmerName || row.name), [
+    'Farmer for Collector accounting', 'Owner settlement',
+  ]);
+  assert.deepEqual(getAccountingRows({ report: sourceReport, isCollector: false, isDairy: true }).map((row) => row.farmerName || row.name), [
+    'Collector for Dairy accounting', 'Owner settlement',
+  ]);
+});
+
 test('Ukwezi PDF route uses the authenticated owner and selected period context', () => {
   const route = fs.readFileSync(path.join(__dirname, '..', 'app', 'api', 'ukwezi', 'pdf', 'route.js'), 'utf8');
+  const nextConfig = fs.readFileSync(path.join(__dirname, '..', 'next.config.mjs'), 'utf8');
+  const workspace = fs.readFileSync(path.join(__dirname, '..', 'app', 'workspace.tsx'), 'utf8');
   assert.match(route, /getAuthenticatedUser\(request\)/);
   assert.match(route, /ownerUserId: user\.id, actorId: user\.id, query/);
   assert.match(route, /periodType: query\.periodType/);
   assert.match(route, /query\.language = query\.language === 'en' \? 'en' : 'rw'/);
   assert.match(route, /buildUkweziResponseHeaders/);
   assert.match(route, /return new NextResponse\(pdf,\s*\{\s*status: 200,\s*headers,\s*\}\)/);
+  assert.match(route, /periodType: query\.periodType/);
+  assert.match(route, /message: error\.message/);
+  assert.match(route, /stack: error\.stack/);
+  assert.match(route, /UKWEZI_PDF_GENERATION_FAILED/);
+  assert.match(route, /requestId/);
+  assert.match(route, /status,\s*\}\)/);
+  assert.match(workspace, /throw new Error\(body\?\.message \|\| publicLanguage\.t\('ukweziPdfError'\)\)/);
+  assert.match(nextConfig, /serverComponentsExternalPackages: \['pdfkit'\]/);
 });

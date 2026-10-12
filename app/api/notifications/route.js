@@ -19,6 +19,10 @@ export async function GET(request) {
       center: params.get('center'),
       status: params.get('status'),
       priority: params.get('priority'),
+      type: params.get('type'),
+      search: params.get('search') || '',
+      sortBy: params.get('sortBy') || 'date',
+      sortDirection: params.get('sortDirection') || 'desc',
       limit: params.get('limit'),
     });
     return NextResponse.json({ success: true, data });

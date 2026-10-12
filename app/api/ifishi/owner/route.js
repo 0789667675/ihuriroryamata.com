@@ -44,7 +44,14 @@ export async function POST(request) {
     if (!allowedUser(user)) return NextResponse.json({ message: 'Owner Ifishi is available to Collector accounts.' }, { status: 403 });
     await requireActiveSubscription(user);
     const input = await request.json();
-    const entry = await OwnerIfishi.createEntry({ ownerUserId: user.id, actorId: user.id, date: input.date, volumeLiters: input.volumeLiters });
+    const entry = await OwnerIfishi.createEntry({
+      ownerUserId: user.id,
+      actorId: user.id,
+      date: input.date,
+      volumeMorning: input.volumeMorning,
+      volumeEvening: input.volumeEvening,
+      volumeLiters: input.volumeLiters,
+    });
     return NextResponse.json(entry, { status: 201 });
   } catch (error) {
     if (!error.statusCode || error.statusCode >= 500) logFailure('Save request', error);

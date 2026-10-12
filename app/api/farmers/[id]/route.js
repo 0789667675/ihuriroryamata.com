@@ -2,12 +2,13 @@ import { NextResponse } from 'next/server';
 
 const { getAuthenticatedUser } = require('@/lib/security/authenticate.js');
 const { requireAccountType } = require('@/lib/security/account-access.js');
+const { requireActiveSubscription } = require('@/lib/security/subscription-access.js');
 const Farmers = require('@/lib/services/farmer-service.js');
 
 export const runtime = 'nodejs';
 
-const respondWithError = (error, fallback) => NextResponse.json(
-  { message: error.statusCode && error.statusCode < 500 ? error.message : fallback },
+const respondWithError = (error, fallback, includeServerMessage = false) => NextResponse.json(
+  { message: error.statusCode && error.statusCode < 500 ? error.message : includeServerMessage && error.message ? error.message : fallback },
   { status: error.statusCode || (error.code === 'DATABASE_NOT_CONFIGURED' || error.code === 'SESSION_SECRET_NOT_CONFIGURED' ? 503 : 500) }
 );
 
@@ -39,7 +40,7 @@ export async function PUT(request, { params }) {
     if (!farmer) return NextResponse.json({ message: 'Farmer not found.' }, { status: 404 });
     return NextResponse.json(farmer);
   } catch (error) {
-    return respondWithError(error, 'Failed to update farmer.');
+    return respondWithError(error, 'Failed to update farmer.', true);
   }
 }
 

@@ -297,9 +297,125 @@ test('milk history uses a bounded keyset cursor and validates date ranges', asyn
   });
   assert.equal(result, expected);
   assert.equal(filters.ownerUserId, ownerUserId);
-  assert.equal(filters.cursor, '2026-10-15:82');
+  assert.deepEqual(filters.cursor, { date: '2026-10-15', id: 82, value: '2026-10-15' });
+  assert.equal(filters.sortBy, 'date');
+  assert.equal(filters.sortDirection, 'desc');
   await assert.rejects(() => Milk.listMilkRecords({ ownerUserId, startDate: '2026-02-30', repository: { listMilkRecords() {} } }), /Invalid startDate/i);
   await assert.rejects(() => Milk.listMilkRecords({ ownerUserId, limit: 101, repository: { listMilkRecords() {} } }), /between 1 and 100/i);
+});
+
+test('milk history validates supported sorting, combines filters, and creates a stable numeric-volume cursor', async () => {
+  let statement;
+  const rows = [
+    { id: 82, farmer_id: 7, owner_user_id: ownerUserId, date: '2026-10-15', farmer_name: 'A Farmer', volume_liters: 5, valid_volume_liters: 5, volume_evening: 5, valid_volume_evening: 5 },
+    { id: 81, farmer_id: 8, owner_user_id: ownerUserId, date: '2026-10-14', farmer_name: 'B Farmer', volume_liters: 9, valid_volume_liters: 9, volume_morning: 9, valid_volume_morning: 9 },
+  ];
+  const result = await MilkRepository.listMilkRecords({
+    ownerUserId,
+    search: 'Farmer',
+    center: 'North Site',
+    startDate: '2026-10-01',
+    endDate: '2026-10-31',
+    session: 'evening',
+    sortBy: 'volume',
+    sortDirection: 'asc',
+    limit: 1,
+    runQuery: async (text, values) => { statement = { text, values }; return { rows }; },
+  });
+
+  assert.match(statement.text, /mr\.owner_user_id = \$1/);
+  assert.match(statement.text, /f\.owner_user_id = mr\.owner_user_id/);
+  assert.match(statement.text, /f\.name ILIKE/);
+  assert.match(statement.text, /LOWER\(BTRIM\(COALESCE\(NULLIF\(f\.collection_center/);
+  assert.match(statement.text, /mr\.date >=/);
+  assert.match(statement.text, /mr\.date <=/);
+  assert.match(statement.text, /valid_volume_evening, mr\.volume_evening, 0\) > 0/);
+  assert.match(statement.text, /COALESCE\(mr\.valid_volume_liters, mr\.volume_liters, 0\) ASC, mr\.date ASC, mr\.id ASC/);
+  assert.deepEqual(result.data.map((row) => row.farmerId), [7]);
+  assert.equal(result.hasMore, true);
+  assert.match(result.nextCursor, /^m1\./);
+  await assert.rejects(() => Milk.listMilkRecords({ ownerUserId, sortBy: 'amount; DROP TABLE milk_records', repository: { listMilkRecords() {} } }), /unsupported milk record sort field/i);
+});
+
+test('milk history emits typed date cursors and reverses date order without formatted-text sorting', async () => {
+  const captures = [];
+  for (const sortDirection of ['asc', 'desc']) {
+    await MilkRepository.listMilkRecords({
+      ownerUserId,
+      sortBy: 'date',
+      sortDirection,
+      limit: 2,
+      runQuery: async (text, values) => { captures.push({ text, values }); return { rows: [] }; },
+    });
+  }
+  assert.match(captures[0].text, /ORDER BY mr\.date ASC, mr\.id ASC/);
+  assert.match(captures[1].text, /ORDER BY mr\.date DESC, mr\.id DESC/);
+  assert.deepEqual(captures[0].values, [ownerUserId, 3]);
+  assert.deepEqual(captures[1].values, [ownerUserId, 3]);
+});
+
+test('milk receipt query combines owner, farmer, center, date, session, search, numeric sorting, and keyset paging', async () => {
+  let captured;
+  const rows = [
+    { id: 91, owner_user_id: ownerUserId, farmer_id: 7, farmer_name: 'A Farmer', date: '2026-10-15', volume_liters: 5, valid_volume_liters: 5, valid_amount: 2000 },
+    { id: 90, owner_user_id: ownerUserId, farmer_id: 7, farmer_name: 'A Farmer', date: '2026-10-14', volume_liters: 8, valid_volume_liters: 8, valid_amount: 3200 },
+  ];
+  const result = await MilkRepository.listMilkRecords({
+    ownerUserId,
+    search: 'A Farmer',
+    farmerId: 7,
+    center: 'North Site',
+    startDate: '2026-10-01',
+    endDate: '2026-10-31',
+    session: 'morning',
+    sortBy: 'volume',
+    sortDirection: 'asc',
+    limit: 1,
+    runQuery: async (text, values) => { captured = { text, values }; return { rows }; },
+  });
+
+  assert.match(captured.text, /mr\.owner_user_id = \$1/);
+  assert.match(captured.text, /f\.owner_user_id = mr\.owner_user_id/);
+  assert.match(captured.text, /mr\.farmer_id =/);
+  assert.match(captured.text, /collection_center/);
+  assert.match(captured.text, /mr\.date >=/);
+  assert.match(captured.text, /mr\.date <=/);
+  assert.match(captured.text, /f\.name ILIKE/);
+  assert.match(captured.text, /valid_volume_morning, mr\.volume_morning, 0\) > 0/);
+  assert.match(captured.text, /COALESCE\(mr\.valid_volume_liters, mr\.volume_liters, 0\) ASC, mr\.date ASC, mr\.id ASC/);
+  assert.equal(captured.values[0], ownerUserId);
+  assert.equal(captured.values.at(-1), 2);
+  assert.equal(result.data.length, 1);
+  assert.equal(result.hasMore, true);
+  assert.match(result.nextCursor, /^m1\./);
+});
+
+test('milk receipt cursor rejects invalid sort keys and preserves collector/dairy ownership filters', async () => {
+  await assert.rejects(() => Milk.listMilkRecords({
+    ownerUserId: 99,
+    sortBy: 'amount; DROP TABLE milk_records',
+    repository: { listMilkRecords: async () => ({}) },
+  }), /unsupported milk record sort field/i);
+  await assert.rejects(() => Milk.listMilkRecords({
+    ownerUserId: 99,
+    sortBy: 'date',
+    sortDirection: 'asc',
+    cursor: 'm1.invalid',
+    repository: { listMilkRecords: async () => ({}) },
+  }), /invalid milk record cursor/i);
+  let scope;
+  await Milk.listMilkRecords({
+    ownerUserId: 99,
+    collectorUserId: 99,
+    farmerId: 7,
+    sortBy: 'farmerName',
+    sortDirection: 'desc',
+    repository: { listMilkRecords: async (filters) => { scope = filters; return { data: [], hasMore: false, nextCursor: null }; } },
+  });
+  assert.equal(scope.ownerUserId, 99);
+  assert.equal(scope.collectorUserId, 99);
+  assert.equal(scope.sortBy, 'farmerName');
+  assert.equal(scope.sortDirection, 'desc');
 });
 
 test('milk history carries authenticated Collector scope to the assigned Dairy owner', async () => {
@@ -487,6 +603,34 @@ test('Dairy daily search filters farmer identity and session within the owner-se
   assert.match(query.text, /f\.national_id, ''\) ILIKE \$6/);
   assert.match(query.text, /f\.id::text ILIKE \$6 OR mr\.id::text ILIKE \$6/);
   assert.match(query.text, /COALESCE\(mr\.valid_volume_evening, mr\.volume_evening, 0\) > 0/);
+});
+
+test('Dairy daily list sorts by normalized farmer name and numeric litres with stable cursors', () => {
+  const nameQuery = MilkRepository.buildDairyDailyCollectionQuery({
+    dairyUserId: 77, date: '2026-10-07', centerId: 8, search: 'Aline', session: 'evening',
+    sortBy: 'farmerName', sortDirection: 'asc', cursor: { value: 'aline', id: 17 }, limit: 10,
+  });
+  const volumeQuery = MilkRepository.buildDairyDailyCollectionQuery({
+    dairyUserId: 77, date: '2026-10-07', centerId: 8,
+    sortBy: 'totalVolume', sortDirection: 'desc', cursor: { value: 25.5, id: 17 }, limit: 10,
+  });
+
+  assert.match(nameQuery.text, /LOWER\(BTRIM\(COALESCE\("farmerName", ''\)\)\) ASC/);
+  assert.match(nameQuery.text, /"farmerId" > \$6/);
+  assert.match(nameQuery.text, /ORDER BY LOWER\(BTRIM\(COALESCE\("farmerName", ''\)\)\) ASC, "farmerId" ASC/);
+  assert.deepEqual(nameQuery.values, [77, '2026-10-07', 8, '%Aline%', 'aline', 17, 11]);
+  assert.match(volumeQuery.text, /"totalVolume" < \$4::numeric/);
+  assert.match(volumeQuery.text, /"farmerId" > \$5/);
+  assert.match(volumeQuery.text, /ORDER BY "totalVolume" DESC, "farmerId" ASC/);
+  assert.deepEqual(volumeQuery.values, [77, '2026-10-07', 8, 25.5, 17, 11]);
+});
+
+test('daily collection rejects unknown sort fields and invalid sorted cursors before repository access', async () => {
+  let reads = 0;
+  const repository = { getDairyDailyCollection: async () => { reads += 1; return {}; } };
+  await assert.rejects(() => Milk.getDailyCollection({ ownerUserId: 77, accountType: 'COLLECTION_CENTER', centerId: 8, date: '2026-10-07', sortBy: 'name;drop table farmers', repository }), /unsupported daily collection sort field/i);
+  await assert.rejects(() => Milk.getDailyCollection({ ownerUserId: 77, accountType: 'COLLECTION_CENTER', centerId: 8, date: '2026-10-07', sortBy: 'farmerName', sortDirection: 'asc', cursor: 'd1.invalid', repository }), /invalid daily collection cursor/i);
+  assert.equal(reads, 0);
 });
 
 test('Collector daily search applies the same owner, center, identity, and session filters to totals and page rows', async () => {

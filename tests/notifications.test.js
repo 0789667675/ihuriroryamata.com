@@ -50,6 +50,38 @@ test('notification list, unread count, and mark-read always carry authenticated 
   await assert.rejects(() => Notifications.getNotifications({ ownerUserId, limit: 101, repository }), /between 1 and 100/i);
 });
 
+test('notification query combines real status/type/priority/text filters with date or type ordering', async () => {
+  let statement;
+  await NotificationRepository.getNotifications({
+    ownerUserId,
+    center: 'North Site',
+    status: 'unread',
+    priority: 'warning',
+    type: 'milk_missing',
+    search: 'Aline',
+    sortBy: 'type',
+    sortDirection: 'asc',
+    limit: 25,
+    runQuery: async (text, values) => { statement = { text, values }; return { rows: [] }; },
+  });
+
+  assert.match(statement.text, /owner_user_id = \$1/);
+  assert.match(statement.text, /collection_center = \$2/);
+  assert.match(statement.text, /is_read = FALSE/);
+  assert.match(statement.text, /priority = \$3/);
+  assert.match(statement.text, /notification_type = \$4/);
+  assert.match(statement.text, /title ILIKE \$5 OR message ILIKE \$5/);
+  assert.match(statement.text, /ORDER BY notification_type ASC, id ASC LIMIT \$6/);
+  assert.deepEqual(statement.values, [ownerUserId, 'North Site', 'warning', 'milk_missing', '%Aline%', 25]);
+});
+
+test('notification service validates sort keys, directions, and read/unread filter values', async () => {
+  const repository = makeRepository();
+  await assert.rejects(() => Notifications.getNotifications({ ownerUserId, sortBy: 'message;DROP TABLE notifications', repository }), /unsupported notification sort field/i);
+  await assert.rejects(() => Notifications.getNotifications({ ownerUserId, sortDirection: 'random', repository }), /sortDirection/i);
+  await assert.rejects(() => Notifications.getNotifications({ ownerUserId, status: 'archived', repository }), /invalid notification status/i);
+});
+
 test('monitoring preserves new-farmer and repeated zero-volume status rules', () => {
   const farmer = { id: 2, name: 'Aline' };
   const periods = { morning: { start: '06:30', end: '09:00' }, evening: { start: '17:30', end: '19:00' } };

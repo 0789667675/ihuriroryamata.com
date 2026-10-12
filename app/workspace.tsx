@@ -5,7 +5,7 @@ import Link from 'next/link';
 import { usePathname, useSearchParams } from 'next/navigation';
 import {
   Activity, ArrowRight, Bell, Building2, Check, ChevronDown, ChevronLeft, ChevronRight, Eye, EyeOff,
-  CircleDollarSign, ClipboardList, FileBarChart2, LogOut, Milk, Plus, Search, Settings, Shield,
+  ArrowDown, ArrowUp, ArrowUpDown, CircleDollarSign, ClipboardList, FileBarChart2, LogOut, Milk, Plus, Search, Settings, Shield,
   UserRound, Users, X, ArrowUpRight, Wallet, CalendarDays, BookOpen, Truck,
 } from 'lucide-react';
 import { flushOfflineWrites, getOfflineWrites, queueOfflineWrite } from '@/lib/offline-queue';
@@ -22,7 +22,7 @@ type Page<T> = { data: T[]; nextCursor: string | null; hasMore: boolean; pageSiz
 type DailyRow = { farmerId: number; farmerName: string; phone?: string; nationalId?: string; collectionCenter?: string | null; recordId?: number; volumeMorning: number; volumeEvening: number; totalVolume: number; volumeLiters?: number; amount: number; status?: string; abacundaCount?: number; presentCount?: number };
 type CollectorMilkEntry = { id: number; date: string; volumeLiters: number; pricePerLiter: number; status: string; effectiveVolumeLiters: number };
 type CollectorMilkPrice = { id: number; pricePerLiter: number; effectiveDate: string };
-type OwnerIfishiEntry = { id: number | null; date: string; volumeLiters: number; originalVolumeLiters: number; validVolumeLiters: number; lostVolumeLiters: number; pricePerLiter: number | null; grossAmount: number | null; assignedFarmerLiters: number; surplusLiters: number; status: string; adjustmentReason: string | null; adjustedAt: string | null };
+type OwnerIfishiEntry = { id: number | null; date: string; volumeMorning: number; volumeEvening: number; volumeLiters: number; originalVolumeLiters: number; validVolumeLiters: number; lostVolumeLiters: number; pricePerLiter: number | null; grossAmount: number | null; assignedFarmerLiters: number; surplusLiters: number; status: string; adjustmentReason: string | null; adjustedAt: string | null };
 type OwnerIfishiHistory = { owner: { name: string }; startDate: string; endDate: string; entries: OwnerIfishiEntry[]; totals: { originalVolumeLiters: number; ownerVolumeLiters: number; lostVolumeLiters: number; ownerMilkGross: number | null; ownerMilkValueComplete: boolean; assignedFarmerLiters: number; surplusLiters: number } };
 type MilkRecord = { id: number; farmer_id: number; owner_user_id: number; date: string; volumeMorning: number; volumeEvening: number; volume: number; originalVolumeLiters: number; validVolumeLiters: number; lostVolumeLiters: number; originalAmount: number; validAmount: number; amount: number; pricePerLiter: number; status: string; adjustmentReason: string | null; adjustedBy: number | null; adjustedAt: string | null; collectionCenter?: string | null };
 type Notice = { id: number; title: string; message: string; notification_type: string; isRead: boolean; createdAt: string };
@@ -324,6 +324,8 @@ export default function Workspace() {
   const [farmerSearch, setFarmerSearch] = useState('');
   const [farmerCenter, setFarmerCenter] = useState('');
   const [farmerCollectorFilter, setFarmerCollectorFilter] = useState('');
+  const [farmerSortBy, setFarmerSortBy] = useState<'' | 'name' | 'nationalId' | 'collectionCenter'>('');
+  const [farmerSortDirection, setFarmerSortDirection] = useState<'asc' | 'desc'>('asc');
   const [farmerForm, setFarmerForm] = useState({ name: '', collectionCenterId: '', phone: '', nationalId: '', accountNumber: '', cowType: '', collectorUserId: '' });
   const [farmerCreateOpen, setFarmerCreateOpen] = useState(false);
   const [farmerCreateError, setFarmerCreateError] = useState('');
@@ -331,6 +333,7 @@ export default function Workspace() {
   const [editingFarmer, setEditingFarmer] = useState<Farmer | null>(null);
   const [farmerEdit, setFarmerEdit] = useState({ name: '', collectionCenterId: '', phone: '', nationalId: '', accountNumber: '', cowType: '', collectorUserId: '' });
   const [collectorAssignments, setCollectorAssignments] = useState<CollectorAssignment[]>([]);
+  const [collectorAssignmentSortDirection, setCollectorAssignmentSortDirection] = useState<'asc' | 'desc'>('asc');
   const [collectorAssignmentsLoading, setCollectorAssignmentsLoading] = useState(false);
   const [collectorAssignmentsError, setCollectorAssignmentsError] = useState('');
   const [collectorLinkId, setCollectorLinkId] = useState('');
@@ -359,6 +362,8 @@ export default function Workspace() {
   const [dailySearch, setDailySearch] = useState('');
   const [debouncedDailySearch, setDebouncedDailySearch] = useState('');
   const [dailySession, setDailySession] = useState<'all' | 'morning' | 'evening'>('all');
+  const [dailySortBy, setDailySortBy] = useState<'' | 'farmerName' | 'totalVolume'>('');
+  const [dailySortDirection, setDailySortDirection] = useState<'asc' | 'desc'>('asc');
   const [dailyPageSize, setDailyPageSize] = useState(50);
   const dailyRequestRef = useRef(0);
   const [dailySummary, setDailySummary] = useState({
@@ -373,6 +378,12 @@ export default function Workspace() {
   });
   const [volumes, setVolumes] = useState<Record<number, { morning: string; evening: string }>>({});
   const [deductionRows, setDeductionRows] = useState<Page<any> | null>(null);
+  const [deductionSearchQuery, setDeductionSearchQuery] = useState('');
+  const [deductionSearch, setDeductionSearch] = useState('');
+  const [deductionTypeFilter, setDeductionTypeFilter] = useState('');
+  const [deductionStatusFilter, setDeductionStatusFilter] = useState('');
+  const [deductionSortBy, setDeductionSortBy] = useState<'date' | 'farmerName' | 'amount'>('date');
+  const [deductionSortDirection, setDeductionSortDirection] = useState<'asc' | 'desc'>('desc');
   const [deductionForm, setDeductionForm] = useState({ farmerId: '', amount: '', type: 'Other', date: today(), reason: '', notes: '' });
   const [deductionCreateOpen, setDeductionCreateOpen] = useState(false);
   const [deductionCreateError, setDeductionCreateError] = useState('');
@@ -386,6 +397,9 @@ const [report, setReport] = useState<Report | null>(null);
   const [ifishiFarmers, setIfishiFarmers] = useState<Farmer[]>([]);
   const [ifishiFarmerId, setIfishiFarmerId] = useState('');
   const [ifishiDate, setIfishiDate] = useState(today());
+  const [ifishiRecordSession, setIfishiRecordSession] = useState<'all' | 'morning' | 'evening'>('all');
+  const [ifishiRecordSortBy, setIfishiRecordSortBy] = useState<'date' | 'volume' | 'amount'>('date');
+  const [ifishiRecordSortDirection, setIfishiRecordSortDirection] = useState<'asc' | 'desc'>('desc');
   const [systemHealth, setSystemHealth] = useState<SystemHealth | null>(null);
   const [ifishiMorning, setIfishiMorning] = useState('');
   const [ifishiEvening, setIfishiEvening] = useState('');
@@ -396,7 +410,8 @@ const [report, setReport] = useState<Report | null>(null);
   const [ownerIfishiReport, setOwnerIfishiReport] = useState<Report | null>(null);
   const [ownerIfishiReportError, setOwnerIfishiReportError] = useState('');
   const [ownerIfishiPeriod, setOwnerIfishiPeriod] = useState<'first-half' | 'second-half'>('first-half');
-  const [ownerIfishiVolume, setOwnerIfishiVolume] = useState('');
+  const [ownerIfishiMorning, setOwnerIfishiMorning] = useState('');
+  const [ownerIfishiEvening, setOwnerIfishiEvening] = useState('');
   const [ownerIfishiLoading, setOwnerIfishiLoading] = useState(false);
   const [ownerIfishiError, setOwnerIfishiError] = useState('');
   const [ownerIfishiSaveError, setOwnerIfishiSaveError] = useState('');
@@ -404,12 +419,21 @@ const [report, setReport] = useState<Report | null>(null);
   const [ukweziMonth, setUkweziMonth] = useState(today().slice(5, 7));
   const [ukweziYear, setUkweziYear] = useState(today().slice(0, 4));
   const [ukweziPeriod, setUkweziPeriod] = useState<'first-half' | 'second-half'>('first-half');
+  const [ukweziSortBy, setUkweziSortBy] = useState<'name' | 'volume' | 'payable'>('name');
+  const [ukweziSortDirection, setUkweziSortDirection] = useState<'asc' | 'desc'>('asc');
   const [ukweziReport, setUkweziReport] = useState<Report | null>(null);
   const [ukweziPdfLoading, setUkweziPdfLoading] = useState(false);
   const [ukweziPdfError, setUkweziPdfError] = useState('');
   const [ukweziPdfStatus, setUkweziPdfStatus] = useState('');
   const ukweziPdfRequestRef = useRef(false);
   const [notifications, setNotifications] = useState<Notice[]>([]);
+  const [notificationSearchQuery, setNotificationSearchQuery] = useState('');
+  const [notificationSearch, setNotificationSearch] = useState('');
+  const [notificationStatusFilter, setNotificationStatusFilter] = useState('');
+  const [notificationPriorityFilter, setNotificationPriorityFilter] = useState('');
+  const [notificationTypeFilter, setNotificationTypeFilter] = useState('');
+  const [notificationSortBy, setNotificationSortBy] = useState<'date' | 'type'>('date');
+  const [notificationSortDirection, setNotificationSortDirection] = useState<'asc' | 'desc'>('desc');
   const [notificationPanelOpen, setNotificationPanelOpen] = useState(false);
   const [accounts, setAccounts] = useState<{ accounts: Account[]; total: number; page: number; limit: number } | null>(null);
   const [accountSearch, setAccountSearch] = useState('');
@@ -423,6 +447,9 @@ const [report, setReport] = useState<Report | null>(null);
   const [billing, setBilling] = useState<any>(null);
   const [billingLoading, setBillingLoading] = useState(false);
   const [billingError, setBillingError] = useState('');
+  const [customerPaymentStatus, setCustomerPaymentStatus] = useState('');
+  const [customerPaymentSortBy, setCustomerPaymentSortBy] = useState<'date' | 'amount'>('date');
+  const [customerPaymentSortDirection, setCustomerPaymentSortDirection] = useState<'asc' | 'desc'>('desc');
   const billingPeriod = 'monthly';
   const [selectedSubscriptionPlanCode, setSelectedSubscriptionPlanCode] = useState('');
   const [paymentPhone, setPaymentPhone] = useState('');
@@ -577,11 +604,12 @@ const visibleTabs = (isAdmin
     });
   };
 
-  const loadCollectorAssignments = async () => {
+  const loadCollectorAssignments = async (sortDirection = collectorAssignmentSortDirection) => {
     setCollectorAssignmentsLoading(true);
     setCollectorAssignmentsError('');
     const params = new URLSearchParams();
     if (user?.accountType === 'COLLECTION_CENTER' && selectedCenter) params.set('centerId', selectedCenter);
+    params.set('sortDirection', sortDirection);
     try {
       const result = await api<CollectorAssignment[]>(`/api/collector-assignments${params.size ? `?${params}` : ''}`);
       setCollectorAssignments(result);
@@ -611,10 +639,12 @@ const visibleTabs = (isAdmin
       selectedCollectorId: farmerCollectorFilter,
       farmerSearch,
       farmerCenter: scopedFarmerCenter,
+      sortBy: farmerSortBy || undefined,
+      sortDirection: farmerSortBy ? farmerSortDirection : undefined,
       cursor: cursor || undefined,
       limit: 50,
     });
-    const cacheKey = `milk-farmers-${user?.id}-${user?.accountType}-${scopedFarmerCenter}-${farmerSearch}-${farmerCollectorFilter}`;
+    const cacheKey = `milk-farmers-${user?.id}-${user?.accountType}-${scopedFarmerCenter}-${farmerSearch}-${farmerCollectorFilter}-${farmerSortBy}-${farmerSortDirection}`;
     try {
       const result = await api<Page<Farmer>>(`/api/farmers?${params}`, { cache: 'no-store' });
       setFarmers((previous) => append && previous ? { ...result, data: [...previous.data, ...result.data] } : result);
@@ -642,7 +672,8 @@ const visibleTabs = (isAdmin
   const loadIfishiRecords = async () => {
     if (!ifishiFarmerId) return;
     const { startDate, endDate } = getMonthBounds(ifishiMonth);
-    const params = new URLSearchParams({ farmerId: ifishiFarmerId, startDate, endDate, limit: '100' });
+    const params = new URLSearchParams({ farmerId: ifishiFarmerId, startDate, endDate, limit: '100', sortBy: ifishiRecordSortBy, sortDirection: ifishiRecordSortDirection });
+    if (ifishiRecordSession !== 'all') params.set('session', ifishiRecordSession);
     if (user?.accountType === 'COLLECTOR') params.set('collectorUserId', String(user.id));
     const result = await api<Page<MilkRecord>>(`/api/milk?${params}`, { cache: 'no-store' });
     setIfishiRecords(result.data);
@@ -707,6 +738,10 @@ const visibleTabs = (isAdmin
     if (selectedCenter) params.set('centerId', selectedCenter);
     if (search) params.set('search', search);
     if (session !== 'all') params.set('session', session);
+    if (milkEntryView && dailySortBy) {
+      params.set('sortBy', dailySortBy);
+      params.set('sortDirection', dailySortDirection);
+    }
     if (cursor) params.set('cursor', cursor);
     try {
       const result = await api<{ farmers: DailyRow[]; summary: typeof dailySummary; farmerPagination: { nextCursor: string | null; hasMore: boolean }; center?: string | null; centers?: string[]; collectorMilk?: CollectorMilkEntry[] }>(`/api/milk/daily?${params}`, { cache: 'no-store' });
@@ -730,8 +765,20 @@ const visibleTabs = (isAdmin
     }
   };
 
-  const loadDeductions = async (cursor?: string | null, append = false) => {
+  const loadDeductions = async (cursor?: string | null, append = false, overrides: { search?: string; type?: string; status?: string; sortBy?: typeof deductionSortBy; sortDirection?: typeof deductionSortDirection } = {}) => {
     const params = new URLSearchParams({ limit: '50' });
+    const filters = {
+      search: overrides.search ?? deductionSearch,
+      type: overrides.type ?? deductionTypeFilter,
+      status: overrides.status ?? deductionStatusFilter,
+      sortBy: overrides.sortBy ?? deductionSortBy,
+      sortDirection: overrides.sortDirection ?? deductionSortDirection,
+    };
+    if (filters.search) params.set('search', filters.search);
+    if (filters.type) params.set('type', filters.type);
+    if (filters.status) params.set('status', filters.status);
+    params.set('sortBy', filters.sortBy);
+    params.set('sortDirection', filters.sortDirection);
     if (cursor) params.set('cursor', cursor);
     const result = await api<Page<any>>(`/api/deductions?${params}`);
     setDeductionRows((previous) => append && previous ? { ...result, data: [...previous.data, ...result.data] } : result);
@@ -757,8 +804,10 @@ const visibleTabs = (isAdmin
     setReport(await api<Report>(`/api/reports/summary?${params}`));
   };
 
-  const loadUkwezi = async () => {
+  const loadUkwezi = async (sortOverrides: { sortBy?: typeof ukweziSortBy; sortDirection?: typeof ukweziSortDirection } = {}) => {
     const params = new URLSearchParams({ periodType: ukweziPeriod, month: ukweziMonth, year: ukweziYear });
+    params.set('sortBy', sortOverrides.sortBy || ukweziSortBy);
+    params.set('sortDirection', sortOverrides.sortDirection || ukweziSortDirection);
     if (isDairy && selectedCenter) params.set('collectionCenter', centers.find((center) => String(center.id) === selectedCenter)?.name || '');
     setUkweziReport(await api<Report>(`/api/reports/summary?${params}`, { cache: 'no-store' }));
   };
@@ -774,7 +823,7 @@ const visibleTabs = (isAdmin
       const response = await fetch(`/api/ukwezi/pdf?${params}`, { credentials: 'include', cache: 'no-store' });
       if (!response.ok) {
         const body = await response.json().catch(() => null);
-        throw new Error(response.status >= 500 ? publicLanguage.t('ukweziPdfError') : body?.message || publicLanguage.t('ukweziPdfError'));
+        throw new Error(body?.message || publicLanguage.t('ukweziPdfError'));
       }
       if (!response.headers.get('content-type')?.toLowerCase().includes('application/pdf')) {
         throw new Error(publicLanguage.t('ukweziPdfInvalid'));
@@ -808,10 +857,47 @@ const visibleTabs = (isAdmin
     setUnreadCount(result.data.unreadCount);
   };
 
-  const loadNotifications = async () => {
-    const result = await api<{ data: Notice[] }>('/api/notifications?limit=50');
+  const loadNotifications = async (overrides: { search?: string; status?: string; priority?: string; type?: string; sortBy?: typeof notificationSortBy; sortDirection?: typeof notificationSortDirection } = {}) => {
+    const filters = {
+      search: overrides.search ?? notificationSearch,
+      status: overrides.status ?? notificationStatusFilter,
+      priority: overrides.priority ?? notificationPriorityFilter,
+      type: overrides.type ?? notificationTypeFilter,
+      sortBy: overrides.sortBy ?? notificationSortBy,
+      sortDirection: overrides.sortDirection ?? notificationSortDirection,
+    };
+    const params = new URLSearchParams({ limit: '50', sortBy: filters.sortBy, sortDirection: filters.sortDirection });
+    if (filters.search) params.set('search', filters.search);
+    if (filters.status) params.set('status', filters.status);
+    if (filters.priority) params.set('priority', filters.priority);
+    if (filters.type) params.set('type', filters.type);
+    if (isDairy && selectedCenter) params.set('center', centers.find((center) => String(center.id) === selectedCenter)?.name || '');
+    const result = await api<{ data: Notice[] }>(`/api/notifications?${params}`);
     setNotifications(result.data);
     await loadUnreadCount();
+  };
+
+  const renderNotificationFilters = () => {
+    const reset = () => {
+      setNotificationSearchQuery(''); setNotificationSearch(''); setNotificationStatusFilter(''); setNotificationPriorityFilter(''); setNotificationTypeFilter(''); setNotificationSortBy('date'); setNotificationSortDirection('desc');
+      void loadNotifications({ search: '', status: '', priority: '', type: '', sortBy: 'date', sortDirection: 'desc' }).catch((reason) => setError(reason.message));
+    };
+    const applySort = (value: string) => {
+      const [field, direction] = value.split(':');
+      if (['date', 'type'].includes(field) && ['asc', 'desc'].includes(direction)) {
+        setNotificationSortBy(field as typeof notificationSortBy);
+        setNotificationSortDirection(direction as typeof notificationSortDirection);
+        void loadNotifications({ sortBy: field as typeof notificationSortBy, sortDirection: direction as typeof notificationSortDirection }).catch((reason) => setError(reason.message));
+      }
+    };
+    return <div className="toolbar notification-list-controls">
+      <form className="search-form" onSubmit={(event) => { event.preventDefault(); const search = notificationSearchQuery.trim(); setNotificationSearch(search); void loadNotifications({ search }).catch((reason) => setError(reason.message)); }}><Search size={17} aria-hidden="true" /><input aria-label={publicLanguage.t('milkSearchLabel')} placeholder={publicLanguage.t('search')} value={notificationSearchQuery} onChange={(event) => setNotificationSearchQuery(event.target.value)} /><button className="button button-secondary">{publicLanguage.t('search')}</button></form>
+      <label>{publicLanguage.t('status')}<select value={notificationStatusFilter} onChange={(event) => { const status = event.target.value; setNotificationStatusFilter(status); void loadNotifications({ status }).catch((reason) => setError(reason.message)); }}><option value="">{publicLanguage.t('allStatuses')}</option><option value="unread">{publicLanguage.t('notificationsUnread')}</option><option value="read">{publicLanguage.t('notificationsRead')}</option></select></label>
+      <label>{publicLanguage.t('notificationPriority')}<select value={notificationPriorityFilter} onChange={(event) => { const priority = event.target.value; setNotificationPriorityFilter(priority); void loadNotifications({ priority }).catch((reason) => setError(reason.message)); }}><option value="">{publicLanguage.t('allStatuses')}</option>{['high', 'warning', 'info', 'success'].map((priority) => <option key={priority} value={priority}>{priority}</option>)}</select></label>
+      <label>{publicLanguage.t('notificationType')}<select value={notificationTypeFilter} onChange={(event) => { const type = event.target.value; setNotificationTypeFilter(type); void loadNotifications({ type }).catch((reason) => setError(reason.message)); }}><option value="">{publicLanguage.t('allStatuses')}</option>{Array.from(new Set(notifications.map((item) => item.notification_type))).map((type) => <option key={type} value={type}>{type.replaceAll('_', ' ')}</option>)}</select></label>
+      <label>{publicLanguage.t('sort')}<select value={`${notificationSortBy}:${notificationSortDirection}`} onChange={(event) => applySort(event.target.value)}><option value="date:desc">{publicLanguage.t('when')} ↓</option><option value="date:asc">{publicLanguage.t('when')} ↑</option><option value="type:asc">{publicLanguage.t('notificationType')} ↑</option><option value="type:desc">{publicLanguage.t('notificationType')} ↓</option></select></label>
+      {notificationSearch || notificationStatusFilter || notificationPriorityFilter || notificationTypeFilter || notificationSortBy !== 'date' || notificationSortDirection !== 'desc' ? <button type="button" className="button button-secondary small-button" onClick={reset}>{publicLanguage.t('milkClearSearch')}</button> : null}
+    </div>;
   };
 
   const loadAccounts = async () => {
@@ -857,12 +943,15 @@ const visibleTabs = (isAdmin
     setAdminSummary(await api<AdminSummary>('/api/admin/accounts/summary'));
   };
 
-  const loadBilling = async (planCode = selectedSubscriptionPlanCode) => {
+  const loadBilling = async (planCode = selectedSubscriptionPlanCode, paymentOverrides: { status?: string; sortBy?: typeof customerPaymentSortBy; sortDirection?: typeof customerPaymentSortDirection } = {}) => {
     setBillingLoading(true);
     setBillingError('');
     try {
       const params = new URLSearchParams({ billingPeriod });
       if (planCode) params.set('planCode', planCode);
+      if (paymentOverrides.status !== undefined ? paymentOverrides.status : customerPaymentStatus) params.set('paymentStatus', paymentOverrides.status !== undefined ? paymentOverrides.status : customerPaymentStatus);
+      params.set('paymentSortBy', paymentOverrides.sortBy || customerPaymentSortBy);
+      params.set('paymentSortDirection', paymentOverrides.sortDirection || customerPaymentSortDirection);
       const data = await api<any>(`/api/subscription?${params}`, { cache: 'no-store' });
       setBilling(data);
       setPaymentPhone(data.account?.phone || '');
@@ -984,10 +1073,10 @@ const visibleTabs = (isAdmin
 
   useEffect(() => {
     if (user && tab === 'farmers') loadFarmers().catch((reason) => setError(reason.message));
-  }, [user, tab, farmerSearch, farmerCenter, farmerCollectorFilter, selectedCenter]);
+  }, [user, tab, farmerSearch, farmerCenter, farmerCollectorFilter, farmerSortBy, farmerSortDirection, selectedCenter]);
   useEffect(() => {
     if (user && tab === 'milk' && (!isDairy || selectedCenter)) loadDaily().catch((reason) => setError(reason.message));
-  }, [user, tab, isDairy, selectedCenter, collectionDate, debouncedDailySearch, dailySession, dailyPageSize]);
+  }, [user, tab, isDairy, selectedCenter, collectionDate, debouncedDailySearch, dailySession, dailySortBy, dailySortDirection, dailyPageSize]);
   useEffect(() => {
     if (user && tab === 'milk' && ifishiOpen) loadIfishiFarmers(ifishiFarmerSearch).catch((reason) => setError(reason.message));
   }, [user, tab, ifishiOpen, ifishiFarmerSearch, selectedCenter]);
@@ -999,7 +1088,8 @@ const visibleTabs = (isAdmin
   useEffect(() => {
     if (!isCollector || tab !== 'milk' || !ownerIfishiOpen) return;
     const entry = ownerIfishiHistory?.entries.find((row) => row.date === ifishiDate && row.id !== null);
-    setOwnerIfishiVolume(entry ? String(entry.volumeLiters) : '');
+    setOwnerIfishiMorning(entry?.volumeMorning ? String(entry.volumeMorning) : '');
+    setOwnerIfishiEvening(entry?.volumeEvening ? String(entry.volumeEvening) : '');
   }, [isCollector, tab, ownerIfishiOpen, ownerIfishiHistory, ifishiDate]);
   useEffect(() => {
     if (!user || tab !== 'milk' || (!ownerIfishiOpen && !ownerIfishiHistoryOpen)) return;
@@ -1011,13 +1101,13 @@ const visibleTabs = (isAdmin
   }, [user, tab, ownerIfishiOpen, ifishiMonth, ownerIfishiPeriod, ifishiDate]);
   useEffect(() => {
     if (user && tab === 'milk' && ifishiOpen && ifishiFarmerId) loadIfishiRecords().catch((reason) => setError(reason.message));
-  }, [user, tab, ifishiOpen, ifishiFarmerId, ifishiMonth, ifishiDate]);
+  }, [user, tab, ifishiOpen, ifishiFarmerId, ifishiMonth, ifishiDate, ifishiRecordSession, ifishiRecordSortBy, ifishiRecordSortDirection]);
   useEffect(() => {
     if (user && isCollector && tab === 'milk' && (ownerIfishiOpen || ownerIfishiHistoryOpen)) loadOwnerIfishiHistory().catch(() => undefined);
   }, [user, isCollector, tab, ownerIfishiOpen, ownerIfishiHistoryOpen, ifishiMonth, ownerIfishiPeriod]);
   useEffect(() => {
     if (user && (tab === 'ukwezi' || tab === 'transport')) loadUkwezi().catch((reason) => setError(reason.message));
-  }, [user, tab, ukweziMonth, ukweziYear, ukweziPeriod, selectedCenter]);
+  }, [user, tab, ukweziMonth, ukweziYear, ukweziPeriod, ukweziSortBy, ukweziSortDirection, selectedCenter]);
   useEffect(() => {
     if (user && tab === 'reports') loadReport().catch((reason) => setError(reason.message));
   }, [user, tab, reportMonth, selectedCenter]);
@@ -1067,7 +1157,8 @@ const visibleTabs = (isAdmin
     setIfishiMonth(date.slice(0, 7));
     setOwnerIfishiPeriod(day <= 15 ? 'first-half' : 'second-half');
     const entry = ownerIfishiHistory?.entries.find((row) => row.date === date && row.id !== null);
-    setOwnerIfishiVolume(entry ? String(entry.volumeLiters) : '');
+    setOwnerIfishiMorning(entry?.volumeMorning ? String(entry.volumeMorning) : '');
+    setOwnerIfishiEvening(entry?.volumeEvening ? String(entry.volumeEvening) : '');
   };
 
   const openOwnerIfishiEntry = (date = today()) => {
@@ -1248,7 +1339,8 @@ const visibleTabs = (isAdmin
     try {
       const saved = await api<OwnerIfishiEntry>(path, json(existing ? 'PUT' : 'POST', {
         date: ifishiDate,
-        volumeLiters: Number(ownerIfishiVolume),
+        volumeMorning: Number(ownerIfishiMorning || 0),
+        volumeEvening: Number(ownerIfishiEvening || 0),
       }));
       if (!saved?.id) throw new Error('The server did not return the saved Owner Ifishi record.');
       setOwnerIfishiSaveStatus(publicLanguage.t(existing ? 'ownerIfishiCorrected' : 'ownerIfishiSaved'));
@@ -1449,12 +1541,12 @@ const visibleTabs = (isAdmin
     return <>
       <section className="panel panel-wide abacunda-directory">
         <div className="panel-heading"><div><span className="eyebrow">Active Ikigo</span><h2>{activeCenterName}</h2></div><Building2 size={19} aria-hidden="true" /></div>
-        <div className="panel-heading"><div><span className="eyebrow">{publicLanguage.t('directory')}</span><h2>{publicLanguage.t('navAbacunda')}</h2></div><span className="count-label">{assignedAbacundaCount}</span></div>
+        <div className="panel-heading"><div><span className="eyebrow">{publicLanguage.t('directory')}</span><h2>{publicLanguage.t('navAbacunda')}</h2></div><div className="panel-heading-actions"><span className="count-label">{assignedAbacundaCount}</span><label className="collector-sort-mobile">{publicLanguage.t('sort')}<select value={collectorAssignmentSortDirection} onChange={(event) => { const direction = event.target.value as typeof collectorAssignmentSortDirection; setCollectorAssignmentSortDirection(direction); void loadCollectorAssignments(direction).catch((reason) => setError(reason.message)); }}><option value="asc">{publicLanguage.t('milkFarmer')} ↑</option><option value="desc">{publicLanguage.t('milkFarmer')} ↓</option></select></label></div></div>
         {collectorAssignmentsLoading ? <div className="workspace-empty workspace-loading" role="status"><span className="loading-indicator" />Loading assigned Abacunda…</div>
           : collectorAssignmentsError ? <div className="workspace-empty" role="alert"><b>{collectorAssignmentsError}</b><button type="button" className="button button-secondary small-button" onClick={() => loadCollectorAssignments().catch(() => undefined)}>Retry</button></div>
           : !selectedCenter ? <div className="workspace-empty" role="status"><b>No active Ikigo is available for this account.</b></div>
           : collectorAssignments.length ? <>
-          <div className="table-scroll abacunda-desktop-list"><table><thead><tr><th>{publicLanguage.t('assignedCollectors')}</th><th>{publicLanguage.t('accountNationalId')}</th><th>{publicLanguage.t('accountPhone')} / {publicLanguage.t('accountNumber')}</th><th>{publicLanguage.t('navAbacunda')}</th><th>{publicLanguage.t('navIfishi')}</th></tr></thead><tbody>{collectorAssignments.map((assignment) => <tr key={assignment.collector_user_id}><td className="strong-cell">{assignment.collector_name}</td><td>{assignment.collector_national_id || '—'}</td><td>{[assignment.collector_phone, assignment.collector_account_number].filter(Boolean).join(' / ') || '—'}</td><td>{assignment.abacunda_count}</td><td><button type="button" className="text-button" onClick={() => openAbacundaIfishi(assignment)}>{publicLanguage.t('navIfishi')}</button></td></tr>)}</tbody></table></div>
+          <div className="table-scroll abacunda-desktop-list"><table><thead><tr><th aria-sort={collectorAssignmentSortDirection === 'asc' ? 'ascending' : 'descending'}><button type="button" className="farmer-sort-button" onClick={() => { const direction = collectorAssignmentSortDirection === 'asc' ? 'desc' : 'asc'; setCollectorAssignmentSortDirection(direction); void loadCollectorAssignments(direction).catch((reason) => setError(reason.message)); }}>{publicLanguage.t('assignedCollectors')}{collectorAssignmentSortDirection === 'asc' ? <ArrowUp size={13} /> : <ArrowDown size={13} />}</button></th><th>{publicLanguage.t('accountNationalId')}</th><th>{publicLanguage.t('accountPhone')} / {publicLanguage.t('accountNumber')}</th><th>{publicLanguage.t('navAbacunda')}</th><th>{publicLanguage.t('navIfishi')}</th></tr></thead><tbody>{collectorAssignments.map((assignment) => <tr key={assignment.collector_user_id}><td className="strong-cell">{assignment.collector_name}</td><td>{assignment.collector_national_id || '—'}</td><td>{[assignment.collector_phone, assignment.collector_account_number].filter(Boolean).join(' / ') || '—'}</td><td>{assignment.abacunda_count}</td><td><button type="button" className="text-button" onClick={() => openAbacundaIfishi(assignment)}>{publicLanguage.t('navIfishi')}</button></td></tr>)}</tbody></table></div>
           <div className="abacunda-mobile-list">{collectorAssignments.map((assignment) => <article className="abacunda-mobile-card" key={assignment.collector_user_id}><header><b>{assignment.collector_name}</b><span>{assignment.abacunda_count} {publicLanguage.t('navAbacunda').toLowerCase()}</span></header><p>{[assignment.collector_phone, assignment.collector_account_number].filter(Boolean).join(' / ') || '—'}</p><button type="button" className="button button-secondary small-button" onClick={() => openAbacundaIfishi(assignment)}><BookOpen size={15} />{publicLanguage.t('navIfishi')}</button></article>)}</div>
         </> : <div className="workspace-empty" role="status"><span className="workspace-empty-icon"><Users size={21} aria-hidden="true" /></span><b>{publicLanguage.t('noCollectorsLinked')}</b></div>}
       </section>
@@ -1473,7 +1565,7 @@ const visibleTabs = (isAdmin
   };
 
   const renderFarmers = () => (
-    <div className="screen-grid">
+    <div className="screen-grid farmers-view">
       {isDairy && !centers.length ? <section className="panel panel-wide">
         <div className="panel-heading"><div><span className="eyebrow">{publicLanguage.t('configuration')}</span><h2>{publicLanguage.t('centerName')}</h2></div><Building2 size={19} aria-hidden="true" /></div>
         <form className="toolbar" onSubmit={createCenter}>
@@ -1484,10 +1576,25 @@ const visibleTabs = (isAdmin
       </section> : null}
       <section className="panel panel-wide">
         <div className="panel-heading"><div><span className="eyebrow">{isDairy ? publicLanguage.t('dashboardCenter') : publicLanguage.t('directory')}</span><h2>{isDairy ? publicLanguage.t('navAbacunda') : accountCopy('navFarmers', 'navAbacunda')}</h2></div><div className="panel-heading-actions"><span className="count-label">{farmers ? `${farmers.data.length} ${accountCopy('farmersLoaded', 'abacundaLoaded')}` : '…'}{isDairy && selectedCenter ? ` · ${centers.find((center) => String(center.id) === selectedCenter)?.name || ''}` : !isDairy ? ` · ${accountCopy('pageSize', 'abacundaPageSize')}` : ''}</span><button type="button" className="button button-primary small-button" onClick={() => { setFarmerCreateError(''); setFarmerCreateOpen(true); }} disabled={Boolean((isCollector || isDairy) && !selectedCenter)}><Plus size={15} aria-hidden="true" />{accountCopy('farmersAdd', 'abacundaAdd')}</button></div></div>
-        <div className="toolbar">
+        <div className="toolbar farmers-toolbar">
           <form className="search-form" onSubmit={(event) => { event.preventDefault(); setFarmerSearch(farmerQuery.trim()); }}><Search size={17} /><input aria-label={publicLanguage.t('farmersSearchPlaceholder')} placeholder={publicLanguage.t('farmersSearchPlaceholder')} value={farmerQuery} onChange={(event) => setFarmerQuery(event.target.value)} /><button className="button button-secondary">{publicLanguage.t('search')}</button></form>
           {isDairy ? centers.length > 1 ? <select aria-label="Active Ikigo" value={selectedCenter} onChange={(event) => setSelectedCenter(event.target.value)}>{centers.map((center) => <option key={center.id} value={String(center.id)}>{center.name}</option>)}</select> : null : <select aria-label={publicLanguage.t('allCenters')} value={farmerCenter} onChange={(event) => setFarmerCenter(event.target.value)}><option value="">{publicLanguage.t('allCenters')}</option>{centers.map((center) => <option key={center.id} value={center.name}>{center.name}</option>)}</select>}
           {!isDairy && user?.accountType === 'COLLECTION_CENTER' ? <select aria-label={publicLanguage.t('assignedCollector')} value={farmerCollectorFilter} onChange={(event) => setFarmerCollectorFilter(event.target.value)}><option value="">{publicLanguage.t('allCollectors')}</option>{collectorAssignments.map((assignment) => <option key={assignment.collector_user_id} value={String(assignment.collector_user_id)}>{assignment.collector_name}</option>)}</select> : null}
+          <select className="farmer-sort-mobile" aria-label={publicLanguage.t('sort')} value={farmerSortBy ? `${farmerSortBy}:${farmerSortDirection}` : ''} onChange={(event) => {
+            const [field, direction] = event.target.value.split(':');
+            if (['name', 'nationalId', 'collectionCenter'].includes(field) && ['asc', 'desc'].includes(direction)) {
+              setFarmerSortBy(field as typeof farmerSortBy);
+              setFarmerSortDirection(direction as typeof farmerSortDirection);
+            }
+          }}>
+            <option value="">{publicLanguage.t('sort')}</option>
+            <option value="name:asc">{publicLanguage.t('columnName')} ↑</option>
+            <option value="name:desc">{publicLanguage.t('columnName')} ↓</option>
+            <option value="nationalId:asc">{publicLanguage.t('accountNationalId')} ↑</option>
+            <option value="nationalId:desc">{publicLanguage.t('accountNationalId')} ↓</option>
+            <option value="collectionCenter:asc">{publicLanguage.t('columnCenter')} ↑</option>
+            <option value="collectionCenter:desc">{publicLanguage.t('columnCenter')} ↓</option>
+          </select>
         </div>
         {!isCollector && !isDairy ? <div className="assignment-tool">
           <div><span className="eyebrow">{publicLanguage.t('collectorsLinkage')}</span><h3>{publicLanguage.t('assignedCollectors')}</h3></div>
@@ -1502,7 +1609,26 @@ const visibleTabs = (isAdmin
             </form>
           </Modal> : null}
         </div> : null}
-        <div className="table-scroll farmers-desktop-table"><table><thead><tr><th>{publicLanguage.t('columnName')}</th><th>{publicLanguage.t('columnLocation')}</th><th>{publicLanguage.t('columnPhone')}</th><th>{publicLanguage.t('columnNationalId')}</th><th>{publicLanguage.t('columnCenter')}</th><th /></tr></thead><tbody>
+        <div className="table-scroll farmers-desktop-table"><table><thead><tr>
+          {([
+            ['name', publicLanguage.t('columnName')],
+            ['location', publicLanguage.t('columnLocation')],
+            ['phone', publicLanguage.t('columnPhone')],
+            ['nationalId', publicLanguage.t('accountNationalId')],
+            ['collectionCenter', publicLanguage.t('columnCenter')],
+          ] as const).map(([field, label]) => {
+            const sortable = field === 'name' || field === 'nationalId' || field === 'collectionCenter';
+            const active = farmerSortBy === field;
+            const SortIcon = active ? farmerSortDirection === 'asc' ? ArrowUp : ArrowDown : ArrowUpDown;
+            return <th key={field} aria-sort={active ? farmerSortDirection === 'asc' ? 'ascending' : 'descending' : 'none'}>
+              {sortable ? <button type="button" className="farmer-sort-button" onClick={() => {
+                if (farmerSortBy === field) setFarmerSortDirection((direction) => direction === 'asc' ? 'desc' : 'asc');
+                else { setFarmerSortBy(field); setFarmerSortDirection('asc'); }
+              }}>{label}<SortIcon size={13} aria-hidden="true" /></button> : label}
+            </th>;
+          })}
+          <th>{publicLanguage.t('actions')}</th>
+        </tr></thead><tbody>
           {(farmers?.data || []).map((farmer) => <tr key={farmer.id}><td className="strong-cell">{farmer.name}</td><td>{farmer.location || '—'}</td><td>{farmer.phone || '—'}</td><td>{farmer.nationalId || '—'}</td><td>{farmer.collectionCenter || '—'}</td><td className="actions-cell"><button className="text-button" onClick={() => editFarmerStart(farmer)}>{publicLanguage.t('edit')}</button><button className="text-button danger-text" onClick={() => deleteFarmer(farmer)}>{publicLanguage.t('delete')}</button></td></tr>)}
         </tbody></table></div>
         {farmers ? farmers.data.length ? <div className="farmer-mobile-list">{farmers.data.map((farmer) => <article className="farmer-mobile-card" key={farmer.id}><header><b>{farmer.name}</b><span>{farmer.collectionCenter || farmer.location || '—'}</span></header><dl><div><dt>{publicLanguage.t('columnLocation')}</dt><dd>{farmer.location || '—'}</dd></div><div><dt>{publicLanguage.t('columnPhone')}</dt><dd>{farmer.phone || '—'}</dd></div><div><dt>{publicLanguage.t('columnNationalId')}</dt><dd>{farmer.nationalId || '—'}</dd></div><div><dt>{publicLanguage.t('columnCenter')}</dt><dd>{farmer.collectionCenter || '—'}</dd></div>{!isDairy ? <div><dt>{publicLanguage.t('assignedCollector')}</dt><dd>{getFarmerCollectorName(farmer.collectorUserId)}</dd></div> : null}</dl><footer><button type="button" className="button button-secondary small-button" onClick={() => openIfishiForFarmer(farmer.id, farmer.name)}><BookOpen size={15} />{publicLanguage.t('navIfishi')}</button><button className="button button-secondary small-button" onClick={() => editFarmerStart(farmer)}>{publicLanguage.t('edit')}</button><button className="button button-secondary small-button danger-text" onClick={() => deleteFarmer(farmer)}>{publicLanguage.t('delete')}</button></footer></article>)}</div> : <div className="workspace-empty" role="status"><span className="workspace-empty-icon"><Users size={21} aria-hidden="true" /></span><div><b>{accountCopy('farmersEmptyTitle', 'abacundaEmptyTitle')}</b><p>{accountCopy('farmersEmptyBody', 'abacundaEmptyBody')}</p></div>{farmerSearch || farmerCenter || farmerCollectorFilter ? <button type="button" className="button button-secondary small-button" onClick={() => { setFarmerSearch(''); setFarmerQuery(''); setFarmerCenter(''); setFarmerCollectorFilter(''); }}>{publicLanguage.t('milkClearSearch')}</button> : <button type="button" className="button button-primary small-button" onClick={() => { setFarmerCreateError(''); setFarmerCreateOpen(true); }}><Plus size={15} />{accountCopy('farmersAdd', 'abacundaAdd')}</button>}</div> : <div className="workspace-empty workspace-loading" role="status"><span className="loading-indicator" />{publicLanguage.t('dashboardLoading')}</div>}
@@ -1626,6 +1752,19 @@ const visibleTabs = (isAdmin
       <div className="milk-record-tools">
         <label className="milk-search-field"><span>{publicLanguage.t('milkSearchLabel')}</span><span className="milk-search-control"><Search size={16} aria-hidden="true" /><input type="search" aria-label={publicLanguage.t('milkSearchLabel')} placeholder={publicLanguage.t('milkSearchPlaceholder')} value={dailySearch} onChange={(event) => setDailySearch(event.target.value)} />{dailySearch ? <button type="button" className="icon-button milk-search-clear" aria-label={publicLanguage.t('milkClearSearch')} title={publicLanguage.t('milkClearSearch')} onClick={() => setDailySearch('')}><X size={16} aria-hidden="true" /></button> : null}</span></label>
         <label><span>{publicLanguage.t('milkSessionFilter')}</span><select value={dailySession} onChange={(event) => setDailySession(event.target.value as typeof dailySession)}><option value="all">{publicLanguage.t('milkSessionAll')}</option><option value="morning">{publicLanguage.t('milkSessionMorning')}</option><option value="evening">{publicLanguage.t('milkSessionEvening')}</option></select></label>
+        <label className="milk-sort-mobile"><span>{publicLanguage.t('sort')}</span><select value={dailySortBy ? `${dailySortBy}:${dailySortDirection}` : ''} onChange={(event) => {
+          const [field, direction] = event.target.value.split(':');
+          if (['farmerName', 'totalVolume'].includes(field) && ['asc', 'desc'].includes(direction)) {
+            setDailySortBy(field as typeof dailySortBy);
+            setDailySortDirection(direction as typeof dailySortDirection);
+          } else if (!field) setDailySortBy('');
+        }}>
+          <option value="">{publicLanguage.t('sort')}</option>
+          <option value="farmerName:asc">{accountCopy('milkFarmer', 'milkAbacunda')} ↑</option>
+          <option value="farmerName:desc">{accountCopy('milkFarmer', 'milkAbacunda')} ↓</option>
+          <option value="totalVolume:asc">{publicLanguage.t('milkTotal')} ↑</option>
+          <option value="totalVolume:desc">{publicLanguage.t('milkTotal')} ↓</option>
+        </select></label>
         <label><span>{publicLanguage.t('milkPageSize')}</span><select value={dailyPageSize} onChange={(event) => setDailyPageSize(Number(event.target.value))}><option value={10}>10</option><option value={25}>25</option><option value={50}>50</option><option value={100}>100</option></select></label>
       </div>
       <div className="metric-strip milk-summary"><div><span>{accountCopy('dashboardFarmers', 'dashboardAbacundaToday')}</span><b>{dailySummary.presentCount} / {dailySummary.totalFarmers}</b></div><div><span>{publicLanguage.t('dashboardCollected')}</span><b>{liters(dailySummary.totalVolume)} L</b></div><div><span>{publicLanguage.t('dashboardMorning')}</span><b>{liters(dailySummary.totalMorning)} L</b></div><div><span>{publicLanguage.t('dashboardEvening')}</span><b>{liters(dailySummary.totalEvening)} L</b></div></div>
@@ -1642,7 +1781,11 @@ const visibleTabs = (isAdmin
       ) : dailyLoading ? <div className="workspace-empty workspace-loading" role="status"><span className="loading-indicator" />Loading daily milk…</div>
         : dailyError ? <div className="workspace-empty" role="alert"><b>{dailyError}</b><button type="button" className="button button-secondary small-button" onClick={() => loadDaily().catch(() => undefined)}>Retry</button></div>
         : visibleRows.length ? <>
-        <div className="table-scroll milk-desktop-list"><table><thead><tr><th>{accountCopy('milkFarmer', 'milkAbacunda')}</th><th>{publicLanguage.t('dashboardMorning')} · L</th><th>{publicLanguage.t('dashboardEvening')} · L</th><th>{publicLanguage.t('milkTotal')} · L</th><th>{publicLanguage.t('navIfishi')}</th><th>{publicLanguage.t('milkAction')}</th></tr></thead><tbody>{visibleRows.map((row) => <tr key={row.farmerId}><td className="strong-cell">{row.farmerName}{isDairy ? <small>{row.presentCount || 0} / {row.abacundaCount || 0} Abacunda</small> : null}</td><td>{isCollector ? volumeInput(row, 'morning') : liters(row.volumeMorning)}</td><td>{isCollector ? volumeInput(row, 'evening') : liters(row.volumeEvening)}</td><td>{liters(row.totalVolume)}</td><td><button type="button" className="text-button" onClick={() => openIfishiForFarmer(row.farmerId, row.farmerName)}>{publicLanguage.t('navIfishi')}</button></td><td className="milk-table-action">{isCollector ? <><span className={`milk-entry-state ${entryState(row)}`}>{publicLanguage.t(entryState(row) === 'saved' ? 'milkSaved' : 'milkUnsaved')}</span><button className="button button-secondary small-button" onClick={() => saveMilk(row)} disabled={busy}>{publicLanguage.t('milkSave')}</button></> : null}</td></tr>)}</tbody></table></div>
+        <div className="table-scroll milk-desktop-list"><table><thead><tr>
+          <th aria-sort={dailySortBy === 'farmerName' ? dailySortDirection === 'asc' ? 'ascending' : 'descending' : 'none'}><button type="button" className="farmer-sort-button" onClick={() => { if (dailySortBy === 'farmerName') setDailySortDirection((direction) => direction === 'asc' ? 'desc' : 'asc'); else { setDailySortBy('farmerName'); setDailySortDirection('asc'); } }}>{accountCopy('milkFarmer', 'milkAbacunda')}{dailySortBy === 'farmerName' ? dailySortDirection === 'asc' ? <ArrowUp size={13} /> : <ArrowDown size={13} /> : <ArrowUpDown size={13} />}</button></th>
+          <th>{publicLanguage.t('dashboardMorning')} · L</th><th>{publicLanguage.t('dashboardEvening')} · L</th>
+          <th aria-sort={dailySortBy === 'totalVolume' ? dailySortDirection === 'asc' ? 'ascending' : 'descending' : 'none'}><button type="button" className="farmer-sort-button" onClick={() => { if (dailySortBy === 'totalVolume') setDailySortDirection((direction) => direction === 'asc' ? 'desc' : 'asc'); else { setDailySortBy('totalVolume'); setDailySortDirection('asc'); } }}>{publicLanguage.t('milkTotal')}{dailySortBy === 'totalVolume' ? dailySortDirection === 'asc' ? <ArrowUp size={13} /> : <ArrowDown size={13} /> : <ArrowUpDown size={13} />}</button></th>
+          <th>{publicLanguage.t('navIfishi')}</th><th>{publicLanguage.t('milkAction')}</th></tr></thead><tbody>{visibleRows.map((row) => <tr key={row.farmerId}><td className="strong-cell">{row.farmerName}{isDairy ? <small>{row.presentCount || 0} / {row.abacundaCount || 0} Abacunda</small> : null}</td><td>{isCollector ? volumeInput(row, 'morning') : liters(row.volumeMorning)}</td><td>{isCollector ? volumeInput(row, 'evening') : liters(row.volumeEvening)}</td><td>{liters(row.totalVolume)}</td><td><button type="button" className="text-button" onClick={() => openIfishiForFarmer(row.farmerId, row.farmerName)}>{publicLanguage.t('navIfishi')}</button></td><td className="milk-table-action">{isCollector ? <><span className={`milk-entry-state ${entryState(row)}`}>{publicLanguage.t(entryState(row) === 'saved' ? 'milkSaved' : 'milkUnsaved')}</span><button className="button button-secondary small-button" onClick={() => saveMilk(row)} disabled={busy}>{publicLanguage.t('milkSave')}</button></> : null}</td></tr>)}</tbody></table></div>
         <div className="milk-mobile-list">{visibleRows.map((row) => <article className="milk-entry-card" key={row.farmerId}>
           <header><div><b>{row.farmerName}</b><small>{isDairy ? `${row.presentCount || 0} / ${row.abacundaCount || 0} Abacunda` : row.collectionCenter || dailyCenter || ''}</small></div>{isCollector ? <span className={`milk-entry-state ${entryState(row)}`}>{publicLanguage.t(entryState(row) === 'saved' ? 'milkSaved' : 'milkUnsaved')}</span> : null}</header>
           <div className="milk-entry-inputs"><label><span>{publicLanguage.t('dashboardMorning')} · L</span>{isCollector ? volumeInput(row, 'morning') : liters(row.volumeMorning)}</label><label><span>{publicLanguage.t('dashboardEvening')} · L</span>{isCollector ? volumeInput(row, 'evening') : liters(row.volumeEvening)}</label></div>
@@ -1663,7 +1806,9 @@ const visibleTabs = (isAdmin
       <p className="muted-note owner-ifishi-entry-period">{ifishiMonth} · {selectedPeriod}</p>
       <form className="form-stack compact owner-ifishi-entry-form" onSubmit={saveOwnerIfishiEntry}>
         <label>{publicLanguage.t('milkCollectionDate')}<input type="date" max={today()} value={ifishiDate} onChange={(event) => selectOwnerIfishiDate(event.target.value)} required /></label>
-        <label>{publicLanguage.t('ownerIfishiVolume')} · L<input type="number" min="0.01" step="0.01" required value={ownerIfishiVolume} onChange={(event) => setOwnerIfishiVolume(event.target.value)} /></label>
+        <label>Mu gitondo (Morning) · 06:30–09:00 · L<input type="number" min="0" step="0.01" value={ownerIfishiMorning} onChange={(event) => setOwnerIfishiMorning(event.target.value)} /></label>
+        <label>Nimugoroba (Evening) · 17:30–19:00 · L<input type="number" min="0" step="0.01" value={ownerIfishiEvening} onChange={(event) => setOwnerIfishiEvening(event.target.value)} /></label>
+        <p className="muted-note">Daily total: {liters((Number(ownerIfishiMorning) || 0) + (Number(ownerIfishiEvening) || 0))} L</p>
         {ownerIfishiLoading ? <p className="muted-note" role="status">{publicLanguage.t('ownerIfishiLoading')}</p> : null}
         {selectedEntry?.id && selectedEntry.status !== 'valid' ? <p className="form-error" role="status">{publicLanguage.t('ownerIfishiLocked')}</p> : null}
         {selectedEntry?.id && selectedEntry.status === 'valid' ? <p className="muted-note">{publicLanguage.t('ownerIfishiCorrectionAudit')}</p> : null}
@@ -1752,7 +1897,8 @@ const visibleTabs = (isAdmin
     const { startDate, endDate } = getMonthBounds(ifishiMonth);
     const selectedFarmer = ifishiFarmers.find((farmer) => String(farmer.id) === ifishiFarmerId);
     const selectedCenterName = centers.find((center) => String(center.id) === selectedCenter)?.name || 'Active Ikigo';
-    const monthlyRows = ifishiRecords.filter((record) => String(record.date).slice(0, 10) >= startDate && String(record.date).slice(0, 10) <= endDate);
+    const monthlyRows = ifishiRecords.filter((record) => String(record.date).slice(0, 10) >= startDate && String(record.date).slice(0, 10) <= endDate
+      && (ifishiRecordSession === 'all' || (ifishiRecordSession === 'morning' ? Number(record.volumeMorning) > 0 : Number(record.volumeEvening) > 0)));
     const totalMorning = monthlyRows.reduce((sum, record) => sum + Number(record.volumeMorning || 0), 0);
     const totalEvening = monthlyRows.reduce((sum, record) => sum + Number(record.volumeEvening || 0), 0);
     const totalVolume = totalMorning + totalEvening;
@@ -1766,6 +1912,13 @@ const visibleTabs = (isAdmin
           <label>{accountCopy('milkFarmerSearch', 'milkAbacundaSearch')}<input type="search" value={ifishiFarmerSearch} onChange={(event) => setIfishiFarmerSearch(event.target.value)} /></label>
           <label>{accountCopy('milkFarmer', 'milkAbacunda')}<select required value={ifishiFarmerId} onChange={(event) => setIfishiFarmerId(event.target.value)}><option value="">{accountCopy('deductionsFarmer', 'milkAbacunda')}</option>{ifishiFarmers.map((farmer) => <option key={farmer.id} value={String(farmer.id)}>{farmer.name} · {farmer.collectionCenter || farmer.location || '—'}</option>)}</select></label>
           <label>{publicLanguage.t('milkCollectionDate')}<input type="date" min={startDate} max={endDate} value={ifishiDate} onChange={(event) => setIfishiDate(event.target.value)} /></label>
+          <label>{publicLanguage.t('milkSessionFilter')}<select value={ifishiRecordSession} onChange={(event) => setIfishiRecordSession(event.target.value as typeof ifishiRecordSession)}><option value="all">{publicLanguage.t('milkSessionAll')}</option><option value="morning">{publicLanguage.t('milkSessionMorning')}</option><option value="evening">{publicLanguage.t('milkSessionEvening')}</option></select></label>
+          <label>{publicLanguage.t('sort')}<select value={`${ifishiRecordSortBy}:${ifishiRecordSortDirection}`} onChange={(event) => { const [field, direction] = event.target.value.split(':'); if (['date', 'volume', 'amount'].includes(field) && ['asc', 'desc'].includes(direction)) { setIfishiRecordSortBy(field as typeof ifishiRecordSortBy); setIfishiRecordSortDirection(direction as typeof ifishiRecordSortDirection); } }}>
+            <option value="date:desc">{publicLanguage.t('milkCollectionDate')} ↓</option><option value="date:asc">{publicLanguage.t('milkCollectionDate')} ↑</option>
+            <option value="volume:asc">{publicLanguage.t('reportsVolume')} ↑</option><option value="volume:desc">{publicLanguage.t('reportsVolume')} ↓</option>
+            <option value="amount:asc">{publicLanguage.t('reportsGross')} ↑</option><option value="amount:desc">{publicLanguage.t('reportsGross')} ↓</option>
+          </select></label>
+          {ifishiRecordSession !== 'all' || ifishiRecordSortBy !== 'date' || ifishiRecordSortDirection !== 'desc' ? <button type="button" className="button button-secondary small-button" onClick={() => { setIfishiRecordSession('all'); setIfishiRecordSortBy('date'); setIfishiRecordSortDirection('desc'); }}>{publicLanguage.t('milkClearSearch')}</button> : null}
           {selectedFarmer ? <p className="muted-note">{selectedCenterName} · {selectedFarmer.name} · {selectedFarmer.collectionCenter || selectedFarmer.location || '—'}</p> : null}
           {!ifishiFarmers.length ? <div className="workspace-empty" role="status"><b>{publicLanguage.t('ifishiNoPeople')}</b></div> : null}
         </div>
@@ -1791,7 +1944,26 @@ const visibleTabs = (isAdmin
           <div><span>{publicLanguage.t('ifishiLost')}</span><b>{liters(lostVolume)} L</b></div>
         </div>
         <div className="panel-heading"><div><span className="eyebrow">{publicLanguage.t('ifishiPersistedRecords')}</span><h2>{selectedFarmer?.name || ifishiMonth}</h2></div><span className="count-label">{monthlyRows.length} {publicLanguage.t('ifishiRecordedDays')}</span></div>
-        {monthlyRows.length ? <div className="table-scroll"><table><thead><tr><th>{publicLanguage.t('milkCollectionDate')}</th><th>{publicLanguage.t('dashboardMorning')}</th><th>{publicLanguage.t('dashboardEvening')}</th><th>{publicLanguage.t('ifishiOriginal')}</th><th>{publicLanguage.t('ifishiValid')}</th><th>{publicLanguage.t('ifishiLost')}</th><th>{publicLanguage.t('paymentStatus')}</th><th>{publicLanguage.t('ifishiReason')}</th></tr></thead><tbody>{monthlyRows.map((record) => <tr key={record.id}><td>{String(record.date).slice(0, 10)}</td><td>{liters(Number(record.volumeMorning || 0))} L</td><td>{liters(Number(record.volumeEvening || 0))} L</td><td>{liters(Number(record.originalVolumeLiters ?? (Number(record.volumeMorning || 0) + Number(record.volumeEvening || 0))))} L</td><td>{liters(Number(record.validVolumeLiters ?? (Number(record.volumeMorning || 0) + Number(record.volumeEvening || 0))))} L</td><td>{liters(Number(record.lostVolumeLiters || 0))} L</td><td>{record.status}</td><td>{record.adjustmentReason || '—'}</td></tr>)}</tbody></table></div> : <div className="workspace-empty" role="status"><b>{publicLanguage.t('ifishiNoPersistedRecords')}</b></div>}
+        {monthlyRows.length ? <div className="table-scroll"><table><thead><tr>
+          {([
+            ['date', publicLanguage.t('milkCollectionDate')],
+            ['farmerName', accountCopy('milkFarmer', 'milkAbacunda')],
+            ['volume', publicLanguage.t('reportsVolume')],
+            ['amount', publicLanguage.t('reportsGross')],
+          ] as const).map(([field, label]) => {
+            const numericSort = field === 'volume' || field === 'amount';
+            const sortField = field === 'date' ? 'date' : field === 'amount' ? 'amount' : 'volume';
+            const active = field === 'farmerName' ? false : ifishiRecordSortBy === sortField;
+            const SortIcon = active ? ifishiRecordSortDirection === 'asc' ? ArrowUp : ArrowDown : ArrowUpDown;
+            return <th key={field} aria-sort={active ? ifishiRecordSortDirection === 'asc' ? 'ascending' : 'descending' : 'none'}>
+              {field === 'farmerName' ? label : <button type="button" className="farmer-sort-button" onClick={() => {
+                if (ifishiRecordSortBy === sortField) setIfishiRecordSortDirection((direction) => direction === 'asc' ? 'desc' : 'asc');
+                else { setIfishiRecordSortBy(sortField); setIfishiRecordSortDirection(numericSort ? 'asc' : 'desc'); }
+              }}>{label}<SortIcon size={13} aria-hidden="true" /></button>}
+            </th>;
+          })}
+          <th>{publicLanguage.t('dashboardMorning')}</th><th>{publicLanguage.t('dashboardEvening')}</th><th>{publicLanguage.t('ifishiOriginal')}</th><th>{publicLanguage.t('ifishiValid')}</th><th>{publicLanguage.t('ifishiLost')}</th><th>{publicLanguage.t('paymentStatus')}</th><th>{publicLanguage.t('ifishiReason')}</th>
+        </tr></thead><tbody>{monthlyRows.map((record) => <tr key={record.id}><td>{String(record.date).slice(0, 10)}</td><td>{selectedFarmer?.name || '—'}</td><td>{liters(Number(record.validVolumeLiters ?? (Number(record.volumeMorning || 0) + Number(record.volumeEvening || 0))))} L</td><td>{money(record.validAmount ?? record.amount)} RWF</td><td>{liters(Number(record.volumeMorning || 0))} L</td><td>{liters(Number(record.volumeEvening || 0))} L</td><td>{liters(Number(record.originalVolumeLiters ?? (Number(record.volumeMorning || 0) + Number(record.volumeEvening || 0))))} L</td><td>{liters(Number(record.validVolumeLiters ?? (Number(record.volumeMorning || 0) + Number(record.volumeEvening || 0))))} L</td><td>{liters(Number(record.lostVolumeLiters || 0))} L</td><td>{record.status}</td><td>{record.adjustmentReason || '—'}</td></tr>)}</tbody></table></div> : <div className="workspace-empty" role="status"><b>{publicLanguage.t('ifishiNoPersistedRecords')}</b></div>}
       </section>
     </div>;
   };
@@ -1852,11 +2024,36 @@ const visibleTabs = (isAdmin
 
   const renderDeductions = () => {
     const deductionData = deductionRows?.data || [];
+    const resetDeductionList = () => {
+      setDeductionSearchQuery('');
+      setDeductionSearch('');
+      setDeductionTypeFilter('');
+      setDeductionStatusFilter('');
+      setDeductionSortBy('date');
+      setDeductionSortDirection('desc');
+      void loadDeductions(null, false, { search: '', type: '', status: '', sortBy: 'date', sortDirection: 'desc' }).catch((reason) => setError(reason.message));
+    };
+    const sortableHeader = (field: typeof deductionSortBy, label: string) => {
+      const active = deductionSortBy === field;
+      const SortIcon = active ? deductionSortDirection === 'asc' ? ArrowUp : ArrowDown : ArrowUpDown;
+      return <button type="button" className="farmer-sort-button" aria-sort={active ? deductionSortDirection === 'asc' ? 'ascending' : 'descending' : 'none'} onClick={() => {
+        const direction = active ? deductionSortDirection === 'asc' ? 'desc' : 'asc' : field === 'date' ? 'desc' : 'asc';
+        setDeductionSortBy(field);
+        setDeductionSortDirection(direction);
+        void loadDeductions(null, false, { sortBy: field, sortDirection: direction }).catch((reason) => setError(reason.message));
+      }}>{label}<SortIcon size={13} aria-hidden="true" /></button>;
+    };
     return <div className="screen-grid deductions-view">
       <section className="panel panel-wide">
         <div className="panel-heading"><div><span className="eyebrow">{publicLanguage.t('dashboardToday')}</span><h2>{publicLanguage.t('deductionsRecent')}</h2></div><button type="button" className="button button-primary small-button" onClick={() => { setDeductionCreateError(''); setDeductionCreateOpen(true); }}><Plus size={15} aria-hidden="true" />{publicLanguage.t('deductionsAdd')}</button></div>
+        <div className="toolbar deduction-list-controls">
+          <form className="search-form" onSubmit={(event) => { event.preventDefault(); const search = deductionSearchQuery.trim(); setDeductionSearch(search); void loadDeductions(null, false, { search }).catch((reason) => setError(reason.message)); }}><Search size={17} aria-hidden="true" /><input aria-label={publicLanguage.t('milkSearchLabel')} placeholder={accountCopy('deductionsSearch', 'milkFarmerSearch')} value={deductionSearchQuery} onChange={(event) => setDeductionSearchQuery(event.target.value)} /><button className="button button-secondary">{publicLanguage.t('search')}</button></form>
+          <label>{publicLanguage.t('deductionsType')}<select value={deductionTypeFilter} onChange={(event) => { const type = event.target.value; setDeductionTypeFilter(type); void loadDeductions(null, false, { type }).catch((reason) => setError(reason.message)); }}><option value="">{publicLanguage.t('allStatuses')}</option>{['Advance', 'Umwenda', 'Other'].map((type) => <option key={type} value={type}>{type}</option>)}</select></label>
+          <label>{publicLanguage.t('deductionsStatus')}<select value={deductionStatusFilter} onChange={(event) => { const status = event.target.value; setDeductionStatusFilter(status); void loadDeductions(null, false, { status }).catch((reason) => setError(reason.message)); }}><option value="">{publicLanguage.t('allStatuses')}</option><option value="Active">Active</option><option value="Cleared">Cleared</option></select></label>
+          {deductionSearch || deductionTypeFilter || deductionStatusFilter || deductionSortBy !== 'date' || deductionSortDirection !== 'desc' ? <button type="button" className="button button-secondary small-button" onClick={resetDeductionList}>{publicLanguage.t('milkClearSearch')}</button> : null}
+        </div>
         {deductionRows ? deductionData.length ? <>
-          <div className="table-scroll deductions-desktop-table"><table><thead><tr><th>{publicLanguage.t('deductionsDate')}</th><th>{accountCopy('deductionsFarmer', 'milkAbacunda')}</th><th>{publicLanguage.t('deductionsType')}</th><th>{publicLanguage.t('deductionsReason')}</th><th>{publicLanguage.t('deductionsAmount')}</th><th>{publicLanguage.t('deductionsStatus')}</th></tr></thead><tbody>{deductionData.map((row) => <tr key={row.id}><td>{String(row.date).slice(0, 10)}</td><td>{row.farmerName || row.farmer_name || row.farmerId}</td><td>{row.type}</td><td>{row.reason || '—'}</td><td>{money(row.amount)}</td><td>{row.status}</td></tr>)}</tbody></table></div>
+          <div className="table-scroll deductions-desktop-table"><table><thead><tr><th>{sortableHeader('date', publicLanguage.t('deductionsDate'))}</th><th>{sortableHeader('farmerName', accountCopy('deductionsFarmer', 'milkAbacunda'))}</th><th>{publicLanguage.t('deductionsType')}</th><th>{publicLanguage.t('deductionsReason')}</th><th>{sortableHeader('amount', publicLanguage.t('deductionsAmount'))}</th><th>{publicLanguage.t('deductionsStatus')}</th></tr></thead><tbody>{deductionData.map((row) => <tr key={row.id}><td>{String(row.date).slice(0, 10)}</td><td>{row.farmerName || row.farmer_name || row.farmerId}</td><td>{row.type}</td><td>{row.reason || '—'}</td><td>{money(row.amount)}</td><td>{row.status}</td></tr>)}</tbody></table></div>
           <div className="deduction-mobile-list">{deductionData.map((row) => <article className="deduction-mobile-card" key={row.id}><header><div><b>{row.farmerName || row.farmer_name || row.farmerId}</b><small>{String(row.date).slice(0, 10)} · {row.type}</small></div><strong>{money(row.amount)} RWF</strong></header><p>{row.reason || '—'}</p><span className="milk-entry-state saved">{row.status}</span></article>)}</div>
         </> : <div className="workspace-empty" role="status"><span className="workspace-empty-icon"><CircleDollarSign size={21} aria-hidden="true" /></span><b>{publicLanguage.t('deductionsEmptyTitle')}</b></div> : <div className="workspace-empty workspace-loading" role="status"><span className="loading-indicator" />{publicLanguage.t('dashboardLoading')}</div>}
         {deductionRows?.hasMore ? <div className="panel-footer"><button className="button button-secondary" onClick={() => loadDeductions(deductionRows.nextCursor, true)}>{publicLanguage.t('deductionsLoadOlder')} <ChevronDown size={16} /></button></div> : null}
@@ -1911,6 +2108,14 @@ const visibleTabs = (isAdmin
       missingInputs.includes('farmer_historical_price') ? publicLanguage.t('farmerPriceMissing') : null,
       missingInputs.includes('farmer_transport_snapshot') ? publicLanguage.t('transportHistoryUnavailable') : null,
     ].filter(Boolean);
+    const sortableUkweziHeader = (field: typeof ukweziSortBy, label: string) => {
+      const active = ukweziSortBy === field;
+      const SortIcon = active ? ukweziSortDirection === 'asc' ? ArrowUp : ArrowDown : ArrowUpDown;
+      return <button type="button" className="farmer-sort-button" aria-sort={active ? ukweziSortDirection === 'asc' ? 'ascending' : 'descending' : 'none'} onClick={() => {
+        if (active) setUkweziSortDirection((direction) => direction === 'asc' ? 'desc' : 'asc');
+        else { setUkweziSortBy(field); setUkweziSortDirection(field === 'name' ? 'asc' : 'desc'); }
+      }}>{label}<SortIcon size={13} aria-hidden="true" /></button>;
+    };
     const lossRows = [
       ...(ukweziReport?.milkLossRecords || []).map((row) => ({
         key: `farmer-${row.id}`,
@@ -1952,6 +2157,11 @@ const visibleTabs = (isAdmin
           <label>{publicLanguage.t('ukweziMonth')}<select value={ukweziMonth} onChange={(event) => setUkweziMonth(event.target.value)}>{monthNames.map((name, index) => <option key={index + 1} value={String(index + 1).padStart(2, '0')}>{name}</option>)}</select></label>
           <label>{publicLanguage.t('ukweziYear')}<select value={ukweziYear} onChange={(event) => setUkweziYear(event.target.value)}>{years.map((year) => <option key={year} value={year}>{year}</option>)}</select></label>
           <label>{publicLanguage.t('ukweziPeriod')}<select value={ukweziPeriod} onChange={(event) => setUkweziPeriod(event.target.value as 'first-half' | 'second-half')}><option value="first-half">1–15</option><option value="second-half">16–{new Date(Number(ukweziYear), Number(ukweziMonth), 0).getDate()}</option></select></label>
+          <label className="ukwezi-sort-mobile">{publicLanguage.t('sort')}<select value={`${ukweziSortBy}:${ukweziSortDirection}`} onChange={(event) => { const [field, direction] = event.target.value.split(':'); if (['name', 'volume', 'payable'].includes(field) && ['asc', 'desc'].includes(direction)) { setUkweziSortBy(field as typeof ukweziSortBy); setUkweziSortDirection(direction as typeof ukweziSortDirection); } }}>
+            <option value="name:asc">{publicLanguage.t('milkFarmer')} ↑</option><option value="name:desc">{publicLanguage.t('milkFarmer')} ↓</option>
+            <option value="volume:asc">{publicLanguage.t('reportsVolume')} ↑</option><option value="volume:desc">{publicLanguage.t('reportsVolume')} ↓</option>
+            <option value="payable:asc">{publicLanguage.t('reportsNet')} ↑</option><option value="payable:desc">{publicLanguage.t('reportsNet')} ↓</option>
+          </select></label>
           <button type="button" className="button button-secondary" onClick={() => run(loadUkwezi)}>{publicLanguage.t('reportsRefresh')}</button>
           <button type="button" className="button button-secondary" onClick={() => { void downloadUkweziPdf(ukweziPdfParams); }} disabled={ukweziPdfLoading} aria-busy={ukweziPdfLoading} aria-label={publicLanguage.t('ukweziDownloadPdf')}><FileBarChart2 size={16} aria-hidden="true" />{publicLanguage.t(ukweziPdfLoading ? 'ukweziPdfPreparing' : 'ukweziDownloadPdf')}</button>
         </div>
@@ -1973,7 +2183,7 @@ const visibleTabs = (isAdmin
               ? <span>{missingInputMessages.length ? missingInputMessages.join(' · ') : publicLanguage.t('ukweziReconciliationPending')}</span>
               : <span>{publicLanguage.t('ukweziBreakdown')}: {money(ukweziReport.collectorSurplusAmount || 0)} + {money(ukweziReport.collectorFarmerDeductions || 0)} + {money(ukweziReport.collectorFarmerTransport)} = {ukweziReport.collectorPayableFromBreakdown == null ? '—' : `${money(ukweziReport.collectorPayableFromBreakdown)} RWF`}</span>}
           </section> : null}
-          {settlementRows.length || ownerRow ? <><div className="table-scroll ukwezi-settlement-table"><table><thead><tr><th>No</th><th>{publicLanguage.t(isDairy ? 'assignedCollectors' : 'milkFarmer')}</th>{isDairy ? <th>{publicLanguage.t('navAbacunda')}</th> : <th>{publicLanguage.t('accountNationalId')}</th>}<th>{publicLanguage.t('accountPhone')} / {publicLanguage.t('accountNumber')}</th><th>{publicLanguage.t('reportsVolume')}</th><th>{publicLanguage.t('milkPrice')} / L</th><th>{publicLanguage.t('reportsGross')}</th>{isCollector ? <th>{publicLanguage.t('reportsTransport')}</th> : null}<th>{publicLanguage.t('dashboardDeductions')}</th><th>{publicLanguage.t('reportsNet')}</th></tr></thead><tbody>
+          {settlementRows.length || ownerRow ? <><div className="table-scroll ukwezi-settlement-table"><table><thead><tr><th>No</th><th>{sortableUkweziHeader('name', publicLanguage.t(isDairy ? 'assignedCollectors' : 'milkFarmer'))}</th>{isDairy ? <th>{publicLanguage.t('navAbacunda')}</th> : <th>{publicLanguage.t('accountNationalId')}</th>}<th>{publicLanguage.t('accountPhone')} / {publicLanguage.t('accountNumber')}</th><th>{sortableUkweziHeader('volume', publicLanguage.t('reportsVolume'))}</th><th>{publicLanguage.t('milkPrice')} / L</th><th>{publicLanguage.t('reportsGross')}</th>{isCollector ? <th>{publicLanguage.t('reportsTransport')}</th> : null}<th>{publicLanguage.t('dashboardDeductions')}</th><th>{sortableUkweziHeader('payable', publicLanguage.t('reportsNet'))}</th></tr></thead><tbody>
             {settlementRows.map((row: any, index: number) => <tr key={`${isDairy ? 'collector' : 'farmer'}-${isDairy ? row.collectorUserId : row.farmerId}`}><td>{index + 1}</td><td>{isDairy ? row.name : row.farmerName}</td>{isDairy ? <td>{row.assignedFarmerCount}</td> : <td>{row.nationalId || row.idNumber || '—'}</td>}<td>{[row.phone, row.accountNumber].filter(Boolean).join(' / ') || '—'}</td><td>{liters(row.totalVolume)} L</td><td>{row.totalVolume > 0 ? `${money(row.pricePerLiter || 0)} RWF` : '—'}</td><td>{row.grossAmount == null ? '—' : `${money(row.grossAmount)} RWF`}</td>{isCollector ? <td>{money(row.totalTransport)} RWF</td> : null}<td>{money(row.totalDeductions)} RWF</td><td>{row.netAmount == null ? '—' : `${money(row.netAmount)} RWF`}</td></tr>)}
             {ownerRow ? <tr className="owner-settlement-row"><td>{settlementRows.length + 1}</td><td><b>{ownerRow.farmerName}</b><small className="block-muted">{publicLanguage.t('ukweziOwnerRow')}</small></td><td>{ownerRow.nationalId || ownerRow.idNumber || '—'}</td><td>{[ownerRow.phone, ownerRow.accountNumber].filter(Boolean).join(' / ') || '—'}</td><td>{liters(ownerRow.totalVolume)} L</td><td>{ownerRow.pricePerLiter == null ? '—' : `${money(ownerRow.pricePerLiter)} RWF`}</td><td>{ownerRow.grossAmount == null ? '—' : `${money(ownerRow.grossAmount)} RWF`}</td>{isCollector ? <td>{money(ownerRow.totalTransport)} RWF</td> : null}<td>{money(ownerRow.totalDeductions)} RWF</td><td>{ownerRow.netAmount == null ? '—' : `${money(ownerRow.netAmount)} RWF`}</td></tr> : null}
           </tbody></table></div><div className="ukwezi-mobile-list">{settlementRows.map((row: any) => <article className="ukwezi-mobile-card" key={`mobile-${isDairy ? row.collectorUserId : row.farmerId}`}><header><b>{isDairy ? row.name : row.farmerName}</b><strong>{liters(row.totalVolume)} L</strong></header><dl>{isDairy ? <div><dt>{publicLanguage.t('navAbacunda')}</dt><dd>{row.assignedFarmerCount}</dd></div> : <div><dt>{publicLanguage.t('accountNationalId')}</dt><dd>{row.nationalId || row.idNumber || '—'}</dd></div>}<div><dt>{publicLanguage.t('milkPrice')} / L</dt><dd>{row.totalVolume > 0 ? `${money(row.pricePerLiter || 0)} RWF` : '—'}</dd></div><div><dt>{publicLanguage.t('reportsGross')}</dt><dd>{row.grossAmount == null ? '—' : `${money(row.grossAmount)} RWF`}</dd></div>{isCollector ? <div><dt>{publicLanguage.t('reportsTransport')}</dt><dd>{money(row.totalTransport)} RWF</dd></div> : null}<div><dt>{publicLanguage.t('dashboardDeductions')}</dt><dd>{money(row.totalDeductions)} RWF</dd></div><div><dt>{publicLanguage.t('reportsNet')}</dt><dd>{row.netAmount == null ? '—' : `${money(row.netAmount)} RWF`}</dd></div></dl><p>{[row.phone, row.accountNumber].filter(Boolean).join(' / ') || '—'}</p></article>)}{ownerRow ? <article className="ukwezi-mobile-card owner-settlement-row"><header><b>{ownerRow.farmerName} · {publicLanguage.t('ukweziOwnerRow')}</b><strong>{liters(ownerRow.totalVolume)} L</strong></header><dl><div><dt>{publicLanguage.t('reportsGross')}</dt><dd>{ownerRow.grossAmount == null ? '—' : `${money(ownerRow.grossAmount)} RWF`}</dd></div>{isCollector ? <div><dt>{publicLanguage.t('reportsTransport')}</dt><dd>{money(ownerRow.totalTransport)} RWF</dd></div> : null}<div><dt>{publicLanguage.t('dashboardDeductions')}</dt><dd>{money(ownerRow.totalDeductions)} RWF</dd></div><div><dt>{publicLanguage.t('reportsNet')}</dt><dd>{ownerRow.netAmount == null ? '—' : `${money(ownerRow.netAmount)} RWF`}</dd></div></dl></article> : null}</div></> : null}
@@ -2159,6 +2369,11 @@ const visibleTabs = (isAdmin
       </section>
       <section className="panel panel-wide subscription-history">
         <div className="panel-heading"><div><span className="eyebrow">{publicLanguage.t('dashboardAccounting')}</span><h2>{publicLanguage.t('subscriptionPaymentHistory')}</h2></div></div>
+        <div className="toolbar payment-history-controls">
+          <label>{publicLanguage.t('paymentStatus')}<select value={customerPaymentStatus} onChange={(event) => { const status = event.target.value; setCustomerPaymentStatus(status); void loadBilling(selectedSubscriptionPlanCode, { status }).catch((reason) => setError(reason.message)); }}><option value="">{publicLanguage.t('allStatuses')}</option><option value="SUCCESS">{publicLanguage.t('paymentSuccessful')}</option><option value="PENDING">{publicLanguage.t('paymentPending')}</option><option value="FAILED">{publicLanguage.t('paymentFailed')}</option><option value="CANCELLED">{publicLanguage.t('paymentCancelled')}</option><option value="EXPIRED">{publicLanguage.t('paymentExpired')}</option></select></label>
+          <label>{publicLanguage.t('sort')}<select value={`${customerPaymentSortBy}:${customerPaymentSortDirection}`} onChange={(event) => { const [field, direction] = event.target.value.split(':'); if (['date', 'amount'].includes(field) && ['asc', 'desc'].includes(direction)) { setCustomerPaymentSortBy(field as typeof customerPaymentSortBy); setCustomerPaymentSortDirection(direction as typeof customerPaymentSortDirection); void loadBilling(selectedSubscriptionPlanCode, { sortBy: field as typeof customerPaymentSortBy, sortDirection: direction as typeof customerPaymentSortDirection }).catch((reason) => setError(reason.message)); } }}><option value="date:desc">{publicLanguage.t('paymentDate')} ↓</option><option value="date:asc">{publicLanguage.t('paymentDate')} ↑</option><option value="amount:asc">{publicLanguage.t('deductionsAmount')} ↑</option><option value="amount:desc">{publicLanguage.t('deductionsAmount')} ↓</option></select></label>
+          {customerPaymentStatus || customerPaymentSortBy !== 'date' || customerPaymentSortDirection !== 'desc' ? <button type="button" className="button button-secondary small-button" onClick={() => { setCustomerPaymentStatus(''); setCustomerPaymentSortBy('date'); setCustomerPaymentSortDirection('desc'); void loadBilling(selectedSubscriptionPlanCode, { status: '', sortBy: 'date', sortDirection: 'desc' }).catch((reason) => setError(reason.message)); }}>{publicLanguage.t('milkClearSearch')}</button> : null}
+        </div>
         {billing?.payments?.length ? <>
           <div className="table-scroll subscription-payment-desktop"><table><thead><tr><th>{publicLanguage.t('paymentDate')}</th><th>{publicLanguage.t('paymentPlan')}</th><th>{publicLanguage.t('billingPaymentProvider')}</th><th>{publicLanguage.t('paymentReference')}</th><th>{publicLanguage.t('deductionsAmount')}</th><th>{publicLanguage.t('paymentStatus')}</th><th /></tr></thead><tbody>{billing.payments.map((item: any) => <tr key={item.id}><td>{paymentDateLabel(item.created_at)}</td><td>{item.plan_name || item.plan_code || '—'}<small className="block-muted">{item.billing_period || '—'}</small></td><td>{paymentMethodLabel(item)}</td><td className="payment-reference-cell"><b>{item.provider_reference || '—'}</b>{item.provider_transaction_id ? <small className="block-muted">{item.provider_transaction_id}</small> : null}</td><td>{money(item.amount)} {item.currency || 'RWF'}</td><td><span className={`payment-status-badge payment-status-${String(item.status).toLowerCase()}`}>{paymentStatusLabel(item.status)}</span></td><td>{item.status === 'PENDING' ? <button type="button" className="text-button" onClick={() => checkCustomerPayment(item.id)} disabled={busy}>{publicLanguage.t('paymentCheckStatus')}</button> : null}</td></tr>)}</tbody></table></div>
           <div className="subscription-payment-mobile-list">{billing.payments.map((item: any) => <article className="subscription-payment-card" key={`mobile-${item.id}`}>
@@ -2401,13 +2616,13 @@ const visibleTabs = (isAdmin
         {tab === 'ukwezi' && !isAdmin ? renderUkwezi() : null}
         {tab === 'reports' && !isAdmin ? renderReports() : null}
         {tab === 'billing' && !isAdmin ? renderBilling() : null}
-        {tab === 'notifications' && !isAdmin ? renderNotifications() : null}
+        {tab === 'notifications' && !isAdmin ? <>{renderNotificationFilters()}{renderNotifications()}</> : null}
         {tab === 'settings' ? renderAccountSettings() : null}
         {tab === 'accounts' && isAdmin ? renderAdminAccounts() : null}
         {tab === 'audit' && isAdmin ? renderAdminAudit() : null}
         {tab === 'config' && isAdmin ? <div className="admin-pricing-layout">{renderAdminCollectorPricing()}{renderAdminConfig()}{renderAdminSubscriptionPolicy()}{renderAdminPaymentConfiguration()}{renderAdminPayments()}</div> : null}
         {tab === 'system-health' && isAdmin ? renderSystemHealth() : null}
-        {tab === 'notifications-admin' && isAdmin ? renderNotifications() : null}
+        {tab === 'notifications-admin' && isAdmin ? <>{renderNotificationFilters()}{renderNotifications()}</> : null}
         {adminAccountDetailsOpen ? renderAdminAccountDetailsModal() : null}
       </section></div>
       <nav className="mobile-nav" aria-label="Workspace navigation">

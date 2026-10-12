@@ -20,6 +20,11 @@ export async function GET(request) {
     return NextResponse.json(await Deductions.listDeductions({
       ownerUserId: user.id,
       farmerId: params.get('farmerId'),
+      type: params.get('type'),
+      status: params.get('status'),
+      search: params.get('search') || '',
+      sortBy: params.get('sortBy') || 'date',
+      sortDirection: params.get('sortDirection') || 'desc',
       cursor: params.get('cursor'),
       limit: params.get('limit') || 50,
     }));

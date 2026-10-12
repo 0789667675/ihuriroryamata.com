@@ -23,6 +23,8 @@ export async function GET(request: Request) {
       ownerUserId: user.id,
       search: params.get('search') || params.get('q') || '',
       center: params.get('center') || params.get('collectionCenter') || '',
+      sortBy: params.get('sortBy'),
+      sortDirection: params.get('sortDirection'),
       cursor: params.get('cursor'),
       limit: params.get('limit'),
       collectorUserId: collectorUserId || undefined,

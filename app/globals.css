@@ -284,6 +284,8 @@ img, svg { max-width: 100%; }
 .content-heading h1 { margin: 4px 0 0; font-size: var(--text-title); line-height: 1.2; font-weight: 700; }
 .date-stamp { color: var(--muted); font-size: var(--text-xs); }
 .screen-grid { display: grid; grid-template-columns: minmax(0, 1.65fr) minmax(265px, .75fr); gap: 16px; align-items: flex-start; }
+.farmers-view { grid-template-columns: minmax(0, 1fr); }
+.farmers-view > .panel-wide { grid-column: 1 / -1; }
 .dashboard-view { display: grid; gap: 16px; }
 .dashboard-overview { display: grid; grid-template-columns: minmax(0, 1.35fr) minmax(290px, .85fr); gap: 16px; }
 .dashboard-today { min-width: 0; padding: 19px 22px; border: 1px solid var(--blue-line); border-radius: var(--radius-md); background: var(--blue-soft); }
@@ -350,13 +352,31 @@ img, svg { max-width: 100%; }
 .milk-summary > div { padding: 11px 13px; }
 .milk-desktop-list { width: 100%; margin: 0; border-top: 0; }
 .milk-desktop-list table { table-layout: fixed; }
+.farmers-desktop-table { width: 100%; overflow-x: hidden; border: 1px solid var(--line); border-radius: var(--radius-md); }
+.farmers-desktop-table table { table-layout: fixed; white-space: normal; }
+.farmers-desktop-table th, .farmers-desktop-table td { height: auto; padding: 11px 13px; white-space: normal; overflow-wrap: anywhere; }
+.farmers-desktop-table th:nth-child(1), .farmers-desktop-table td:nth-child(1) { width: 22%; }
+.farmers-desktop-table th:nth-child(2), .farmers-desktop-table td:nth-child(2) { width: 16%; }
+.farmers-desktop-table th:nth-child(3), .farmers-desktop-table td:nth-child(3) { width: 15%; }
+.farmers-desktop-table th:nth-child(4), .farmers-desktop-table td:nth-child(4) { width: 16%; }
+.farmers-desktop-table th:nth-child(5), .farmers-desktop-table td:nth-child(5) { width: 18%; }
+.farmers-desktop-table th:nth-child(6), .farmers-desktop-table td:nth-child(6) { width: 13%; }
+.farmers-desktop-table .actions-cell { justify-content: flex-end; gap: 9px; white-space: nowrap; }
+.farmer-sort-button { width: 100%; min-width: 0; display: inline-flex; align-items: center; gap: 6px; padding: 0; border: 0; background: transparent; color: inherit; text-align: left; font: inherit; cursor: pointer; }
+.farmer-sort-button svg { flex: 0 0 auto; color: var(--blue); }
+.farmer-sort-mobile { display: none; }
+.collector-sort-mobile { display: none; min-width: 120px; color: var(--muted-strong); font-size: var(--text-xs); font-weight: 700; }
+.collector-sort-mobile select { display: block; width: 100%; min-height: 40px; margin-top: 4px; padding: 0 8px; border: 1px solid var(--field-line); border-radius: var(--radius-md); background: var(--surface); color: var(--ink); }
+.ukwezi-sort-mobile { display: none !important; }
+.notification-list-controls { margin-bottom: 12px; }
 .milk-desktop-list th:nth-child(1), .milk-desktop-list td:nth-child(1) { width: 25%; }
 .milk-desktop-list th:nth-child(2), .milk-desktop-list td:nth-child(2),
 .milk-desktop-list th:nth-child(3), .milk-desktop-list td:nth-child(3) { width: 13%; }
 .milk-desktop-list th:nth-child(4), .milk-desktop-list td:nth-child(4) { width: 12%; }
 .milk-desktop-list th:nth-child(5), .milk-desktop-list td:nth-child(5) { width: 14%; }
 .milk-desktop-list th:nth-child(6), .milk-desktop-list td:nth-child(6) { width: 23%; }
-.milk-record-tools { display: grid; grid-template-columns: minmax(220px, 1fr) minmax(150px, 190px) 130px; gap: 10px; align-items: end; padding: 0 18px 12px; }
+.milk-record-tools { display: grid; grid-template-columns: minmax(220px, 1fr) repeat(3, minmax(125px, 155px)); gap: 10px; align-items: end; padding: 0 18px 12px; }
+.milk-sort-mobile { display: none !important; }
 .milk-record-tools > label { min-width: 0; display: grid; gap: 5px; color: var(--muted-strong); font-size: var(--text-xs); font-weight: 700; }
 .milk-record-tools select, .milk-search-control { width: 100%; min-width: 0; min-height: 44px; border: 1px solid var(--field-line); border-radius: var(--radius-md); background: var(--surface); color: var(--ink); }
 .milk-record-tools select { padding: 0 10px; }
@@ -682,6 +702,9 @@ code { max-width: 420px; display: block; overflow: hidden; text-overflow: ellips
   .nav-item { justify-content: center; padding: 0; }
   .nav-mark { top: 9px; bottom: 9px; }
   .screen-grid { grid-template-columns: minmax(0, 1fr); }
+  .farmer-sort-mobile { display: block; }
+  .collector-sort-mobile { display: block; }
+  .ukwezi-sort-mobile { display: grid !important; }
   .admin-pricing-layout { grid-template-columns: minmax(0, 1fr); }
   .subscription-layout { grid-template-columns: minmax(0, 1fr); }
   .dashboard-overview, .dashboard-lower { grid-template-columns: minmax(0, 1fr); }
@@ -765,6 +788,7 @@ code { max-width: 420px; display: block; overflow: hidden; text-overflow: ellips
   .milk-workspace-header { padding: 14px 12px 12px; }
   .milk-entry-controls { padding: 10px 12px; }
   .milk-record-tools { grid-template-columns: repeat(2, minmax(0, 1fr)); padding: 0 12px 10px; }
+  .milk-sort-mobile { display: grid !important; }
   .milk-search-field { grid-column: 1 / -1; }
   .milk-toolbar { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .milk-session-context { flex-wrap: wrap; }

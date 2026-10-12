@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+const { randomUUID } = require('node:crypto');
 
 const { getAuthenticatedUser } = require('@/lib/security/authenticate.js');
 const Reports = require('@/lib/services/monthly-report-service.js');
@@ -8,6 +9,7 @@ export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
 export async function GET(request) {
+  const requestedLanguage = new URL(request.url).searchParams.get('language') === 'en' ? 'en' : 'rw';
   try {
     const user = await getAuthenticatedUser(request);
     if (!user) return NextResponse.json({ message: 'Not authenticated.' }, { status: 401 });
@@ -36,13 +38,22 @@ export async function GET(request) {
     });
   } catch (error) {
     const status = error.statusCode || (error.code === 'DATABASE_NOT_CONFIGURED' || error.code === 'SESSION_SECRET_NOT_CONFIGURED' ? 503 : 500);
+    const requestId = status >= 500 ? randomUUID() : null;
     if (status >= 500) {
       console.error('[ukwezi/pdf] Failed to generate accounting PDF.', {
+        requestId,
         name: error.name || 'UnknownError',
         code: error.code || null,
+        message: error.message || null,
+        stack: error.stack || null,
       });
     }
-    return NextResponse.json({ message: error.statusCode && error.statusCode < 500 ? error.message : 'Failed to generate Ukwezi PDF. Please retry or contact support.' }, {
+    const message = status >= 500
+      ? requestedLanguage === 'en'
+        ? `Ukwezi PDF could not be generated. Contact support with reference ${requestId}.`
+        : `PDF ntiyashoboye gukorwa. Menyesha ushinzwe sisitemu ukoresheje kode ${requestId}.`
+      : error.message || 'Choose a valid month, year, and Ukwezi accounting period.';
+    return NextResponse.json({ message, requestId, code: error.code || (status >= 500 ? 'UKWEZI_PDF_GENERATION_FAILED' : 'UKWEZI_PDF_INVALID_REQUEST') }, {
       status,
     });
   }

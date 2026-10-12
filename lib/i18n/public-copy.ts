@@ -318,6 +318,7 @@ export const publicCopy = {
     pageSize: 'Aborozi 50 kuri paji',
     farmersSearchPlaceholder: 'Izina, telefone, indangamuntu cyangwa konti',
     search: 'Shakisha',
+    sort: 'Gutondeka',
     allCenters: 'Ibigo byose by’ikusanyirizo',
     allCollectors: 'Abacunda bose',
 
@@ -375,6 +376,10 @@ export const publicCopy = {
     alertsInbox: 'UBUTUMWA',
     markAllRead: 'Shyira byose mu byasomwe',
     markRead: 'Shyira mu byasomwe',
+    notificationsRead: 'Byasomwe',
+    notificationsUnread: 'Ntibyasomwe',
+    notificationPriority: 'Icyihutirwa',
+    notificationType: 'Ubwoko bw’ubutumwa',
 
     accountStatus: 'IMITERERE YA KONTI',
     subscriptionSavedPhone: 'Telefone yabitswe',
@@ -860,6 +865,7 @@ export const publicCopy = {
     pageSize: '50 per page',
     farmersSearchPlaceholder: 'Name, phone, ID or account',
     search: 'Search',
+    sort: 'Sort',
     allCenters: 'All collection centers',
     allCollectors: 'All collectors',
 
@@ -917,6 +923,10 @@ export const publicCopy = {
     alertsInbox: 'INBOX',
     markAllRead: 'Mark all read',
     markRead: 'Mark read',
+    notificationsRead: 'Read',
+    notificationsUnread: 'Unread',
+    notificationPriority: 'Priority',
+    notificationType: 'Event type',
 
     accountStatus: 'ACCOUNT STATUS',
     subscriptionSavedPhone: 'Saved phone',

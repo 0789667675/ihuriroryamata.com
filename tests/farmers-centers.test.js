@@ -117,7 +117,7 @@ test('farmer listing enforces bounded server-side keyset pagination and owner sc
   });
 
   assert.equal(result, expected);
-  assert.deepEqual(received, { ownerUserId: 42, search: 'Mary', center: 'North Site', cursor: 50, limit: 25 });
+  assert.deepEqual(received, { ownerUserId: 42, search: 'Mary', center: 'North Site', cursor: 50, limit: 25, sortBy: 'id', sortDirection: 'desc' });
   await assert.rejects(() => Farmers.listFarmers({ ownerUserId: owner.id, limit: 101, repository: { listFarmers() {} } }), /between 1 and 100/i);
 });
 
@@ -137,6 +137,34 @@ test('farmer SQL applies owner, center, search, cursor, and limit as parameters'
   assert.match(query.text, /ORDER BY id DESC LIMIT \$5/);
   assert.deepEqual(query.values, [42, 'North Site', '%%_input%', 90, 41]);
   assert.ok(!query.text.includes('%_input'));
+});
+
+test('farmer SQL sorts globally with a stable composite cursor while combining search and center filters', () => {
+  const query = DomainRepository.buildFarmerListQuery({
+    ownerUserId: owner.id,
+    search: 'Mary',
+    center: 'North Site',
+    cursor: { value: 'miller', id: 17 },
+    sortBy: 'name',
+    sortDirection: 'asc',
+    limit: 25,
+  });
+
+  assert.match(query.text, /owner_user_id = \$1/);
+  assert.match(query.text, /LOWER\(BTRIM\(collection_center\)\) = LOWER\(BTRIM\(\$2\)\)/);
+  assert.match(query.text, /name ILIKE \$3 OR phone ILIKE \$3 OR national_id ILIKE \$3/);
+  assert.match(query.text, /LOWER\(BTRIM\(COALESCE\(name, ''\)\)\) > \$4/);
+  assert.match(query.text, /id > \$5/);
+  assert.match(query.text, /ORDER BY LOWER\(BTRIM\(COALESCE\(name, ''\)\)\) ASC, id ASC LIMIT \$6/);
+  assert.deepEqual(query.values, [owner.id, 'North Site', '%Mary%', 'miller', 17, 26]);
+});
+
+test('farmer service validates sort-aware cursors against the active field and direction', () => {
+  const cursor = `s1.${Buffer.from(JSON.stringify({ sortBy: 'name', sortDirection: 'asc', value: 'Miller', id: 17 }), 'utf8').toString('base64url')}`;
+  assert.deepEqual(Farmers.normalizePaging({ sortBy: 'name', sortDirection: 'asc', cursor, limit: 50 }), {
+    search: '', center: '', cursor: { value: 'Miller', id: 17 }, limit: 50, sortBy: 'name', sortDirection: 'asc',
+  });
+  assert.throws(() => Farmers.normalizePaging({ sortBy: 'name', sortDirection: 'desc', cursor, limit: 50 }), /invalid farmer list cursor/i);
 });
 
 test('collector farmer refetch returns owned farmers when no Dairy assignment exists', async () => {
@@ -354,6 +382,75 @@ test('phone-only farmer edits preserve all other fields and stay owner scoped', 
   assert.equal(await Farmers.updateFarmer({ id: 7, ownerUserId: 99, input: { phone: '1' }, repository }), null);
 });
 
+test('farmer update accepts the primary phone and preserves existing collector and center relationships', async () => {
+  let persisted;
+  const farmer = { ...currentFarmer, collectorUserId: 77 };
+  const updated = await Farmers.updateFarmer({
+    id: farmer.id,
+    ownerUserId: owner.id,
+    input: { name: farmer.name, phone: '0788999000' },
+    repository: {
+      getFarmer: async (id, ownerUserId) => id === farmer.id && ownerUserId === owner.id ? farmer : null,
+      updateFarmer: async (args) => { persisted = args; return { ...farmer, ...args.input }; },
+    },
+  });
+
+  assert.equal(updated.phone, '0788999000');
+  assert.equal(persisted.input.collectionCenter, farmer.collectionCenter);
+  assert.equal(persisted.input.collectorUserId, undefined);
+  assert.equal(persisted.ownerUserId, owner.id);
+});
+
+test('farmer update rejects invalid input and translates database constraints into useful errors', async () => {
+  const repository = {
+    getFarmer: async () => currentFarmer,
+    updateFarmer: async () => { throw Object.assign(new Error('duplicate key'), { code: '23505', constraint: 'uq_farmers_owner_name' }); },
+  };
+
+  await assert.rejects(
+    () => Farmers.updateFarmer({ id: 7, ownerUserId: owner.id, input: { phone: 123 }, repository }),
+    /phone must be a string/i
+  );
+  await assert.rejects(
+    () => Farmers.updateFarmer({ id: 7, ownerUserId: owner.id, input: { name: 'Renamed Farmer' }, repository }),
+    (error) => error.statusCode === 409 && /already exists for this account/i.test(error.message)
+  );
+});
+
+test('farmer SQL update is owner scoped, keeps collector links, and writes the existing audit trail', async () => {
+  const statements = [];
+  const existing = { ...currentFarmer, id: 7, owner_user_id: owner.id, collectorUserId: 77 };
+  const client = {
+    query: async (text, values = []) => {
+      statements.push({ text, values });
+      if (text.includes('FROM farmers WHERE id = $1 AND owner_user_id = $2')) return { rows: [existing] };
+      if (text.includes('FROM users WHERE id = $1')) return { rows: [{ id: owner.id, account_type: 'COLLECTOR', account_status: 'active' }] };
+      if (text.includes('FROM collection_centers') && text.includes('LOWER(BTRIM(name))')) return { rows: [{ id: 8, name: 'North Site', owner_user_id: owner.id }] };
+      if (text.includes('UPDATE farmers SET')) return { rows: [{ ...existing, phone: values[2] }] };
+      return { rows: [] };
+    },
+    release() {},
+  };
+  const updated = await DomainRepository.updateFarmer({
+    id: 7,
+    input: { name: currentFarmer.name, location: currentFarmer.location, phone: '0788777666', nationalId: currentFarmer.nationalId, accountNumber: currentFarmer.accountNumber, cowType: currentFarmer.cowType },
+    ownerUserId: owner.id,
+    actorId: owner.id,
+    poolProvider: () => ({ connect: async () => client }),
+  });
+  const update = statements.find(({ text }) => text.includes('UPDATE farmers SET'));
+  const audit = statements.find(({ text }) => text.includes('INSERT INTO audit_logs'));
+
+  assert.equal(updated.phone, '0788777666');
+  assert.match(update.text, /WHERE id = \$10 AND owner_user_id = \$11/);
+  assert.match(update.text, /collector_user_id = CASE WHEN \$8::boolean THEN \$9 ELSE collector_user_id END/);
+  assert.equal(update.values[7], false);
+  assert.equal(update.values[8], null);
+  assert.match(audit.text, /entity_type, entity_id, action, details, changed_by, owner_user_id/);
+  assert.equal(audit.values[4], owner.id);
+  assert.equal(audit.values[5], owner.id);
+});
+
 test('center configuration retains collection windows and validates price and time ordering', () => {
   assert.deepEqual(Centers.normalizeConfig({}, { creating: true }), {
     pricePerLiter: 0,
@@ -387,6 +484,12 @@ test('center create and update carry only authenticated owner identity', async (
 
 test('collection center update route imports and enforces the active subscription guard', () => {
   const route = fs.readFileSync(path.join(__dirname, '../app/api/collection-centers/[id]/route.js'), 'utf8');
+  assert.match(route, /require\(['"]@\/lib\/security\/subscription-access\.js['"]\)/);
+  assert.match(route, /await requireActiveSubscription\(user\)/);
+});
+
+test('farmer update route imports and enforces the active subscription guard', () => {
+  const route = fs.readFileSync(path.join(__dirname, '../app/api/farmers/[id]/route.js'), 'utf8');
   assert.match(route, /require\(['"]@\/lib\/security\/subscription-access\.js['"]\)/);
   assert.match(route, /await requireActiveSubscription\(user\)/);
 });

@@ -16,6 +16,37 @@ test('only a collection-center account can manage collector assignments', async 
   assert.equal(called, false);
 });
 
+test('collector assignment list validates sort direction and keeps selected center scope', async () => {
+  let received;
+  const result = await Assignments.listAssignments({
+    dairyUserId,
+    centerId: '8',
+    sortDirection: 'desc',
+    getAccount: async () => ({ id: dairyUserId, account_type: 'COLLECTION_CENTER' }),
+    repository: { getAssignments: async (...args) => { received = args; return []; } },
+  });
+  assert.deepEqual(result, []);
+  assert.deepEqual(received, [dairyUserId, 8, 'desc']);
+  await assert.rejects(() => Assignments.listAssignments({
+    dairyUserId,
+    sortDirection: 'random',
+    getAccount: async () => ({ id: dairyUserId, account_type: 'COLLECTION_CENTER' }),
+    repository: {},
+  }), /sortDirection/i);
+});
+
+test('collector assignment SQL orders normalized names in both directions with stable IDs and owner center scope', async () => {
+  let statement;
+  await AssignmentRepository.getAssignments(dairyUserId, 8, 'desc', async (text, values) => {
+    statement = { text, values };
+    return { rows: [] };
+  });
+  assert.match(statement.text, /ca\.dairy_user_id = \$1 AND ca\.revoked_at IS NULL/);
+  assert.match(statement.text, /c\.id = \$2 AND c\.owner_user_id = ca\.dairy_user_id/);
+  assert.match(statement.text, /ORDER BY LOWER\(BTRIM\(u\.name\)\) DESC, u\.id ASC/);
+  assert.deepEqual(statement.values, [dairyUserId, 8]);
+});
+
 test('assignments always use authenticated Dairy ownership and actor identity', async () => {
   let captured;
   const repository = {

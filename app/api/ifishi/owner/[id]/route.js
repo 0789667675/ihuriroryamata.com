@@ -26,6 +26,8 @@ export async function PUT(request, { params }) {
       actorId: user.id,
       id: params.id,
       date: input.date,
+      volumeMorning: input.volumeMorning,
+      volumeEvening: input.volumeEvening,
       volumeLiters: input.volumeLiters,
     });
     if (!entry) return NextResponse.json({ message: 'Owner milk record not found.' }, { status: 404 });

@@ -25,16 +25,24 @@ const inMemoryRepository = () => {
     createOwnerEntry: async (input) => {
       assert.equal(input.ownerUserId, ownerUserId);
       assert.equal(input.actorId, ownerUserId);
+      if (saved.some((entry) => entry.ownerUserId === input.ownerUserId && entry.date === input.date)) {
+        throw Object.assign(new Error('An owner milk entry already exists for this date.'), { statusCode: 409 });
+      }
+      const volumeMorning = input.volumeMorning ?? input.volumeLiters;
+      const volumeEvening = input.volumeEvening ?? 0;
+      const volumeLiters = volumeMorning + volumeEvening;
       const row = {
         id: saved.length + 1,
         ownerUserId: input.ownerUserId,
         date: input.date,
-        volumeLiters: input.volumeLiters,
-        originalVolumeLiters: input.volumeLiters,
-        validVolumeLiters: input.volumeLiters,
+        volumeLiters,
+        volumeMorning,
+        volumeEvening,
+        originalVolumeLiters: volumeLiters,
+        validVolumeLiters: volumeLiters,
         lostVolumeLiters: 0,
         pricePerLiter: input.pricePerLiter,
-        grossAmount: Number((input.volumeLiters * input.pricePerLiter).toFixed(2)),
+        grossAmount: Number((volumeLiters * input.pricePerLiter).toFixed(2)),
         assignedFarmerLiters: 0,
         status: 'valid',
       };
@@ -45,12 +53,14 @@ const inMemoryRepository = () => {
       const row = saved.find((entry) => entry.id === input.id && entry.ownerUserId === input.ownerUserId);
       if (!row) return null;
       row.date = input.date;
-      row.volumeLiters = input.volumeLiters;
-      row.originalVolumeLiters = input.volumeLiters;
-      row.validVolumeLiters = input.volumeLiters;
+      row.volumeMorning = input.volumeMorning ?? row.volumeMorning;
+      row.volumeEvening = input.volumeEvening ?? row.volumeEvening;
+      row.volumeLiters = row.volumeMorning + row.volumeEvening;
+      row.originalVolumeLiters = row.volumeLiters;
+      row.validVolumeLiters = row.volumeLiters;
       row.pricePerLiter = input.pricePerLiter;
-      row.grossAmount = Number((input.volumeLiters * input.pricePerLiter).toFixed(2));
-      return row;
+      row.grossAmount = Number((row.volumeLiters * input.pricePerLiter).toFixed(2));
+      return { ...row };
     },
   };
 };
@@ -122,6 +132,41 @@ test('missed historical Owner Ifishi entry persists through the milk-record repo
   assert.equal(entry.grossAmount, 10200);
   assert.equal(repository.saved.length, 1);
   assert.equal(repository.saved[0].ownerUserId, ownerUserId);
+});
+
+test('Owner Ifishi supports morning-only, evening-only, and combined historical entries with daily totals and saved-price gross', async () => {
+  const repository = inMemoryRepository();
+  const morning = await OwnerIfishi.createEntry({ ownerUserId, date: '2026-10-01', volumeMorning: '12.5', volumeEvening: 0, repository, now: fixedNow });
+  const evening = await OwnerIfishi.createEntry({ ownerUserId, date: '2026-10-02', volumeMorning: 0, volumeEvening: '8', repository, now: fixedNow });
+  const combined = await OwnerIfishi.createEntry({ ownerUserId, date: '2026-10-03', volumeMorning: 10, volumeEvening: 15, repository, now: fixedNow });
+  const history = await OwnerIfishi.getHistory({ ownerUserId, startDate: '2026-10-01', endDate: '2026-10-03', repository });
+
+  assert.deepEqual([morning.volumeMorning, morning.volumeEvening, morning.volumeLiters, morning.grossAmount], [12.5, 0, 12.5, 5000]);
+  assert.deepEqual([evening.volumeMorning, evening.volumeEvening, evening.volumeLiters, evening.grossAmount], [0, 8, 8, 3200]);
+  assert.deepEqual([combined.volumeMorning, combined.volumeEvening, combined.volumeLiters, combined.grossAmount], [10, 15, 25, 10000]);
+  assert.deepEqual([history.entries[2].volumeMorning, history.entries[2].volumeEvening, history.entries[2].volumeLiters], [10, 15, 25]);
+  assert.equal(history.totals.ownerVolumeLiters, 45.5);
+  assert.equal(history.totals.ownerMilkGross, 18200);
+});
+
+test('Owner Ifishi corrections update either session independently and duplicate dates stay one record', async () => {
+  const repository = inMemoryRepository();
+  const created = await OwnerIfishi.createEntry({ ownerUserId, date: '2026-10-02', volumeMorning: 10, volumeEvening: 15, repository, now: fixedNow });
+  const morningCorrection = await OwnerIfishi.correctEntry({
+    ownerUserId, id: created.id, date: created.date, volumeMorning: 12, repository, now: fixedNow,
+  });
+  const eveningCorrection = await OwnerIfishi.correctEntry({
+    ownerUserId, id: created.id, date: created.date, volumeEvening: 18, repository, now: fixedNow,
+  });
+
+  assert.deepEqual([morningCorrection.volumeMorning, morningCorrection.volumeEvening, morningCorrection.volumeLiters], [12, 15, 27]);
+  assert.deepEqual([eveningCorrection.volumeMorning, eveningCorrection.volumeEvening, eveningCorrection.volumeLiters], [12, 18, 30]);
+  assert.equal(eveningCorrection.grossAmount, 12000);
+  await assert.rejects(
+    () => OwnerIfishi.createEntry({ ownerUserId, date: '2026-10-02', volumeMorning: 12, volumeEvening: 18, repository, now: fixedNow }),
+    (error) => error.statusCode === 409
+  );
+  assert.equal(repository.saved.length, 1);
 });
 
 test('Owner Ifishi rejects an entry without an effective price before writing', async () => {
@@ -205,7 +250,7 @@ test('Owner Ifishi repository writes milk_records with owner scope and audit his
   }) };
 
   const result = await CollectorMilkRepository.createOwnerEntry({
-    ownerUserId, actorId: ownerUserId, date: '2026-10-02', volumeLiters: 25, pricePerLiter: 400, pool,
+    ownerUserId, actorId: ownerUserId, date: '2026-10-02', volumeMorning: 12, volumeEvening: 7, pricePerLiter: 400, pool,
   });
   const insert = queries.find(({ text }) => text.includes('INSERT INTO milk_records'));
   const audit = queries.find(({ text }) => text.includes('INSERT INTO audit_logs'));
@@ -213,9 +258,9 @@ test('Owner Ifishi repository writes milk_records with owner scope and audit his
   assert.equal(result.id, 801);
   assert.match(insert.text, /farmer_id, owner_user_id/);
   assert.match(insert.text, /is_owner_milk/);
-  assert.match(insert.text, /\$6::numeric \* \$7::numeric/);
+  assert.match(insert.text, /\$8::numeric \* \$9::numeric/);
   assert.equal(insert.values[0], ownerUserId);
-  assert.equal(insert.values[5], 25);
+  assert.deepEqual(insert.values.slice(5), [12, 7, 19, 400]);
   assert.match(audit.text, /VALUES \('milk_record'/);
   assert.equal(audit.values[3], ownerUserId);
   assert.equal(audit.values[4], ownerUserId);
@@ -229,7 +274,7 @@ test('Owner Ifishi history query scopes owner rows and assigned farmer rows thro
     endDate: '2026-10-31',
     runQuery: async (text, values) => {
       captured = { text, values };
-      return { rows: [{ id: 9, owner_user_id: ownerUserId, date: '2026-10-04', volume_liters: 100, valid_volume_liters: 100, original_volume_liters: 100, lost_volume_liters: 0, assigned_farmer_liters: 70, status: 'valid' }] };
+      return { rows: [{ id: 9, owner_user_id: ownerUserId, date: '2026-10-04', volume_liters: 100, volume_morning: 40, volume_evening: 60, valid_volume_liters: 100, original_volume_liters: 100, lost_volume_liters: 0, assigned_farmer_liters: 70, status: 'valid' }] };
     },
   });
 
@@ -238,10 +283,29 @@ test('Owner Ifishi history query scopes owner rows and assigned farmer rows thro
   assert.match(captured.text, /ca\.collector_user_id = \$1/);
   assert.match(captured.text, /ca\.revoked_at IS NULL/);
   assert.match(captured.text, /mr\.is_owner_milk = TRUE/);
+  assert.match(captured.text, /mr\.volume_morning/);
+  assert.match(captured.text, /mr\.volume_evening/);
   assert.match(captured.text, /COALESCE\(o\.status::text, 'missing'\) AS status/);
   assert.match(captured.text, /farmer_daily/);
   assert.match(captured.text, /CASE WHEN o\.status = 'cancelled' THEN 0 ELSE COALESCE\(o\.valid_volume_liters, o\.volume_liters, 0\) END AS valid_volume_liters/);
   assert.doesNotMatch(captured.text, /assigned_farmer_lost_liters\) END AS valid_volume_liters/);
+});
+
+test('Owner Ifishi history loads both persisted sessions from its single daily milk record', async () => {
+  const history = await CollectorMilkRepository.getOwnerIfishiHistory({
+    ownerUserId,
+    startDate: '2026-10-01',
+    endDate: '2026-10-31',
+    runQuery: async () => ({ rows: [{
+      id: 9, owner_user_id: ownerUserId, date: '2026-10-04', volume_liters: 100,
+      volume_morning: 40, volume_evening: 60, valid_volume_liters: 100,
+      original_volume_liters: 100, lost_volume_liters: 0, assigned_farmer_liters: 70, status: 'valid',
+    }] }),
+  });
+
+  assert.equal(history[0].volumeMorning, 40);
+  assert.equal(history[0].volumeEvening, 60);
+  assert.equal(history[0].volumeLiters, 100);
 });
 
 test('Owner Ifishi keeps farmer loss separate from owner litres and owner gross', () => {
@@ -332,12 +396,39 @@ test('Owner Ifishi legitimate correction updates milk_records and records the ac
   const audit = queries.find(({ text }) => text.includes('INSERT INTO audit_logs'));
 
   assert.equal(result.volumeLiters, 31);
-  assert.match(update.text, /WHERE id = \$7 AND owner_user_id = \$8 AND is_owner_milk = TRUE/);
-  assert.match(update.text, /\$5::numeric \* \$6::numeric/);
+  assert.match(update.text, /WHERE id = \$9 AND owner_user_id = \$10 AND is_owner_milk = TRUE/);
+  assert.match(update.text, /\$5::numeric \* \$8::numeric/);
   assert.equal(update.values[4], 31);
   assert.equal(audit.values[1], 'owner_ifishi_corrected');
   assert.equal(audit.values[3], ownerUserId);
   assert.equal(audit.values[4], ownerUserId);
+});
+
+test('Owner Ifishi SQL correction changes one session and preserves the other', async () => {
+  const queries = [];
+  const existing = {
+    id: 802, owner_user_id: ownerUserId, date: '2026-10-02', volume_liters: 25,
+    volume_morning: 10, volume_evening: 15, valid_volume_liters: 25,
+    original_volume_liters: 25, lost_volume_liters: 0, status: 'valid',
+  };
+  const updated = { ...existing, volume_liters: 27, volume_morning: 12, valid_volume_liters: 27 };
+  const pool = { connect: async () => ({
+    query: async (text, values = []) => {
+      queries.push({ text, values });
+      if (text.includes('SELECT * FROM milk_records')) return { rows: [existing] };
+      if (text.includes('UPDATE milk_records')) return { rows: [updated] };
+      return { rows: [] };
+    },
+    release() {},
+  }) };
+
+  const result = await CollectorMilkRepository.correctOwnerEntry({
+    id: 802, ownerUserId, actorId: ownerUserId, date: '2026-10-02', volumeMorning: 12, pricePerLiter: 400, pool,
+  });
+  const update = queries.find(({ text }) => text.includes('UPDATE milk_records'));
+
+  assert.deepEqual([result.volumeMorning, result.volumeEvening, result.volumeLiters], [12, 15, 27]);
+  assert.deepEqual(update.values.slice(4), [27, 12, 15, 400, 802, ownerUserId]);
 });
 
 test('owner settlement history reads owner-tagged milk_records instead of the legacy ledger', () => {
@@ -365,16 +456,24 @@ test('Owner Ifishi API derives owner scope from authentication and keeps financi
   assert.match(route, /getHistoryForPeriod/);
   assert.doesNotMatch(route, /params\.get\(['"]startDate['"]\)|params\.get\(['"]endDate['"]\)/);
   assert.match(route, /actorId: user\.id/);
+  assert.match(route, /volumeMorning: input\.volumeMorning/);
+  assert.match(route, /volumeEvening: input\.volumeEvening/);
   assert.doesNotMatch(route, /ownerUserId: input\.|ownerId: input\./);
   assert.doesNotMatch(route, /params\.get\(['"]owner(?:User)?Id['"]\)/);
   assert.match(correctionRoute, /ownerUserId: user\.id/);
   assert.match(correctionRoute, /actorId: user\.id/);
+  assert.match(correctionRoute, /volumeMorning: input\.volumeMorning/);
+  assert.match(correctionRoute, /volumeEvening: input\.volumeEvening/);
   const ownerScreen = workspace.slice(workspace.indexOf('const renderOwnerIfishi'), workspace.indexOf('const renderIfishi ='));
   assert.match(ownerScreen, /ownerIfishiLoading/);
   assert.match(ownerScreen, /ownerIfishiError/);
   assert.match(workspace, /loadOwnerIfishiHistory\(\)\.catch\(\(\) => undefined\)/);
   assert.match(ownerScreen, /ownerIfishiEmpty/);
   assert.match(ownerScreen, /type="date"/);
+  assert.match(ownerScreen, /06:30–09:00/);
+  assert.match(ownerScreen, /17:30–19:00/);
+  assert.match(workspace, /volumeMorning: Number\(ownerIfishiMorning/);
+  assert.match(workspace, /volumeEvening: Number\(ownerIfishiEvening/);
   assert.match(ownerScreen, /owner-ifishi-mobile-list/);
   assert.match(ownerScreen, /ownerIfishiReport\?\.farmerPayments/);
   assert.match(ownerScreen, /ownerIfishiReport\.collectorPayable/);

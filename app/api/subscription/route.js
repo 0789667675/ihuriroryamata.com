@@ -14,7 +14,14 @@ export async function GET(request) {
     const params = new URL(request.url).searchParams;
     const billingPeriod = params.get('billingPeriod') || 'monthly';
     const planCode = params.get('planCode');
-    const data = await Subscriptions.getCustomerSubscription({ userId: user.id, billingPeriod, planCode });
+    const data = await Subscriptions.getCustomerSubscription({
+      userId: user.id,
+      billingPeriod,
+      planCode,
+      paymentSortBy: params.get('paymentSortBy') || 'date',
+      paymentSortDirection: params.get('paymentSortDirection') || 'desc',
+      paymentStatus: params.get('paymentStatus') || null,
+    });
     if (!data) return NextResponse.json({ message: 'Account not found.' }, { status: 404 });
     return NextResponse.json(data, { headers: { 'Cache-Control': 'no-store' } });
   } catch (error) {

@@ -15,7 +15,12 @@ export async function GET(request) {
   try {
     const user = await getAuthenticatedUser(request);
     if (!user) return NextResponse.json({ message: 'Not authenticated.' }, { status: 401 });
-    return NextResponse.json(await Assignments.listAssignments({ dairyUserId: user.id, centerId: new URL(request.url).searchParams.get('centerId') }));
+    const params = new URL(request.url).searchParams;
+    return NextResponse.json(await Assignments.listAssignments({
+      dairyUserId: user.id,
+      centerId: params.get('centerId'),
+      sortDirection: params.get('sortDirection') || 'asc',
+    }));
   } catch (error) {
     return respond(error, 'Failed to load collector assignments.');
   }

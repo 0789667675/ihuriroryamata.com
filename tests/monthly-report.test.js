@@ -118,6 +118,24 @@ test('period resolution preserves monthly, daily, and half-month report ranges',
   assert.deepEqual(Reports.getPeriodRange({ periodType: 'yearly', year: 2026, now }), ['2026-01-01', '2026-12-31']);
 });
 
+test('Ukwezi sort orders server-calculated accounting rows without changing values or totals', () => {
+  const rows = [
+    { farmerId: 2, farmerName: 'Bella', totalVolume: 25, netAmount: 8000 },
+    { farmerId: 1, farmerName: 'Aline', totalVolume: 10, netAmount: 4000 },
+  ];
+  const byName = Reports.sortAccountingRows(rows, 'name', 'asc');
+  const byVolume = Reports.sortAccountingRows(rows, 'volume', 'desc');
+  const byPayable = Reports.sortAccountingRows(rows, 'payable', 'asc');
+
+  assert.deepEqual(byName.map((row) => row.farmerName), ['Aline', 'Bella']);
+  assert.deepEqual(byVolume.map((row) => row.totalVolume), [25, 10]);
+  assert.deepEqual(byPayable.map((row) => row.netAmount), [4000, 8000]);
+  assert.equal(rows.reduce((sum, row) => sum + row.totalVolume, 0), byName.reduce((sum, row) => sum + row.totalVolume, 0));
+  assert.equal(rows[0].netAmount, 8000);
+  assert.deepEqual(Reports.sortAccountingRows(rows, null, 'desc'), rows);
+  assert.equal(Reports.normalizeFilters({ sortBy: 'total_volume' }).sortBy, null);
+});
+
 test('Ukwezi half-month boundaries override browser-supplied custom ranges', () => {
   assert.deepEqual(Reports.getPeriodRange({
     periodType: 'first-half',
@@ -572,6 +590,44 @@ test('collection-center summary deducts farmer deductions and excludes transport
   assert.equal(summary.ownerSettlementRow.totalTransport, 0);
   assert.equal(summary.ownerSettlementRow.totalDeductions, 1500);
   assert.equal(summary.ownerSettlementRow.netAmount, 32500);
+});
+
+test('collector owner settlement uses Owner Ifishi litres and excludes farmers with no valid supply', async () => {
+  const repository = {
+    ...reportRepository(),
+    getUserProfile: async () => ({ id: 42, name: 'Collector A', accountType: 'COLLECTOR', nationalId: null, accountNumber: null, phone: null }),
+    getOwnerIfishiHistory: async () => [
+      { date: '2026-06-01', validVolumeLiters: 30, pricePerLiter: 400, grossAmount: 12000, assignedFarmerLiters: 15, status: 'valid' },
+      { date: '2026-06-02', validVolumeLiters: 0, pricePerLiter: 400, grossAmount: 0, assignedFarmerLiters: 0, status: 'valid' },
+    ],
+    getFarmerTotals: async () => [
+      { farmerId: 1, farmerName: 'Aline', totalVolume: 0, grossAmount: 0, totalTransport: 0, totalDeductions: 0, otherDeductions: 0, netAmount: 0 },
+      { farmerId: 2, farmerName: 'Belo', totalVolume: 15, grossAmount: 6000, totalTransport: 200, totalDeductions: 500, otherDeductions: 500, netAmount: 5300 },
+    ],
+    getTotalDeductions: async () => 500,
+    getPeriodTotals: async () => ({ totalMorning: 15, totalEvening: 0, totalVolume: 15, totalAmount: 6000 }),
+    getTodayTotals: async () => ({ todayMorning: 0, todayEvening: 0, todayTotal: 0, todayAmount: 0 }),
+    getCollectorEntries: async () => [],
+    getFarmerValidLitersByDate: async () => new Map([['2026-06-02', 15]]),
+    getFarmerValidTotalsByDate: async () => new Map([['2026-06-02', { validLiters: 15, originalLiters: 15, lostLiters: 0 }]]),
+  };
+
+  const summary = await Reports.getSummary({
+    ownerUserId: 42,
+    query: { startDate: '2026-06-01', endDate: '2026-06-30' },
+    repository,
+  });
+
+  assert.equal(summary.farmerPayments.length, 1);
+  assert.equal(summary.farmerPayments[0].farmerName, 'Belo');
+  assert.equal(summary.ownerGeneratedVolume, 30);
+  assert.equal(summary.ownerGeneratedGross, 12000);
+  assert.equal(summary.ownerSettlementRow.totalVolume, 30);
+  assert.equal(summary.ownerSettlementRow.grossAmount, 12000);
+  assert.equal(summary.ownerSettlementRow.totalDeductions, 6000);
+  assert.equal(summary.ownerSettlementRow.otherDeductions, 500);
+  assert.equal(summary.ownerSettlementRow.netAmount, 6700);
+  assert.equal(summary.collectorFarmerTransport, 200);
 });
 
 test('invalid report ranges and filters are rejected before repository reads', async () => {

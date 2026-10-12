@@ -30,6 +30,9 @@ export async function GET(request) {
       center: params.get('center') || params.get('collectionCenter') || '',
       startDate: params.get('startDate'),
       endDate: params.get('endDate'),
+      session: params.get('session'),
+      sortBy: params.get('sortBy'),
+      sortDirection: params.get('sortDirection'),
       cursor: params.get('cursor'),
       limit: params.get('limit') || 50,
     });

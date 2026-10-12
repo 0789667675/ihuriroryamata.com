@@ -44,7 +44,7 @@ test('Collection Center Abacunda uses owner-scoped farmer management without Col
   assert.match(workspace, /tab === 'farmers' && !isAdmin \? renderFarmers\(\)/);
   assert.doesNotMatch(workspace, /tab === 'farmers' && !isAdmin && isDairy \? renderAbacundaDirectory/);
   assert.match(farmerView, /isDairy \? publicLanguage\.t\('navAbacunda'\)/);
-  assert.match(farmerView, /<div className="toolbar">/);
+  assert.match(farmerView, /<div className="toolbar farmers-toolbar">/);
   assert.match(farmerView, /!isCollector && !isDairy \? <div className="assignment-tool">/);
   const farmerTable = farmerView.slice(farmerView.indexOf('table-scroll farmers-desktop-table'), farmerView.indexOf('{farmers ? farmers.data.length'));
   assert.doesNotMatch(farmerTable, /assignedCollector|navIfishi/);
@@ -52,6 +52,13 @@ test('Collection Center Abacunda uses owner-scoped farmer management without Col
   assert.match(styles, /farmer-mobile-card dl > div:nth-child\(5\), \.farmer-mobile-card footer > button:first-child \{ display: none; \}/);
   assert.match(farmerView, /createFarmer/);
   assert.match(farmerView, /saveFarmer/);
+  assert.match(farmerView, /screen-grid farmers-view/);
+  assert.match(farmerView, /farmer-sort-mobile/);
+  assert.match(farmerView, /aria-sort=/);
+  assert.match(workspace, /sortBy: farmerSortBy \\|\\| undefined/);
+  assert.match(styles, /\.farmers-view \{ grid-template-columns: minmax\(0, 1fr\); \}/);
+  assert.match(styles, /\.farmers-desktop-table table \{ table-layout: fixed;/);
+  assert.match(styles, /\.farmers-desktop-table \{ width: 100%;/);
   for (const route of [listRoute, detailRoute]) {
     assert.match(route, /requireAccountType\(user, \['COLLECTOR', 'COLLECTION_CENTER'\]\)/);
     assert.match(route, /ownerUserId: user\.id/);
@@ -201,7 +208,8 @@ test('Owner Ifishi entry modal stays focused while history and accounting are ex
 
   assert.match(milkEntry, /className="owner-ifishi-entry-modal"/);
   assert.match(entry, /type="date"/);
-  assert.match(entry, /ownerIfishiVolume/);
+  assert.match(entry, /ownerIfishiMorning/);
+  assert.match(entry, /ownerIfishiEvening/);
   assert.doesNotMatch(entry, /owner-ifishi-period|owner-ifishi-summary|owner-ifishi-accounting-summary|owner-ifishi-mobile-list|owner-ifishi-desktop-list/);
   assert.match(history, /owner-ifishi-summary/);
   assert.match(history, /owner-ifishi-accounting-summary/);
