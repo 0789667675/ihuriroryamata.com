@@ -1,6 +1,6 @@
 # Milk System: Capabilities and Gaps
 
-**Status date:** 2026-10-11
+**Status date:** 2026-10-14
 **Scope:** Current Next.js application at the repository root. This report describes repository evidence; it is not a production deployment or live-provider certification.
 
 ## Executive Summary
@@ -13,7 +13,7 @@ The repository now builds and its automated suite passes. The LMBTech MTN MoMo p
 
 ### Accounts and Access
 
-- Collector account registration/login in production; Collection Center registration/login remains available outside production. Production registration, login, and authenticated-user resolution deny Collection Center accounts without deleting their accounts or data. Signed sessions, profile updates, password changes, password reset, and verified email changes remain available to supported accounts.
+- Collector registration/login in production. Public Collection Center registration remains disabled in production, while existing Collection Center owners can authenticate; settlement owner actions are still separately role- and owner-scoped. Signed sessions, profile updates, password changes, password reset, and verified email changes remain available to supported accounts.
 - Separate platform Super Admin access for account administration, subscription actions, plans, pricing configuration, and platform settings.
 - Account ownership and collector-to-center assignment scoping on server-side data operations; tests cover cross-account isolation and role restrictions.
 - English and Kinyarwanda interface copy.
@@ -32,6 +32,7 @@ The repository now builds and its automated suite passes. The LMBTech MTN MoMo p
 
 - Generate period summaries for daily, monthly, and half-month Ukwezi periods, including volumes, gross amounts, transport, deductions, farmer net amounts, and collector settlement reconciliation.
 - Download Ukwezi reports as PDF.
+- Half-month settlement reports and PDFs can separately show SACCO instructions/confirmations, retained unpaid balances, cash approval/receipt, debt repayment/outstanding balance, owner-gross reconciliation, and unexplained differences. Core milk calculations are unchanged; historical debt repayments without dates are flagged incomplete.
 - Persist and list notifications, count unread items, mark notifications read, and deduplicate generated alerts. Rules include missed collection, repeated zero-volume records, and unusually low collection against recent history.
 - Audit administrative and selected operational actions.
 
@@ -57,10 +58,11 @@ The repository now builds and its automated suite passes. The LMBTech MTN MoMo p
 
 ### Operational Readiness
 
-- The repository contains migrations `001`-`014`. The documented configured remote database ledger reports only `001`-`006`, while read-only schema checks found objects from later migrations already present and `subscription_email_events` from `009` absent. The target environment (staging vs production) is not identified. Reconcile ledger and schema before applying any migration.
+- The repository contains migrations `001`-`016`. A read-only check of the configured `.env.local` PostgreSQL connection on 2026-10-14 found ledger versions `001`-`014`, no `015`/`016` entries, and no settlement tables. The database is reachable, but its deployment target (staging vs production) is unidentified. Reconcile the target ledger and schema before applying either settlement migration.
 - Read-only prechecks found two active Collection Center accounts, one owner/date overlap relevant to the `010` Owner Ifishi backfill, zero duplicate active Collector assignments for `011`, and five valid-volume records without a transport-rate snapshot for `013`.
 - Migration `008` updates the existing `USAGE_10001_20000_MONTHLY` price from the observed `15,000` RWF to `17,000` RWF. `008`/`012` require explicit price approval. Migration `009` is required by the successful-payment transaction's email-outbox insert and is documented as missing from the configured schema. New lifecycle migration `014` depends on the existing subscription, plan, notification, audit, and email-outbox schema; validate the actual target before any migration sequence.
 - Migrations `010`-`013` have partial schema footprints despite being absent from the ledger. Back up and inspect existing objects/data, reconcile the Owner Ifishi overlap without deleting rows, and use the approved migration process. No migration was applied during this audit. Some transformations have no safe automatic rollback; validate backup/restore rather than assuming rollback SQL is sufficient.
+- Settlement migrations `015` and `016` have not been applied to the configured database. This repository has no migration script, Supabase CLI configuration, or installed `psql`; the documented process requires the database owner to reconcile schema/history, approve and back up the target, and apply the ordered files through the deployment's approved migration tool. Verify the ledger entries and settlement tables afterward. No migration was run.
 - A consolidated production setup, migration, rollback, backup/restore, and incident runbook is still required.
 - Required production configuration needs a verified Supabase/PostgreSQL connection, a strong `SESSION_SECRET`, email delivery configuration, public application origin, Super Admin identity, and (if billing is enabled) `LMBTECH_APP_KEY`, `LMBTECH_SECRET_KEY`, `LMBTECH_BASE_URL`, `LMBTECH_CALLBACK_URL`, and `LMBTECH_ALLOW_REAL_PAYMENTS` in server-side secret/config storage.
 - Password-reset and account-email delivery depend on a configured email provider; successful delivery in a production environment was not tested.

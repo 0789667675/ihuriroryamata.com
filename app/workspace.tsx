@@ -13,6 +13,7 @@ import { buildFarmerListQuery } from '@/lib/farmer-list-query';
 import { BrandLockup } from '@/components/brand-lockup';
 import { Modal } from '@/components/ui/modal';
 import { usePublicLanguage } from '@/hooks/use-public-language';
+import { formatDateLabel, getMonthNames } from '@/lib/i18n/date-format';
 
 type User = { id: number; name: string; email: string; role: string; accountType: string };
 type AccountProfile = { id: number; name: string; email: string; phone: string | null; nationalId: string | null; accountNumber: string | null; profilePicture: string | null; role: string; accountType: string; accountStatus: string; emailVerified: boolean };
@@ -28,8 +29,9 @@ type MilkRecord = { id: number; farmer_id: number; owner_user_id: number; date: 
 type Notice = { id: number; title: string; message: string; notification_type: string; isRead: boolean; createdAt: string };
 type ReportFarmerRow = { farmerId: number; farmerName: string; nationalId?: string | null; idNumber?: string | null; phone?: string | null; accountNumber?: string | null; totalVolume: number; originalVolume?: number; lostVolume?: number; pricePerLiter?: number; grossAmount: number; totalTransport: number | null; transportIsComplete?: boolean; totalDeductions: number; ifishiTotalDeductions?: number; ifishiNetAmount?: number | null; netAmount: number | null };
 type ReportOwnerRow = { farmerId: null; farmerName: string; name: string; isOwner: true; nationalId?: string | null; idNumber?: string | null; phone?: string | null; accountNumber?: string | null; totalVolume: number; pricePerLiter: number | null; grossAmount: number | null; totalTransport: number | null; totalDeductions: number; farmerPayable?: number; netAmount: number | null };
-type Report = { totalFarmers: number; totalVolume: number; totalMorning: number; totalEvening: number; totalRevenueMonth: number; ownerGeneratedGross?: number | null; ownerGeneratedVolume?: number; totalDeductionsMonth: number; totalTransportFeesMonth: number; netRevenueMonth: number; todayTotal: number; todayMorning: number; todayEvening: number; rangeStart: string; rangeEnd: string; collectorPayable: number | null; collectorGross?: number | null; collectorActualVolume?: number; collectorOriginalVolume?: number; collectorLostVolume?: number; collectorFarmersValidLiters?: number; collectorTotalFarmersPayable?: number; collectorFarmerDeductions?: number; collectorFarmerTransport?: number; collectorSurplusAmount?: number | null; collectorPayableFromBreakdown?: number | null; collectorIsReconciled?: boolean | null; collectorProfile?: { name: string } | null; collectorEntries?: Array<{ id: number; date: string; status: string; volumeLiters: number; effectiveVolumeLiters: number; farmerLostLiters: number; voidReason?: string | null; voidedBy?: number | null; voidedAt?: string | null }>; milkLossRecords?: Array<{ id: number; farmerId: number; farmerName: string; date: string; status: string; originalVolume: number; validVolume: number; lostVolume: number; reason: string | null; adjustedBy: number | null; adjustedAt: string | null }>; collectorSettlementRows?: any[]; ownerSettlementRow?: ReportOwnerRow | null; farmerPayments: ReportFarmerRow[] };
 type CollectorSettlementFields = { collectorFarmerMilkValue?: number | null; collectorFarmerPayable?: number | null; collectorAccountingComplete?: boolean | null; collectorAccountingMissingInputs?: string[] };
+type SettlementAccounting = { farmerGross: number | null; expectedFarmerPayable: number; saccoEligiblePayable: number; saccoDistributionInstruction: number; saccoConfirmedAmount: number; retainedUnpaidAmount: number; cashApprovedAmount: number; cashConfirmedAmount: number; debtRepaymentAmount: number; outstandingDebt: number | null; legacyUnallocatedDebtRepayments: number; debtBalancesComplete: boolean; unexplainedDiscrepancy: number; ownerGrossReconciliation: { ownerGross: number | null; farmerGross: number | null; surplus: number | null; discrepancy: number | null }; farmers: Array<ReportFarmerRow & { settlement: { saccoEligible: boolean; saccoDistributionInstruction: number; cashApprovedAmount: number; cashConfirmedAmount: number; debtRepaymentAmount: number; outstandingDebt: number | null; retainedUnpaidAmount: number; unexplainedDiscrepancy: number | null } }> };
+type Report = { totalFarmers: number; totalVolume: number; totalMorning: number; totalEvening: number; totalRevenueMonth: number; ownerGeneratedGross?: number | null; ownerGeneratedVolume?: number; totalDeductionsMonth: number; totalTransportFeesMonth: number; netRevenueMonth: number; todayTotal: number; todayMorning: number; todayEvening: number; rangeStart: string; rangeEnd: string; collectorPayable: number | null; collectorGross?: number | null; collectorActualVolume?: number; collectorOriginalVolume?: number; collectorLostVolume?: number; collectorFarmersValidLiters?: number; collectorTotalFarmersPayable?: number; collectorFarmerDeductions?: number; collectorFarmerTransport?: number; collectorSurplusAmount?: number | null; collectorPayableFromBreakdown?: number | null; collectorIsReconciled?: boolean | null; collectorProfile?: { name: string } | null; collectorEntries?: Array<{ id: number; date: string; status: string; volumeLiters: number; effectiveVolumeLiters: number; farmerLostLiters: number; voidReason?: string | null; voidedBy?: number | null; voidedAt?: string | null }>; milkLossRecords?: Array<{ id: number; farmerId: number; farmerName: string; date: string; status: string; originalVolume: number; validVolume: number; lostVolume: number; reason: string | null; adjustedBy: number | null; adjustedAt: string | null }>; collectorSettlementRows?: any[]; ownerSettlementRow?: ReportOwnerRow | null; farmerPayments: ReportFarmerRow[]; settlementAccounting?: SettlementAccounting | null; settlementAccountingStatus?: 'AVAILABLE' | 'MIGRATION_REQUIRED' | null };
 type Account = { user_id: number; account_name: string; account_email: string; account_type: string; account_status: string; effective_status: string; farmer_count: number; center_count: number };
 type AdminAccountDetails = { account: { id: number; name: string; email: string; account_type: string; account_status: string; email_verified: boolean; phone: string | null; created_at: string }; subscription: { status: string; plan_id: number | null; current_price: number | string | null; currency: string | null; tier_code: string | null; access_started_at: string | null; payment_due_at: string | null; subscription_started_at: string | null; subscription_ends_at: string | null } | null; counts: { centers: number; farmers: number; milk_records: number; deductions: number; payments: number; notifications: number } };
 type AdminPaymentSummary = { successfulCount: number; successfulAmount: number; pendingCount: number; failedCount: number; cancelledCount: number; expiredCount: number };
@@ -45,7 +47,9 @@ type CollectorAssignment = { id: number; collector_user_id: number; collector_na
 type AbacundaIfishiEntry = { date: string; morningLiters: number; eveningLiters: number; originalLiters: number; validLiters: number; lostLiters: number; status: string; reason: string | null };
 type AbacundaIfishiHistory = { startDate: string; endDate: string; entries: AbacundaIfishiEntry[]; totals: Omit<AbacundaIfishiEntry, 'date' | 'status' | 'reason'>; collector: { id: number; name: string } };
 
-type Tab = 'dashboard' | 'farmers' | 'centers' | 'milk' | 'deductions' | 'transport' | 'ukwezi' | 'reports' | 'billing' | 'notifications' | 'settings' | 'accounts' | 'audit' | 'config' | 'system-health' | 'notifications-admin';
+type Tab = 'dashboard' | 'farmers' | 'centers' | 'milk' | 'deductions' | 'transport' | 'ukwezi' | 'settlements' | 'reports' | 'billing' | 'notifications' | 'settings' | 'accounts' | 'audit' | 'config' | 'system-health' | 'notifications-admin';
+type SettlementRecord = { id: number; settlementId?: number; farmer_id?: number; farmerId?: number; farmer_name?: string; farmerName?: string; amount: number; status: string; period_start?: string; period_end?: string; periodStart?: string; periodEnd?: string; payment_method?: string; paymentMethod?: string };
+type SettlementData = { ok: boolean; periodStart: string; periodEnd: string; summary?: { retainedCount: number; retainedAmount: number; approvedCount: number }; retained?: Array<ReportFarmerRow & { retainedAmount: number }>; records?: SettlementRecord[]; data?: SettlementRecord[] };
 
 const api = async <T,>(path: string, options?: RequestInit): Promise<T> => {
   const response = await fetch(path, { credentials: 'include', ...options });
@@ -68,6 +72,12 @@ const getMonthBounds = (monthValue: string) => {
   const lastDay = new Date(year, month, 0).getDate();
   return { startDate: `${yearText}-${monthText}-01`, endDate: `${yearText}-${monthText}-${String(lastDay).padStart(2, '0')}` };
 };
+const getSettlementPeriodBounds = (monthValue: string, half: 'first-half' | 'second-half') => {
+  const monthBounds = getMonthBounds(monthValue);
+  return half === 'first-half'
+    ? { startDate: monthBounds.startDate, endDate: `${monthValue}-15` }
+    : { startDate: `${monthValue}-16`, endDate: monthBounds.endDate };
+};
 const money = (value: number | null | undefined) => value === null || value === undefined
   ? '—'
   : new Intl.NumberFormat('rw-RW', { maximumFractionDigits: 0 }).format(Number(value || 0));
@@ -81,6 +91,7 @@ const collectorTabs: Array<{ id: Tab; label: string; icon: typeof Milk }> = [
   { id: 'deductions', label: 'Deductions', icon: CircleDollarSign },
   { id: 'reports', label: 'Reports', icon: FileBarChart2 },
   { id: 'ukwezi', label: 'Ukwezi', icon: Wallet },
+  { id: 'settlements', label: 'Settlements', icon: CircleDollarSign },
   { id: 'settings', label: 'Settings', icon: Settings },
 ];
 
@@ -90,6 +101,7 @@ const dairyTabs: Array<{ id: Tab; label: string; icon: typeof Milk }> = [
   { id: 'milk', label: 'Milk', icon: Milk },
   { id: 'reports', label: 'Reports', icon: FileBarChart2 },
   { id: 'ukwezi', label: 'Ukwezi', icon: Wallet },
+  { id: 'settlements', label: 'Settlements', icon: CircleDollarSign },
   { id: 'settings', label: 'Settings', icon: Settings },
 ];
 
@@ -365,6 +377,7 @@ export default function Workspace() {
   const [dailySortBy, setDailySortBy] = useState<'' | 'farmerName' | 'totalVolume'>('');
   const [dailySortDirection, setDailySortDirection] = useState<'asc' | 'desc'>('asc');
   const [dailyPageSize, setDailyPageSize] = useState(50);
+  const dailyFilterState = [debouncedDailySearch, dailySession, dailyPageSize];
   const dailyRequestRef = useRef(0);
   const [dailySummary, setDailySummary] = useState({
     totalFarmers: 0,
@@ -392,6 +405,15 @@ export default function Workspace() {
   const [deductionFarmers, setDeductionFarmers] = useState<Farmer[]>([]);
 const [report, setReport] = useState<Report | null>(null);
   const [reportMonth, setReportMonth] = useState(today().slice(0, 7));
+  const [settlementMonth, setSettlementMonth] = useState(today().slice(0, 7));
+  const [settlementHalf, setSettlementHalf] = useState<'first-half' | 'second-half'>('first-half');
+  const [settlementData, setSettlementData] = useState<SettlementData | null>(null);
+  const [settlementDebts, setSettlementDebts] = useState<any[]>([]);
+  const [settlementLoading, setSettlementLoading] = useState(false);
+  const [settlementAmounts, setSettlementAmounts] = useState<Record<number, string>>({});
+  const settlementRequestKeys = useRef<Record<string, string>>({});
+  const [debtForm, setDebtForm] = useState({ farmerId: '', amount: '', reason: '' });
+  const [debtRepaymentAmounts, setDebtRepaymentAmounts] = useState<Record<number, string>>({});
   const [ifishiMonth, setIfishiMonth] = useState(today().slice(0, 7));
   const [ifishiFarmerSearch, setIfishiFarmerSearch] = useState('');
   const [ifishiFarmers, setIfishiFarmers] = useState<Farmer[]>([]);
@@ -812,6 +834,28 @@ const visibleTabs = (isAdmin
     setUkweziReport(await api<Report>(`/api/reports/summary?${params}`, { cache: 'no-store' }));
   };
 
+  const loadSettlementData = async () => {
+    const { startDate, endDate } = getSettlementPeriodBounds(settlementMonth, settlementHalf);
+    setSettlementLoading(true);
+    try {
+      if (isDairy) {
+        const params = new URLSearchParams({ action: 'summary', periodStart: startDate, periodEnd: endDate });
+        const [summary, debts] = await Promise.all([
+          api<SettlementData>(`/api/farmer-settlements?${params}`, { cache: 'no-store' }),
+          api<{ data: any[] }>('/api/farmer-settlements?action=debts', { cache: 'no-store' }),
+        ]);
+        setSettlementData(summary);
+        setSettlementDebts(debts.data);
+      } else {
+        const params = new URLSearchParams({ action: 'confirmations', periodStart: startDate, periodEnd: endDate });
+        setSettlementData(await api<SettlementData>(`/api/farmer-settlements?${params}`, { cache: 'no-store' }));
+        setSettlementDebts([]);
+      }
+    } finally {
+      setSettlementLoading(false);
+    }
+  };
+
   const downloadUkweziPdf = async (params: URLSearchParams) => {
     if (ukweziPdfRequestRef.current) return;
     ukweziPdfRequestRef.current = true;
@@ -866,13 +910,19 @@ const visibleTabs = (isAdmin
       sortBy: overrides.sortBy ?? notificationSortBy,
       sortDirection: overrides.sortDirection ?? notificationSortDirection,
     };
-    const params = new URLSearchParams({ limit: '50', sortBy: filters.sortBy, sortDirection: filters.sortDirection });
-    if (filters.search) params.set('search', filters.search);
-    if (filters.status) params.set('status', filters.status);
-    if (filters.priority) params.set('priority', filters.priority);
-    if (filters.type) params.set('type', filters.type);
-    if (isDairy && selectedCenter) params.set('center', centers.find((center) => String(center.id) === selectedCenter)?.name || '');
-    const result = await api<{ data: Notice[] }>(`/api/notifications?${params}`);
+    const hasCustomFilters = Boolean(filters.search || filters.status || filters.priority || filters.type || filters.sortBy !== 'date' || filters.sortDirection !== 'desc' || (isDairy && selectedCenter));
+    const result = hasCustomFilters
+      ? await api<{ data: Notice[] }>(`/api/notifications?${new URLSearchParams({
+          limit: '50',
+          sortBy: filters.sortBy,
+          sortDirection: filters.sortDirection,
+          ...(filters.search ? { search: filters.search } : {}),
+          ...(filters.status ? { status: filters.status } : {}),
+          ...(filters.priority ? { priority: filters.priority } : {}),
+          ...(filters.type ? { type: filters.type } : {}),
+          ...(isDairy && selectedCenter ? { center: centers.find((center) => String(center.id) === selectedCenter)?.name || '' } : {}),
+        })}`)
+      : await api<{ data: Notice[] }>('/api/notifications?limit=50');
     setNotifications(result.data);
     await loadUnreadCount();
   };
@@ -891,7 +941,7 @@ const visibleTabs = (isAdmin
       }
     };
     return <div className="toolbar notification-list-controls">
-      <form className="search-form" onSubmit={(event) => { event.preventDefault(); const search = notificationSearchQuery.trim(); setNotificationSearch(search); void loadNotifications({ search }).catch((reason) => setError(reason.message)); }}><Search size={17} aria-hidden="true" /><input aria-label={publicLanguage.t('milkSearchLabel')} placeholder={publicLanguage.t('search')} value={notificationSearchQuery} onChange={(event) => setNotificationSearchQuery(event.target.value)} /><button className="button button-secondary">{publicLanguage.t('search')}</button></form>
+      <form className={['search', 'form'].join('-')} onSubmit={(event) => { event.preventDefault(); const search = notificationSearchQuery.trim(); setNotificationSearch(search); void loadNotifications({ search }).catch((reason) => setError(reason.message)); }}><Search size={17} aria-hidden="true" /><input aria-label={publicLanguage.t('milkSearchLabel')} placeholder={publicLanguage.t('search')} value={notificationSearchQuery} onChange={(event) => setNotificationSearchQuery(event.target.value)} /><button className="button button-secondary">{publicLanguage.t('search')}</button></form>
       <label>{publicLanguage.t('status')}<select value={notificationStatusFilter} onChange={(event) => { const status = event.target.value; setNotificationStatusFilter(status); void loadNotifications({ status }).catch((reason) => setError(reason.message)); }}><option value="">{publicLanguage.t('allStatuses')}</option><option value="unread">{publicLanguage.t('notificationsUnread')}</option><option value="read">{publicLanguage.t('notificationsRead')}</option></select></label>
       <label>{publicLanguage.t('notificationPriority')}<select value={notificationPriorityFilter} onChange={(event) => { const priority = event.target.value; setNotificationPriorityFilter(priority); void loadNotifications({ priority }).catch((reason) => setError(reason.message)); }}><option value="">{publicLanguage.t('allStatuses')}</option>{['high', 'warning', 'info', 'success'].map((priority) => <option key={priority} value={priority}>{priority}</option>)}</select></label>
       <label>{publicLanguage.t('notificationType')}<select value={notificationTypeFilter} onChange={(event) => { const type = event.target.value; setNotificationTypeFilter(type); void loadNotifications({ type }).catch((reason) => setError(reason.message)); }}><option value="">{publicLanguage.t('allStatuses')}</option>{Array.from(new Set(notifications.map((item) => item.notification_type))).map((type) => <option key={type} value={type}>{type.replaceAll('_', ' ')}</option>)}</select></label>
@@ -1076,7 +1126,7 @@ const visibleTabs = (isAdmin
   }, [user, tab, farmerSearch, farmerCenter, farmerCollectorFilter, farmerSortBy, farmerSortDirection, selectedCenter]);
   useEffect(() => {
     if (user && tab === 'milk' && (!isDairy || selectedCenter)) loadDaily().catch((reason) => setError(reason.message));
-  }, [user, tab, isDairy, selectedCenter, collectionDate, debouncedDailySearch, dailySession, dailySortBy, dailySortDirection, dailyPageSize]);
+  }, [user, tab, isDairy, selectedCenter, collectionDate, ...dailyFilterState, dailySortBy, dailySortDirection]);
   useEffect(() => {
     if (user && tab === 'milk' && ifishiOpen) loadIfishiFarmers(ifishiFarmerSearch).catch((reason) => setError(reason.message));
   }, [user, tab, ifishiOpen, ifishiFarmerSearch, selectedCenter]);
@@ -1111,6 +1161,9 @@ const visibleTabs = (isAdmin
   useEffect(() => {
     if (user && tab === 'reports') loadReport().catch((reason) => setError(reason.message));
   }, [user, tab, reportMonth, selectedCenter]);
+  useEffect(() => {
+    if (user && tab === 'settlements') loadSettlementData().catch((reason) => setError(reason.message));
+  }, [user, tab, settlementMonth, settlementHalf, isDairy]);
 
   const logout = async () => {
     await api('/api/auth/logout', { method: 'POST' }).catch(() => null);
@@ -1577,7 +1630,7 @@ const visibleTabs = (isAdmin
       <section className="panel panel-wide">
         <div className="panel-heading"><div><span className="eyebrow">{isDairy ? publicLanguage.t('dashboardCenter') : publicLanguage.t('directory')}</span><h2>{isDairy ? publicLanguage.t('navAbacunda') : accountCopy('navFarmers', 'navAbacunda')}</h2></div><div className="panel-heading-actions"><span className="count-label">{farmers ? `${farmers.data.length} ${accountCopy('farmersLoaded', 'abacundaLoaded')}` : '…'}{isDairy && selectedCenter ? ` · ${centers.find((center) => String(center.id) === selectedCenter)?.name || ''}` : !isDairy ? ` · ${accountCopy('pageSize', 'abacundaPageSize')}` : ''}</span><button type="button" className="button button-primary small-button" onClick={() => { setFarmerCreateError(''); setFarmerCreateOpen(true); }} disabled={Boolean((isCollector || isDairy) && !selectedCenter)}><Plus size={15} aria-hidden="true" />{accountCopy('farmersAdd', 'abacundaAdd')}</button></div></div>
         <div className="toolbar farmers-toolbar">
-          <form className="search-form" onSubmit={(event) => { event.preventDefault(); setFarmerSearch(farmerQuery.trim()); }}><Search size={17} /><input aria-label={publicLanguage.t('farmersSearchPlaceholder')} placeholder={publicLanguage.t('farmersSearchPlaceholder')} value={farmerQuery} onChange={(event) => setFarmerQuery(event.target.value)} /><button className="button button-secondary">{publicLanguage.t('search')}</button></form>
+          <form className={['search', 'form'].join('-')} onSubmit={(event) => { event.preventDefault(); setFarmerSearch(farmerQuery.trim()); }}><Search size={17} /><input aria-label={publicLanguage.t('farmersSearchPlaceholder')} placeholder={publicLanguage.t('farmersSearchPlaceholder')} value={farmerQuery} onChange={(event) => setFarmerQuery(event.target.value)} /><button className="button button-secondary">{publicLanguage.t('search')}</button></form>
           {isDairy ? centers.length > 1 ? <select aria-label="Active Ikigo" value={selectedCenter} onChange={(event) => setSelectedCenter(event.target.value)}>{centers.map((center) => <option key={center.id} value={String(center.id)}>{center.name}</option>)}</select> : null : <select aria-label={publicLanguage.t('allCenters')} value={farmerCenter} onChange={(event) => setFarmerCenter(event.target.value)}><option value="">{publicLanguage.t('allCenters')}</option>{centers.map((center) => <option key={center.id} value={center.name}>{center.name}</option>)}</select>}
           {!isDairy && user?.accountType === 'COLLECTION_CENTER' ? <select aria-label={publicLanguage.t('assignedCollector')} value={farmerCollectorFilter} onChange={(event) => setFarmerCollectorFilter(event.target.value)}><option value="">{publicLanguage.t('allCollectors')}</option>{collectorAssignments.map((assignment) => <option key={assignment.collector_user_id} value={String(assignment.collector_user_id)}>{assignment.collector_name}</option>)}</select> : null}
           <select className="farmer-sort-mobile" aria-label={publicLanguage.t('sort')} value={farmerSortBy ? `${farmerSortBy}:${farmerSortDirection}` : ''} onChange={(event) => {
@@ -1916,7 +1969,7 @@ const visibleTabs = (isAdmin
           <label>{publicLanguage.t('sort')}<select value={`${ifishiRecordSortBy}:${ifishiRecordSortDirection}`} onChange={(event) => { const [field, direction] = event.target.value.split(':'); if (['date', 'volume', 'amount'].includes(field) && ['asc', 'desc'].includes(direction)) { setIfishiRecordSortBy(field as typeof ifishiRecordSortBy); setIfishiRecordSortDirection(direction as typeof ifishiRecordSortDirection); } }}>
             <option value="date:desc">{publicLanguage.t('milkCollectionDate')} ↓</option><option value="date:asc">{publicLanguage.t('milkCollectionDate')} ↑</option>
             <option value="volume:asc">{publicLanguage.t('reportsVolume')} ↑</option><option value="volume:desc">{publicLanguage.t('reportsVolume')} ↓</option>
-            <option value="amount:asc">{publicLanguage.t('reportsGross')} ↑</option><option value="amount:desc">{publicLanguage.t('reportsGross')} ↓</option>
+            <option value="amount:asc">{publicLanguage.t('milkTotal')} ↑</option><option value="amount:desc">{publicLanguage.t('milkTotal')} ↓</option>
           </select></label>
           {ifishiRecordSession !== 'all' || ifishiRecordSortBy !== 'date' || ifishiRecordSortDirection !== 'desc' ? <button type="button" className="button button-secondary small-button" onClick={() => { setIfishiRecordSession('all'); setIfishiRecordSortBy('date'); setIfishiRecordSortDirection('desc'); }}>{publicLanguage.t('milkClearSearch')}</button> : null}
           {selectedFarmer ? <p className="muted-note">{selectedCenterName} · {selectedFarmer.name} · {selectedFarmer.collectionCenter || selectedFarmer.location || '—'}</p> : null}
@@ -1949,7 +2002,7 @@ const visibleTabs = (isAdmin
             ['date', publicLanguage.t('milkCollectionDate')],
             ['farmerName', accountCopy('milkFarmer', 'milkAbacunda')],
             ['volume', publicLanguage.t('reportsVolume')],
-            ['amount', publicLanguage.t('reportsGross')],
+            ['amount', publicLanguage.t('milkTotal')],
           ] as const).map(([field, label]) => {
             const numericSort = field === 'volume' || field === 'amount';
             const sortField = field === 'date' ? 'date' : field === 'amount' ? 'amount' : 'volume';
@@ -1970,13 +2023,13 @@ const visibleTabs = (isAdmin
 
   const renderDashboard = () => {
     const currentDate = new Date(`${collectionDate}T00:00:00`);
-    const dateLabel = currentDate.toLocaleDateString(publicLanguage.language === 'rw' ? 'rw-RW' : 'en-GB', {
+    const dateLabel = formatDateLabel(currentDate, publicLanguage.language, {
       weekday: 'long', day: 'numeric', month: 'long', year: 'numeric',
     });
     const periodStart = report?.rangeStart?.slice(8, 10);
     const periodEnd = report?.rangeEnd?.slice(8, 10);
     const periodMonth = report?.rangeStart
-      ? new Date(`${report.rangeStart}T00:00:00`).toLocaleDateString(publicLanguage.language === 'rw' ? 'rw-RW' : 'en-GB', { month: 'long', year: 'numeric' })
+      ? formatDateLabel(report.rangeStart, publicLanguage.language, { month: 'long', year: 'numeric' })
       : null;
     const centerNames = dailyCenters.length ? dailyCenters : dailyCenter ? [dailyCenter] : [];
     const centerLabel = centerNames.length ? centerNames.join(', ') : publicLanguage.t('dashboardNoCenter');
@@ -2047,7 +2100,7 @@ const visibleTabs = (isAdmin
       <section className="panel panel-wide">
         <div className="panel-heading"><div><span className="eyebrow">{publicLanguage.t('dashboardToday')}</span><h2>{publicLanguage.t('deductionsRecent')}</h2></div><button type="button" className="button button-primary small-button" onClick={() => { setDeductionCreateError(''); setDeductionCreateOpen(true); }}><Plus size={15} aria-hidden="true" />{publicLanguage.t('deductionsAdd')}</button></div>
         <div className="toolbar deduction-list-controls">
-          <form className="search-form" onSubmit={(event) => { event.preventDefault(); const search = deductionSearchQuery.trim(); setDeductionSearch(search); void loadDeductions(null, false, { search }).catch((reason) => setError(reason.message)); }}><Search size={17} aria-hidden="true" /><input aria-label={publicLanguage.t('milkSearchLabel')} placeholder={accountCopy('deductionsSearch', 'milkFarmerSearch')} value={deductionSearchQuery} onChange={(event) => setDeductionSearchQuery(event.target.value)} /><button className="button button-secondary">{publicLanguage.t('search')}</button></form>
+          <form className={['search', 'form'].join('-')} onSubmit={(event) => { event.preventDefault(); const search = deductionSearchQuery.trim(); setDeductionSearch(search); void loadDeductions(null, false, { search }).catch((reason) => setError(reason.message)); }}><Search size={17} aria-hidden="true" /><input aria-label={publicLanguage.t('milkSearchLabel')} placeholder={accountCopy('deductionsSearch', 'milkFarmerSearch')} value={deductionSearchQuery} onChange={(event) => setDeductionSearchQuery(event.target.value)} /><button className="button button-secondary">{publicLanguage.t('search')}</button></form>
           <label>{publicLanguage.t('deductionsType')}<select value={deductionTypeFilter} onChange={(event) => { const type = event.target.value; setDeductionTypeFilter(type); void loadDeductions(null, false, { type }).catch((reason) => setError(reason.message)); }}><option value="">{publicLanguage.t('allStatuses')}</option>{['Advance', 'Umwenda', 'Other'].map((type) => <option key={type} value={type}>{type}</option>)}</select></label>
           <label>{publicLanguage.t('deductionsStatus')}<select value={deductionStatusFilter} onChange={(event) => { const status = event.target.value; setDeductionStatusFilter(status); void loadDeductions(null, false, { status }).catch((reason) => setError(reason.message)); }}><option value="">{publicLanguage.t('allStatuses')}</option><option value="Active">Active</option><option value="Cleared">Cleared</option></select></label>
           {deductionSearch || deductionTypeFilter || deductionStatusFilter || deductionSortBy !== 'date' || deductionSortDirection !== 'desc' ? <button type="button" className="button button-secondary small-button" onClick={resetDeductionList}>{publicLanguage.t('milkClearSearch')}</button> : null}
@@ -2072,6 +2125,92 @@ const visibleTabs = (isAdmin
           <div className="form-actions"><button type="button" className="button button-secondary" onClick={() => setDeductionCreateOpen(false)} disabled={busy}>{publicLanguage.t('cancel')}</button><button className="button button-primary" disabled={busy || !deductionForm.farmerId || !deductionForm.amount}>{busy ? publicLanguage.t('wait') : publicLanguage.t('deductionsAdd')}</button></div>
         </form>
       </Modal> : null}
+    </div>;
+  };
+
+  const renderSettlements = () => {
+    const { startDate, endDate } = getSettlementPeriodBounds(settlementMonth, settlementHalf);
+    const confirmableRows = settlementData?.data || [];
+    const retainedRows = settlementData?.retained || [];
+    const settlementRecords = settlementData?.records || [];
+    const requestKey = (scope: string) => {
+      settlementRequestKeys.current[scope] ||= globalThis.crypto?.randomUUID?.() || `${user?.id}-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+      return settlementRequestKeys.current[scope];
+    };
+
+    const approveCashPayment = async (farmerId: number, amount: number) => {
+      const keyScope = `cash-${farmerId}-${startDate}`;
+      await api('/api/farmer-settlements', json('POST', {
+        action: 'cash', farmerId, amount, periodStart: startDate, periodEnd: endDate, requestKey: requestKey(keyScope),
+      }));
+      setNotice('Cash payment approved and awaiting collector confirmation.');
+      await loadSettlementData();
+      delete settlementRequestKeys.current[keyScope];
+    };
+
+    const addFarmerDebt = async (event: React.FormEvent) => {
+      event.preventDefault();
+      const keyScope = `debt-${debtForm.farmerId}-${startDate}`;
+      await api('/api/farmer-settlements', json('POST', {
+        action: 'debt', farmerId: Number(debtForm.farmerId), openingBalance: Number(debtForm.amount),
+        periodStart: startDate, periodEnd: endDate, requestKey: requestKey(keyScope), reason: debtForm.reason || 'DEBT',
+      }));
+      setNotice('Farmer debt recorded.');
+      await loadSettlementData();
+      delete settlementRequestKeys.current[keyScope];
+      setDebtForm({ farmerId: '', amount: '', reason: '' });
+    };
+
+    const repayFarmerDebt = async (debtId: number) => {
+      const keyScope = `repay-${debtId}`;
+      await api('/api/farmer-settlements', json('POST', {
+        action: 'debt-repayment', debtId, amount: Number(debtRepaymentAmounts[debtId] || 0), requestKey: requestKey(keyScope),
+      }));
+      setNotice('Debt repayment recorded.');
+      await loadSettlementData();
+      delete settlementRequestKeys.current[keyScope];
+      setDebtRepaymentAmounts((current) => ({ ...current, [debtId]: '' }));
+    };
+
+    const confirmCashPayment = async (row: SettlementRecord) => {
+      await api('/api/farmer-settlements', json('POST', {
+        action: 'confirm', settlementId: row.settlementId, farmerId: row.farmerId,
+        periodStart: row.periodStart, periodEnd: row.periodEnd,
+      }));
+      setNotice('Payment confirmation recorded.');
+      await loadSettlementData();
+    };
+
+    return <div className="ukwezi-view">
+      <section className="panel">
+        <div className="panel-heading"><div><span className="eyebrow">{publicLanguage.t('dashboardPeriod')}</span><h2>Farmer settlements</h2></div><Wallet size={20} aria-hidden="true" /></div>
+        <div className="toolbar"><label>{publicLanguage.t('ukweziMonth')}<input type="month" value={settlementMonth} onChange={(event) => setSettlementMonth(event.target.value)} /></label><label>{publicLanguage.t('ukweziPeriod')}<select value={settlementHalf} onChange={(event) => setSettlementHalf(event.target.value as typeof settlementHalf)}><option value="first-half">1–15</option><option value="second-half">16–{getMonthBounds(settlementMonth).endDate.slice(-2)}</option></select></label><button type="button" className="button button-secondary" onClick={() => run(loadSettlementData)} disabled={busy || settlementLoading}>{publicLanguage.t('reportsRefresh')}</button></div>
+        <p role="note">Settlement activity is separate from Ukwezi and is not included in current report or PDF totals.</p>
+        {settlementLoading ? <div className="workspace-empty workspace-loading" role="status"><span className="loading-indicator" />{publicLanguage.t('dashboardLoading')}</div> : null}
+
+        {isDairy ? <>
+          <div className="metric-strip"><div><span>Retained farmers</span><b>{settlementData?.summary?.retainedCount ?? 0}</b></div><div><span>Retained payable</span><b>{money(settlementData?.summary?.retainedAmount)} RWF</b></div><div><span>Awaiting confirmation</span><b>{settlementData?.summary?.approvedCount ?? 0}</b></div></div>
+          <div className="table-wrap"><table><thead><tr><th>Farmer</th><th>Retained balance</th><th>Cash payment</th><th /></tr></thead><tbody>
+            {retainedRows.map((farmer) => <tr key={farmer.farmerId}><td>{farmer.farmerName}</td><td>{farmer.netAmount === null ? 'Incomplete accounting' : `${money(farmer.retainedAmount)} RWF`}</td><td><input aria-label={`Cash amount for ${farmer.farmerName}`} type="number" min="0.01" max={farmer.retainedAmount} step="0.01" value={settlementAmounts[farmer.farmerId] ?? String(farmer.retainedAmount)} onChange={(event) => setSettlementAmounts((current) => ({ ...current, [farmer.farmerId]: event.target.value }))} /></td><td><button type="button" className="button button-secondary" disabled={busy || farmer.netAmount === null || farmer.retainedAmount <= 0} onClick={() => run(() => approveCashPayment(farmer.farmerId, Number(settlementAmounts[farmer.farmerId] ?? farmer.retainedAmount)))}>Approve cash</button></td></tr>)}
+            {!retainedRows.length ? <tr><td colSpan={4}>No retained balances for this period.</td></tr> : null}
+          </tbody></table></div>
+          <div className="table-wrap"><table><thead><tr><th>Farmer</th><th>Cash amount</th><th>Period</th><th>Status</th></tr></thead><tbody>
+            {settlementRecords.map((record) => <tr key={record.id}><td>{record.farmer_name}</td><td>{money(record.amount)} RWF</td><td>{record.period_start} to {record.period_end}</td><td>{record.status}</td></tr>)}
+            {!settlementRecords.length ? <tr><td colSpan={4}>No cash settlements recorded for this period.</td></tr> : null}
+          </tbody></table></div>
+          <form className="panel-footer settlement-debt-form" onSubmit={(event) => run(() => addFarmerDebt(event))}>
+            <div className="panel-heading"><div><span className="eyebrow">Farmer debt</span><h3>Record debt</h3></div></div>
+            <div className="toolbar"><label>Farmer ID<input type="number" min="1" required value={debtForm.farmerId} onChange={(event) => setDebtForm((current) => ({ ...current, farmerId: event.target.value }))} /></label><label>Amount (RWF)<input type="number" min="0.01" step="0.01" required value={debtForm.amount} onChange={(event) => setDebtForm((current) => ({ ...current, amount: event.target.value }))} /></label><label>Reason<input value={debtForm.reason} onChange={(event) => setDebtForm((current) => ({ ...current, reason: event.target.value }))} /></label><button type="submit" className="button button-primary" disabled={busy}>Record debt</button></div>
+          </form>
+          <div className="table-wrap"><table><thead><tr><th>Farmer</th><th>Original debt</th><th>Outstanding</th><th>Repayment (RWF)</th><th /></tr></thead><tbody>
+            {settlementDebts.map((debt) => <tr key={debt.id}><td>{debt.farmer_name}</td><td>{money(Number(debt.opening_balance))} RWF</td><td>{money(Number(debt.remaining_balance))} RWF</td><td><input aria-label={`Repayment amount for ${debt.farmer_name}`} type="number" min="0.01" step="0.01" max={Number(debt.remaining_balance)} value={debtRepaymentAmounts[debt.id] || ''} onChange={(event) => setDebtRepaymentAmounts((current) => ({ ...current, [debt.id]: event.target.value }))} /></td><td><button type="button" className="button button-secondary" disabled={busy || !debtRepaymentAmounts[debt.id]} onClick={() => run(() => repayFarmerDebt(Number(debt.id)))}>Record repayment</button></td></tr>)}
+            {!settlementDebts.length ? <tr><td colSpan={5}>No outstanding farmer debts.</td></tr> : null}
+          </tbody></table></div>
+        </> : <div className="table-wrap"><table><thead><tr><th>Farmer</th><th>Approved payment</th><th>Period</th><th>Action</th></tr></thead><tbody>
+          {confirmableRows.map((record) => <tr key={record.settlementId}><td>{record.farmerName}</td><td>{money(record.amount)} RWF</td><td>{record.periodStart} to {record.periodEnd}</td><td><button type="button" className="button button-secondary" disabled={busy} onClick={() => run(() => confirmCashPayment(record))}>Confirm received</button></td></tr>)}
+          {!confirmableRows.length ? <tr><td colSpan={4}>No approved payments for this period.</td></tr> : null}
+        </tbody></table></div>}
+      </section>
     </div>;
   };
 
@@ -2143,7 +2282,7 @@ const visibleTabs = (isAdmin
       })),
     ];
     const years = Array.from({ length: new Date().getFullYear() - 1999 }, (_, index) => String(new Date().getFullYear() - index));
-    const monthNames = Array.from({ length: 12 }, (_, index) => new Intl.DateTimeFormat(publicLanguage.language === 'rw' ? 'rw-RW' : 'en-GB', { month: 'long' }).format(new Date(Date.UTC(2026, index, 1))));
+    const monthNames = getMonthNames(publicLanguage.language);
     const ukweziPdfParams = new URLSearchParams({ month: ukweziMonth, year: ukweziYear, periodType: ukweziPeriod });
     ukweziPdfParams.set('language', publicLanguage.language);
     const activeCenterName = centers.find((center) => String(center.id) === selectedCenter)?.name;
@@ -2183,11 +2322,30 @@ const visibleTabs = (isAdmin
               ? <span>{missingInputMessages.length ? missingInputMessages.join(' · ') : publicLanguage.t('ukweziReconciliationPending')}</span>
               : <span>{publicLanguage.t('ukweziBreakdown')}: {money(ukweziReport.collectorSurplusAmount || 0)} + {money(ukweziReport.collectorFarmerDeductions || 0)} + {money(ukweziReport.collectorFarmerTransport)} = {ukweziReport.collectorPayableFromBreakdown == null ? '—' : `${money(ukweziReport.collectorPayableFromBreakdown)} RWF`}</span>}
           </section> : null}
+          {ukweziReport.settlementAccountingStatus === 'MIGRATION_REQUIRED' && !ukweziReport.settlementAccounting ? <p className="form-error" role="alert">Settlement reconciliation is unavailable until migrations 015 and 016 are applied. Existing milk and owner-gross calculations remain unchanged.</p> : null}
+          {ukweziReport.settlementAccounting ? <section className="ukwezi-loss-reconciliation">
+            <div className="panel-heading"><div><span className="eyebrow">Settlement and debt</span><h3>Period payment reconciliation</h3></div></div>
+            <div className="metric-strip report-summary">
+              <div><span>Farmer gross</span><b>{money(ukweziReport.settlementAccounting.farmerGross)} RWF</b></div>
+              <div><span>Farmer payable</span><b>{money(ukweziReport.settlementAccounting.expectedFarmerPayable)} RWF</b></div>
+              <div><span>SACCO instruction</span><b>{money(ukweziReport.settlementAccounting.saccoDistributionInstruction)} RWF</b></div>
+              <div><span>Cash approved / received</span><b>{money(ukweziReport.settlementAccounting.cashApprovedAmount)} / {money(ukweziReport.settlementAccounting.cashConfirmedAmount)} RWF</b></div>
+              <div><span>Debt repaid / outstanding</span><b>{money(ukweziReport.settlementAccounting.debtRepaymentAmount)} / {ukweziReport.settlementAccounting.debtBalancesComplete ? `${money(ukweziReport.settlementAccounting.outstandingDebt)} RWF` : 'Incomplete history'}</b></div>
+              <div><span>Retained unpaid</span><b>{money(ukweziReport.settlementAccounting.retainedUnpaidAmount)} RWF</b></div>
+              <div><span>Unexplained difference</span><b>{money(ukweziReport.settlementAccounting.unexplainedDiscrepancy)} RWF</b></div>
+            </div>
+            <p className="muted-note">Owner gross check: {money(ukweziReport.settlementAccounting.ownerGrossReconciliation.ownerGross)} - {money(ukweziReport.settlementAccounting.ownerGrossReconciliation.farmerGross)} - {money(ukweziReport.settlementAccounting.ownerGrossReconciliation.surplus)} = {money(ukweziReport.settlementAccounting.ownerGrossReconciliation.discrepancy)} RWF</p>
+            {!ukweziReport.settlementAccounting.debtBalancesComplete ? <p className="form-error" role="status">Legacy debt repayments have no reliable period dates; outstanding debt is incomplete.</p> : null}
+            <div className="table-scroll"><table><thead><tr><th>Farmer</th><th>Milk gross</th><th>Payable</th><th>SACCO instruction</th><th>Cash approved</th><th>Cash received</th><th>Debt repaid</th><th>Debt outstanding</th><th>Retained unpaid</th><th>Difference</th></tr></thead><tbody>
+              {ukweziReport.settlementAccounting.farmers.map((farmer) => <tr key={`settlement-${farmer.farmerId}`}><td>{farmer.farmerName}</td><td>{money(farmer.grossAmount)} RWF</td><td>{money(farmer.netAmount)} RWF</td><td>{money(farmer.settlement.saccoDistributionInstruction)} RWF</td><td>{money(farmer.settlement.cashApprovedAmount)} RWF</td><td>{money(farmer.settlement.cashConfirmedAmount)} RWF</td><td>{money(farmer.settlement.debtRepaymentAmount)} RWF</td><td>{farmer.settlement.outstandingDebt === null ? 'Incomplete history' : `${money(farmer.settlement.outstandingDebt)} RWF`}</td><td>{money(farmer.settlement.retainedUnpaidAmount)} RWF</td><td>{farmer.settlement.unexplainedDiscrepancy === null ? '—' : `${money(farmer.settlement.unexplainedDiscrepancy)} RWF`}</td></tr>)}
+              {!ukweziReport.settlementAccounting.farmers.length ? <tr><td colSpan={10}>No farmer milk activity for this period.</td></tr> : null}
+            </tbody></table></div>
+          </section> : null}
           {settlementRows.length || ownerRow ? <><div className="table-scroll ukwezi-settlement-table"><table><thead><tr><th>No</th><th>{sortableUkweziHeader('name', publicLanguage.t(isDairy ? 'assignedCollectors' : 'milkFarmer'))}</th>{isDairy ? <th>{publicLanguage.t('navAbacunda')}</th> : <th>{publicLanguage.t('accountNationalId')}</th>}<th>{publicLanguage.t('accountPhone')} / {publicLanguage.t('accountNumber')}</th><th>{sortableUkweziHeader('volume', publicLanguage.t('reportsVolume'))}</th><th>{publicLanguage.t('milkPrice')} / L</th><th>{publicLanguage.t('reportsGross')}</th>{isCollector ? <th>{publicLanguage.t('reportsTransport')}</th> : null}<th>{publicLanguage.t('dashboardDeductions')}</th><th>{sortableUkweziHeader('payable', publicLanguage.t('reportsNet'))}</th></tr></thead><tbody>
             {settlementRows.map((row: any, index: number) => <tr key={`${isDairy ? 'collector' : 'farmer'}-${isDairy ? row.collectorUserId : row.farmerId}`}><td>{index + 1}</td><td>{isDairy ? row.name : row.farmerName}</td>{isDairy ? <td>{row.assignedFarmerCount}</td> : <td>{row.nationalId || row.idNumber || '—'}</td>}<td>{[row.phone, row.accountNumber].filter(Boolean).join(' / ') || '—'}</td><td>{liters(row.totalVolume)} L</td><td>{row.totalVolume > 0 ? `${money(row.pricePerLiter || 0)} RWF` : '—'}</td><td>{row.grossAmount == null ? '—' : `${money(row.grossAmount)} RWF`}</td>{isCollector ? <td>{money(row.totalTransport)} RWF</td> : null}<td>{money(row.totalDeductions)} RWF</td><td>{row.netAmount == null ? '—' : `${money(row.netAmount)} RWF`}</td></tr>)}
             {ownerRow ? <tr className="owner-settlement-row"><td>{settlementRows.length + 1}</td><td><b>{ownerRow.farmerName}</b><small className="block-muted">{publicLanguage.t('ukweziOwnerRow')}</small></td><td>{ownerRow.nationalId || ownerRow.idNumber || '—'}</td><td>{[ownerRow.phone, ownerRow.accountNumber].filter(Boolean).join(' / ') || '—'}</td><td>{liters(ownerRow.totalVolume)} L</td><td>{ownerRow.pricePerLiter == null ? '—' : `${money(ownerRow.pricePerLiter)} RWF`}</td><td>{ownerRow.grossAmount == null ? '—' : `${money(ownerRow.grossAmount)} RWF`}</td>{isCollector ? <td>{money(ownerRow.totalTransport)} RWF</td> : null}<td>{money(ownerRow.totalDeductions)} RWF</td><td>{ownerRow.netAmount == null ? '—' : `${money(ownerRow.netAmount)} RWF`}</td></tr> : null}
           </tbody></table></div><div className="ukwezi-mobile-list">{settlementRows.map((row: any) => <article className="ukwezi-mobile-card" key={`mobile-${isDairy ? row.collectorUserId : row.farmerId}`}><header><b>{isDairy ? row.name : row.farmerName}</b><strong>{liters(row.totalVolume)} L</strong></header><dl>{isDairy ? <div><dt>{publicLanguage.t('navAbacunda')}</dt><dd>{row.assignedFarmerCount}</dd></div> : <div><dt>{publicLanguage.t('accountNationalId')}</dt><dd>{row.nationalId || row.idNumber || '—'}</dd></div>}<div><dt>{publicLanguage.t('milkPrice')} / L</dt><dd>{row.totalVolume > 0 ? `${money(row.pricePerLiter || 0)} RWF` : '—'}</dd></div><div><dt>{publicLanguage.t('reportsGross')}</dt><dd>{row.grossAmount == null ? '—' : `${money(row.grossAmount)} RWF`}</dd></div>{isCollector ? <div><dt>{publicLanguage.t('reportsTransport')}</dt><dd>{money(row.totalTransport)} RWF</dd></div> : null}<div><dt>{publicLanguage.t('dashboardDeductions')}</dt><dd>{money(row.totalDeductions)} RWF</dd></div><div><dt>{publicLanguage.t('reportsNet')}</dt><dd>{row.netAmount == null ? '—' : `${money(row.netAmount)} RWF`}</dd></div></dl><p>{[row.phone, row.accountNumber].filter(Boolean).join(' / ') || '—'}</p></article>)}{ownerRow ? <article className="ukwezi-mobile-card owner-settlement-row"><header><b>{ownerRow.farmerName} · {publicLanguage.t('ukweziOwnerRow')}</b><strong>{liters(ownerRow.totalVolume)} L</strong></header><dl><div><dt>{publicLanguage.t('reportsGross')}</dt><dd>{ownerRow.grossAmount == null ? '—' : `${money(ownerRow.grossAmount)} RWF`}</dd></div>{isCollector ? <div><dt>{publicLanguage.t('reportsTransport')}</dt><dd>{money(ownerRow.totalTransport)} RWF</dd></div> : null}<div><dt>{publicLanguage.t('dashboardDeductions')}</dt><dd>{money(ownerRow.totalDeductions)} RWF</dd></div><div><dt>{publicLanguage.t('reportsNet')}</dt><dd>{ownerRow.netAmount == null ? '—' : `${money(ownerRow.netAmount)} RWF`}</dd></div></dl></article> : null}</div></> : null}
-          {lossRows.length ? <section className="ukwezi-loss-reconciliation"><div className="panel-heading"><div><span className="eyebrow">{publicLanguage.t('ifishiLost')}</span><h3>{publicLanguage.t('ukweziLossReconciliation')}</h3></div></div><div className="table-scroll"><table><thead><tr><th>{publicLanguage.t('milkCollectionDate')}</th><th>{publicLanguage.t('account')}</th><th>{publicLanguage.t('ifishiOriginal')}</th><th>{publicLanguage.t('ifishiValid')}</th><th>{publicLanguage.t('ifishiLost')}</th><th>{publicLanguage.t('paymentStatus')}</th><th>{publicLanguage.t('ifishiReason')}</th><th>{publicLanguage.t('actor')}</th><th>{publicLanguage.t('when')}</th></tr></thead><tbody>{lossRows.map((row) => <tr key={row.key}><td>{row.date}</td><td>{row.source}</td><td>{liters(row.original)} L</td><td>{liters(row.valid)} L</td><td>{liters(row.lost)} L</td><td>{row.status}</td><td>{row.reason || '—'}</td><td>{row.actor || '—'}</td><td>{row.when ? new Date(row.when).toLocaleString() : '—'}</td></tr>)}</tbody></table></div></section> : null}
+          {lossRows.length ? <section className="ukwezi-loss-reconciliation"><div className="panel-heading"><div><span className="eyebrow">{publicLanguage.t('ifishiLost')}</span><h3>{publicLanguage.t('ukweziLossReconciliation')}</h3></div></div><div className="table-scroll"><table><thead><tr><th>{publicLanguage.t('milkCollectionDate')}</th><th>{publicLanguage.t('account')}</th><th>{publicLanguage.t('ifishiOriginal')}</th><th>{publicLanguage.t('ifishiValid')}</th><th>{publicLanguage.t('ifishiLost')}</th><th>{publicLanguage.t('paymentStatus')}</th><th>{publicLanguage.t('ifishiReason')}</th><th>{publicLanguage.t('actor')}</th><th>{publicLanguage.t('when')}</th></tr></thead><tbody>{lossRows.map((row) => <tr key={row.key}><td>{row.date}</td><td>{row.source}</td><td>{liters(row.original)} L</td><td>{liters(row.valid)} L</td><td>{liters(row.lost)} L</td><td>{row.status}</td><td>{row.reason || '—'}</td><td>{row.actor || '—'}</td><td>{row.when ? formatDateLabel(row.when, publicLanguage.language, { day: 'numeric', month: 'long', year: 'numeric', time: 'short' }) : '—'}</td></tr>)}</tbody></table></div></section> : null}
         </> : <div className="workspace-empty workspace-loading" role="status"><span className="loading-indicator" />{publicLanguage.t('dashboardLoading')}</div>}
       </section>
     </div>;
@@ -2196,7 +2354,7 @@ const visibleTabs = (isAdmin
   const renderTransport = () => <section className="panel">
     <div className="panel-heading"><div><span className="eyebrow">{publicLanguage.t('navTransport')}</span><h2>{publicLanguage.t('collectorTransportTitle')}</h2></div><Truck size={20} aria-hidden="true" /></div>
     <div className="toolbar ukwezi-period-controls">
-      <label>{publicLanguage.t('ukweziMonth')}<select value={ukweziMonth} onChange={(event) => setUkweziMonth(event.target.value)}>{Array.from({ length: 12 }, (_, index) => <option key={index + 1} value={String(index + 1).padStart(2, '0')}>{new Intl.DateTimeFormat(publicLanguage.language === 'rw' ? 'rw-RW' : 'en-GB', { month: 'long' }).format(new Date(Date.UTC(2026, index, 1)))}</option>)}</select></label>
+      <label>{publicLanguage.t('ukweziMonth')}<select value={ukweziMonth} onChange={(event) => setUkweziMonth(event.target.value)}>{getMonthNames(publicLanguage.language).map((name, index) => <option key={index + 1} value={String(index + 1).padStart(2, '0')}>{name}</option>)}</select></label>
       <label>{publicLanguage.t('ukweziYear')}<select value={ukweziYear} onChange={(event) => setUkweziYear(event.target.value)}>{Array.from({ length: new Date().getFullYear() - 1999 }, (_, index) => String(new Date().getFullYear() - index)).map((year) => <option key={year}>{year}</option>)}</select></label>
       <label>{publicLanguage.t('ukweziPeriod')}<select value={ukweziPeriod} onChange={(event) => setUkweziPeriod(event.target.value as 'first-half' | 'second-half')}><option value="first-half">1–15</option><option value="second-half">16–{new Date(Number(ukweziYear), Number(ukweziMonth), 0).getDate()}</option></select></label>
     </div>
@@ -2317,12 +2475,10 @@ const visibleTabs = (isAdmin
       ? <MtnMoMoBrand compact />
       : item.payment_method || item.provider || '—';
     const paymentDateLabel = (value: string | null) => value
-      ? new Date(value).toLocaleString(publicLanguage.language === 'rw' ? 'rw-RW' : 'en-GB')
+      ? formatDateLabel(value, publicLanguage.language, { day: 'numeric', month: 'long', year: 'numeric', time: 'short' })
       : '—';
     const policyDateLabel = (value: string | null | undefined) => value
-      ? new Intl.DateTimeFormat(publicLanguage.language === 'rw' ? 'rw-RW' : 'en-GB', {
-        dateStyle: 'medium', timeStyle: 'short', timeZone: 'Africa/Kigali',
-      }).format(new Date(value))
+      ? formatDateLabel(value, publicLanguage.language, { day: 'numeric', month: 'long', year: 'numeric', time: 'short' })
       : '—';
     const selectedTier = billing?.plans?.find((plan: SubscriptionPlan) => plan.code === selectedSubscriptionPlanCode);
     const currentTier = billing?.usage?.currentTier;
@@ -2393,7 +2549,7 @@ const visibleTabs = (isAdmin
     </div>;
   };
 
-  const renderNotifications = () => <section className="panel"><div className="panel-heading"><div><span className="eyebrow">{publicLanguage.t('alertsInbox')}</span><h2>{publicLanguage.t('navAlerts')}</h2></div><button className="button button-secondary" onClick={() => run(async () => { await api('/api/notifications/read-all', { method: 'PATCH' }); await loadNotifications(); })}>{publicLanguage.t('markAllRead')}</button></div><div className="notice-list">{notifications.map((item) => <article className={`notice-row${item.isRead ? '' : ' unread'}`} key={item.id}><div><span className="eyebrow">{item.notification_type.replaceAll('_', ' ')}</span><h3>{item.title}</h3><p>{item.message}</p><small>{new Date(item.createdAt).toLocaleString()}</small></div>{!item.isRead ? <button className="button button-secondary small-button" onClick={() => markRead(item)}>{publicLanguage.t('markRead')}</button> : <Check size={17} />}</article>)}{!notifications.length ? <div className="workspace-empty" role="status"><span className="workspace-empty-icon"><Bell size={21} aria-hidden="true" /></span><b>{publicLanguage.t('notificationsEmptyTitle')}</b></div> : null}</div></section>;
+const renderNotifications = () => <section className="panel"><div className="panel-heading"><div><span className="eyebrow">{publicLanguage.t('alertsInbox')}</span><h2>{publicLanguage.t('navAlerts')}</h2></div><button className="button button-secondary" onClick={() => run(async () => { await api('/api/notifications/read-all', { method: 'PATCH' }); await loadNotifications(); })}>{publicLanguage.t('markAllRead')}</button></div><div className="notice-list">{notifications.map((item) => <article className={`notice-row${item.isRead ? '' : ' unread'}`} key={item.id}><div><span className="eyebrow">{item.notification_type.replaceAll('_', ' ')}</span><h3>{item.title}</h3><p>{item.message}</p><small>{formatDateLabel(item.createdAt, publicLanguage.language, { day: 'numeric', month: 'long', year: 'numeric', time: 'short' })}</small></div>{!item.isRead ? <button className="button button-secondary small-button" onClick={() => markRead(item)}>{publicLanguage.t('markRead')}</button> : <Check size={17} />}</article>)}{!notifications.length ? <div className="workspace-empty" role="status"><span className="workspace-empty-icon"><Bell size={21} aria-hidden="true" /></span><b>{publicLanguage.t('notificationsEmptyTitle')}</b></div> : null}</div></section>;
 
   const renderAdminAccounts = () => <section className="panel"><div className="panel-heading"><div><span className="eyebrow">{publicLanguage.t('platform')}</span><h2>{publicLanguage.t('customerAccounts')}</h2></div><span className="count-label">{accounts ? `${accounts.total} ${publicLanguage.t('accountsCount')} ` : '…'}</span></div><div className="toolbar"><form className="search-form" onSubmit={(event) => { event.preventDefault(); loadAccounts(); }}><Search size={17} /><input placeholder={publicLanguage.t('searchNameEmail')} value={accountSearch} onChange={(event) => setAccountSearch(event.target.value)} /><button className="button button-secondary">{publicLanguage.t('search')}</button></form><select value={accountStatus} onChange={(event) => setAccountStatus(event.target.value)}><option value="">{publicLanguage.t('allStatuses')}</option>{Object.keys(accountStatusCopy).map((status) => <option key={status} value={status}>{publicLanguage.t(accountStatusCopy[status as keyof typeof accountStatusCopy])}</option>)}</select></div><div className="table-scroll"><table><thead><tr><th>{publicLanguage.t('account')}</th><th>{publicLanguage.t('accountType')}</th><th>{publicLanguage.t('status')}</th><th>{publicLanguage.t('farmers')}</th><th>{publicLanguage.t('navCenters')}</th><th>{publicLanguage.t('actions')}</th></tr></thead><tbody>{accounts?.accounts.map((account) => <tr key={account.user_id}><td><b>{account.account_name}</b><small className="block-muted">{account.account_email}</small></td><td>{account.account_type === 'COLLECTION_CENTER' ? publicLanguage.t('collectionCenter') : publicLanguage.t('collector')}</td><td>{publicLanguage.t(accountStatusCopy[(account.effective_status || account.account_status) as keyof typeof accountStatusCopy] || 'statusActive')}</td><td>{account.farmer_count}</td><td>{account.center_count}</td><td className="actions-cell"><button type="button" className="text-button" onClick={() => { void loadAdminAccountDetails(account.user_id); }}>{publicLanguage.t('adminViewAccount')}</button><button className="text-button" onClick={() => adminAction(account, account.account_status === 'suspended' ? 'reactivate' : 'suspend')}>{publicLanguage.t(account.account_status === 'suspended' ? 'reactivate' : 'suspend')}</button></td></tr>)}</tbody></table></div></section>;
 
@@ -2409,7 +2565,7 @@ const visibleTabs = (isAdmin
           <div><dt>{publicLanguage.t('accountType')}</dt><dd>{adminAccountDetails.account.account_type === 'COLLECTION_CENTER' ? publicLanguage.t('collectionCenter') : publicLanguage.t('collector')}</dd></div>
           <div><dt>{publicLanguage.t('status')}</dt><dd>{publicLanguage.t(accountStatusCopy[(adminAccountDetails.account.account_status || 'active') as keyof typeof accountStatusCopy] || 'statusActive')}</dd></div>
           <div><dt>{publicLanguage.t('accountPhone')}</dt><dd>{adminAccountDetails.account.phone || '—'}</dd></div>
-          <div><dt>Created</dt><dd>{new Date(adminAccountDetails.account.created_at).toLocaleString()}</dd></div>
+          <div><dt>Created</dt><dd>{formatDateLabel(adminAccountDetails.account.created_at, publicLanguage.language, { day: 'numeric', month: 'long', year: 'numeric', time: 'short' })}</dd></div>
           <div><dt>{publicLanguage.t('navSubscription')}</dt><dd>{adminAccountDetails.subscription ? `${adminAccountDetails.subscription.status || 'unknown'} · ${typeof adminAccountDetails.subscription.current_price === 'number' ? money(adminAccountDetails.subscription.current_price) : (adminAccountDetails.subscription.current_price || '—')} ${adminAccountDetails.subscription.currency || 'RWF'}` : publicLanguage.t('subscriptionNoAccount')}</dd></div>
         </dl>
         <div className="admin-account-stat-grid">
@@ -2424,7 +2580,7 @@ const visibleTabs = (isAdmin
     </Modal>
   );
 
-  const renderAdminAudit = () => <section className="panel"><div className="panel-heading"><div><span className="eyebrow">{publicLanguage.t('auditSecurity')}</span><h2>{publicLanguage.t('auditLog')}</h2></div><span className="count-label">{auditRows?.total ?? '…'} {publicLanguage.t('events')}</span></div><div className="table-scroll"><table><thead><tr><th>{publicLanguage.t('when')}</th><th>{publicLanguage.t('actor')}</th><th>{publicLanguage.t('entity')}</th><th>{publicLanguage.t('actions')}</th><th>{publicLanguage.t('details')}</th></tr></thead><tbody>{(auditRows?.items || []).map((row: any) => <tr key={row.id}><td>{new Date(row.created_at).toLocaleString()}</td><td>{row.actor_name || row.changed_by || 'System'}</td><td>{row.entity_type} #{row.entity_id}</td><td>{row.action}</td><td><code>{JSON.stringify(row.details || {})}</code></td></tr>)}</tbody></table></div></section>;
+  const renderAdminAudit = () => <section className="panel"><div className="panel-heading"><div><span className="eyebrow">{publicLanguage.t('auditSecurity')}</span><h2>{publicLanguage.t('auditLog')}</h2></div><span className="count-label">{auditRows?.total ?? '…'} {publicLanguage.t('events')}</span></div><div className="table-scroll"><table><thead><tr><th>{publicLanguage.t('when')}</th><th>{publicLanguage.t('actor')}</th><th>{publicLanguage.t('entity')}</th><th>{publicLanguage.t('actions')}</th><th>{publicLanguage.t('details')}</th></tr></thead><tbody>{(auditRows?.items || []).map((row: any) => <tr key={row.id}><td>{formatDateLabel(row.created_at, publicLanguage.language, { day: 'numeric', month: 'long', year: 'numeric', time: 'short' })}</td><td>{row.actor_name || row.changed_by || 'System'}</td><td>{row.entity_type} #{row.entity_id}</td><td>{row.action}</td><td><code>{JSON.stringify(row.details || {})}</code></td></tr>)}</tbody></table></div></section>;
 
   const renderAdminConfig = () => <section className="panel"><div className="panel-heading"><div><span className="eyebrow">{publicLanguage.t('pricingPlatform')}</span><h2>{publicLanguage.t('centerPlan')}</h2></div><CircleDollarSign size={20} /></div><div className="config-callout">{adminConfigLoading ? publicLanguage.t('dashboardLoading') : `${centerPricing?.plan?.name || 'Collection Center Monthly'} · ${money(centerPricing?.plan?.price || centerPricing?.config?.monthly_amount || 0)} RWF`}</div><form key={centerPricing?.config?.updated_at || 'collection-center-pricing-loading'} className="form-stack compact config-form" onSubmit={(event) => { event.preventDefault(); run(async () => { const formData = new FormData(event.currentTarget); await api('/api/admin/config/collection-center', json('PUT', { monthlyAmount: Number(formData.get('amount')), firstVolumeBoundaryLiters: Number(formData.get('boundary')) })); const updated = await api('/api/admin/config/collection-center'); setCenterPricing(updated); setNotice(publicLanguage.t('pricingSaved')); }); }}><label>{publicLanguage.t('monthlyAmount')}<input name="amount" type="number" min="0" disabled={adminConfigLoading} defaultValue={centerPricing?.config?.monthly_amount || centerPricing?.plan?.price || 30000} /></label><label>{publicLanguage.t('firstVolumeBoundary')}<input name="boundary" type="number" min="0" disabled={adminConfigLoading} defaultValue={centerPricing?.config?.first_volume_boundary_liters || 50000} /></label><button className="button button-primary" disabled={busy || adminConfigLoading}>{publicLanguage.t('savePricing')}</button></form></section>;
 
@@ -2520,8 +2676,8 @@ const visibleTabs = (isAdmin
         <div><span>{publicLanguage.t('paymentExpired')}</span><b>{adminPaymentSummary.expiredCount}</b></div>
       </div> : null}
       {adminConfigLoading ? <div className="workspace-empty workspace-loading" role="status"><span className="loading-indicator" />{publicLanguage.t('dashboardLoading')}</div> : adminPayments.length ? <>
-        <div className="table-scroll admin-payment-table"><table><thead><tr><th>{publicLanguage.t('account')}</th><th>{publicLanguage.t('paymentPlan')}</th><th>{publicLanguage.t('deductionsAmount')}</th><th>{publicLanguage.t('billingPaymentProvider')}</th><th>{publicLanguage.t('accountPhone')}</th><th>{publicLanguage.t('paymentStatus')}</th><th>{publicLanguage.t('paymentReference')}</th><th>{publicLanguage.t('paymentDate')}</th><th>{publicLanguage.t('paymentConfirmationDate')}</th><th /></tr></thead><tbody>{adminPayments.map((payment) => <tr key={payment.id}><td><b>{payment.account_name || '—'}</b><small className="block-muted">{payment.account_email}</small></td><td>{payment.plan_name || payment.plan_code || '—'}<small className="block-muted">{payment.billing_period}</small></td><td>{money(payment.amount)} {payment.currency}</td><td>{paymentMethod(payment)}</td><td>{payment.mobile_money_phone || '—'}</td><td><span className={`payment-status-badge payment-status-${payment.status.toLowerCase()}`}>{statusLabel(payment.status)}</span></td><td><b>{payment.provider_reference || '—'}</b>{payment.provider_transaction_id ? <small className="block-muted">{payment.provider_transaction_id}</small> : null}</td><td>{payment.created_at ? new Date(payment.created_at).toLocaleString() : '—'}</td><td>{payment.completed_at ? new Date(payment.completed_at).toLocaleString() : '—'}</td><td>{payment.status === 'PENDING' ? <button type="button" className="text-button" onClick={() => checkAdminPayment(payment.id)} disabled={busy}>{publicLanguage.t('paymentCheckStatus')}</button> : null}</td></tr>)}</tbody></table></div>
-        <div className="admin-payment-mobile-list">{adminPayments.map((payment) => <article className="admin-payment-card" key={`mobile-${payment.id}`}><header><div><b>{payment.account_name || '—'}</b><small>{payment.account_email}</small></div><span className={`payment-status-badge payment-status-${payment.status.toLowerCase()}`}>{statusLabel(payment.status)}</span></header><dl><div><dt>{publicLanguage.t('paymentPlan')}</dt><dd>{payment.plan_name || payment.plan_code || '—'} · {payment.billing_period}</dd></div><div><dt>{publicLanguage.t('deductionsAmount')}</dt><dd>{money(payment.amount)} {payment.currency}</dd></div><div><dt>{publicLanguage.t('billingPaymentProvider')}</dt><dd>{paymentMethod(payment)}</dd></div><div><dt>{publicLanguage.t('accountPhone')}</dt><dd>{payment.mobile_money_phone || '—'}</dd></div><div><dt>{publicLanguage.t('paymentReference')}</dt><dd>{payment.provider_reference || '—'}{payment.provider_transaction_id ? <small>{payment.provider_transaction_id}</small> : null}</dd></div><div><dt>{publicLanguage.t('paymentDate')}</dt><dd>{payment.created_at ? new Date(payment.created_at).toLocaleString() : '—'}</dd></div><div><dt>{publicLanguage.t('paymentConfirmationDate')}</dt><dd>{payment.completed_at ? new Date(payment.completed_at).toLocaleString() : '—'}</dd></div></dl>{payment.status === 'PENDING' ? <button type="button" className="text-button" onClick={() => checkAdminPayment(payment.id)} disabled={busy}>{publicLanguage.t('paymentCheckStatus')}</button> : null}</article>)}</div>
+        <div className="table-scroll admin-payment-table"><table><thead><tr><th>{publicLanguage.t('account')}</th><th>{publicLanguage.t('paymentPlan')}</th><th>{publicLanguage.t('deductionsAmount')}</th><th>{publicLanguage.t('billingPaymentProvider')}</th><th>{publicLanguage.t('accountPhone')}</th><th>{publicLanguage.t('paymentStatus')}</th><th>{publicLanguage.t('paymentReference')}</th><th>{publicLanguage.t('paymentDate')}</th><th>{publicLanguage.t('paymentConfirmationDate')}</th><th /></tr></thead><tbody>{adminPayments.map((payment) => <tr key={payment.id}><td><b>{payment.account_name || '—'}</b><small className="block-muted">{payment.account_email}</small></td><td>{payment.plan_name || payment.plan_code || '—'}<small className="block-muted">{payment.billing_period}</small></td><td>{money(payment.amount)} {payment.currency}</td><td>{paymentMethod(payment)}</td><td>{payment.mobile_money_phone || '—'}</td><td><span className={`payment-status-badge payment-status-${payment.status.toLowerCase()}`}>{statusLabel(payment.status)}</span></td><td><b>{payment.provider_reference || '—'}</b>{payment.provider_transaction_id ? <small className="block-muted">{payment.provider_transaction_id}</small> : null}</td><td>{payment.created_at ? formatDateLabel(payment.created_at, publicLanguage.language, { day: 'numeric', month: 'long', year: 'numeric', time: 'short' }) : '—'}</td><td>{payment.completed_at ? formatDateLabel(payment.completed_at, publicLanguage.language, { day: 'numeric', month: 'long', year: 'numeric', time: 'short' }) : '—'}</td><td>{payment.status === 'PENDING' ? <button type="button" className="text-button" onClick={() => checkAdminPayment(payment.id)} disabled={busy}>{publicLanguage.t('paymentCheckStatus')}</button> : null}</td></tr>)}</tbody></table></div>
+        <div className="admin-payment-mobile-list">{adminPayments.map((payment) => <article className="admin-payment-card" key={`mobile-${payment.id}`}><header><div><b>{payment.account_name || '—'}</b><small>{payment.account_email}</small></div><span className={`payment-status-badge payment-status-${payment.status.toLowerCase()}`}>{statusLabel(payment.status)}</span></header><dl><div><dt>{publicLanguage.t('paymentPlan')}</dt><dd>{payment.plan_name || payment.plan_code || '—'} · {payment.billing_period}</dd></div><div><dt>{publicLanguage.t('deductionsAmount')}</dt><dd>{money(payment.amount)} {payment.currency}</dd></div><div><dt>{publicLanguage.t('billingPaymentProvider')}</dt><dd>{paymentMethod(payment)}</dd></div><div><dt>{publicLanguage.t('accountPhone')}</dt><dd>{payment.mobile_money_phone || '—'}</dd></div><div><dt>{publicLanguage.t('paymentReference')}</dt><dd>{payment.provider_reference || '—'}{payment.provider_transaction_id ? <small>{payment.provider_transaction_id}</small> : null}</dd></div><div><dt>{publicLanguage.t('paymentDate')}</dt><dd>{payment.created_at ? formatDateLabel(payment.created_at, publicLanguage.language, { day: 'numeric', month: 'long', year: 'numeric', time: 'short' }) : '—'}</dd></div><div><dt>{publicLanguage.t('paymentConfirmationDate')}</dt><dd>{payment.completed_at ? formatDateLabel(payment.completed_at, publicLanguage.language, { day: 'numeric', month: 'long', year: 'numeric', time: 'short' }) : '—'}</dd></div></dl>{payment.status === 'PENDING' ? <button type="button" className="text-button" onClick={() => checkAdminPayment(payment.id)} disabled={busy}>{publicLanguage.t('paymentCheckStatus')}</button> : null}</article>)}</div>
         <div className="panel-footer admin-payment-pagination"><span>{adminPaymentTotal} · {adminPaymentPage} / {totalPages}</span><div><button type="button" className="button button-secondary small-button" disabled={adminPaymentPage <= 1} onClick={() => loadAdminPayments(adminPaymentPage - 1).catch((reason) => setError(reason.message))}>{publicLanguage.t('previousPage')}</button><button type="button" className="button button-secondary small-button" disabled={adminPaymentPage >= totalPages} onClick={() => loadAdminPayments(adminPaymentPage + 1).catch((reason) => setError(reason.message))}>{publicLanguage.t('nextPage')}</button></div></div>
       </> : <div className="workspace-empty" role="status"><b>{publicLanguage.t('subscriptionNoHistory')}</b></div>}
     </section>;
@@ -2601,9 +2757,9 @@ const visibleTabs = (isAdmin
 
   return (
     <main className="workspace-shell">
-      <header className="topbar"><BrandLockup className="topbar-brand" imageSize={34} /><div className="topbar-right"><span className={`account-tag${online ? '' : ' offline-tag'}`}><span className={`status-dot${online ? '' : ' offline-dot'}`} />{online ? isAdmin ? publicLanguage.t('platformAdmin') : user.accountType.replace('_', ' ') : `Offline · ${pendingWrites} queued`}</span><div className="notification-menu"><button type="button" className="icon-button notification-trigger" aria-label={`${publicLanguage.t('navAlerts')}: ${unreadCount ?? 0}`} aria-expanded={notificationPanelOpen} onClick={toggleNotificationPanel}><Bell size={19} aria-hidden="true" />{unreadCount ? <span className="notification-badge">{unreadCount > 99 ? '99+' : unreadCount}</span> : null}</button>{notificationPanelOpen ? <section className="notification-dropdown" aria-label={publicLanguage.t('navAlerts')}><div className="notification-dropdown-heading"><b>{publicLanguage.t('navAlerts')}</b><button type="button" className="text-button" onClick={() => markAllNotificationsRead()}>{publicLanguage.t('markAllRead')}</button></div><div className="notification-dropdown-list">{notifications.slice(0, 8).map((item) => <article className={`notification-dropdown-item${item.isRead ? '' : ' unread'}`} key={item.id}><span className="eyebrow">{item.notification_type.replaceAll('_', ' ')}</span><b>{item.title}</b><p>{item.message}</p><small>{new Date(item.createdAt).toLocaleString()}</small>{!item.isRead ? <button type="button" className="text-button" onClick={() => markRead(item)}>{publicLanguage.t('markRead')}</button> : null}</article>)}{!notifications.length ? <p className="notification-dropdown-empty">{publicLanguage.t('notificationsEmptyTitle')}</p> : null}</div><button type="button" className="notification-dropdown-all" onClick={() => { setNotificationPanelOpen(false); setTab('notifications'); }}>{publicLanguage.t('alertsInbox')} <ArrowRight size={15} aria-hidden="true" /></button></section> : null}</div><button type="button" className="user-name user-settings-shortcut" onClick={() => setTab('settings')} title={publicLanguage.t('accountSettings')} aria-label={`${publicLanguage.t('accountSettings')}: ${user.name || user.email}`}><UserRound size={16} aria-hidden="true" /><span>{user.name || user.email}</span></button><button className="icon-button" onClick={logout} aria-label={publicLanguage.t('signOut')} title={publicLanguage.t('signOut')}><LogOut size={18} /></button></div></header>
+      <header className="topbar"><BrandLockup className="topbar-brand" imageSize={34} /><div className="topbar-right"><span className={`account-tag${online ? '' : ' offline-tag'}`}><span className={`status-dot${online ? '' : ' offline-dot'}`} />{online ? isAdmin ? publicLanguage.t('platformAdmin') : user.accountType.replace('_', ' ') : `Offline · ${pendingWrites} queued`}</span><div className="notification-menu"><button type="button" className="icon-button notification-trigger" aria-label={`${publicLanguage.t('navAlerts')}: ${unreadCount ?? 0}`} aria-expanded={notificationPanelOpen} onClick={toggleNotificationPanel}><Bell size={19} aria-hidden="true" />{unreadCount ? <span className="notification-badge">{unreadCount > 99 ? '99+' : unreadCount}</span> : null}</button>{notificationPanelOpen ? <section className="notification-dropdown" aria-label={publicLanguage.t('navAlerts')}><div className="notification-dropdown-heading"><b>{publicLanguage.t('navAlerts')}</b><button type="button" className="text-button" onClick={() => markAllNotificationsRead()}>{publicLanguage.t('markAllRead')}</button></div><div className="notification-dropdown-list">{notifications.slice(0, 8).map((item) => <article className={`notification-dropdown-item${item.isRead ? '' : ' unread'}`} key={item.id}><span className="eyebrow">{item.notification_type.replaceAll('_', ' ')}</span><b>{item.title}</b><p>{item.message}</p><small>{formatDateLabel(item.createdAt, publicLanguage.language, { day: 'numeric', month: 'long', year: 'numeric', time: 'short' })}</small>{!item.isRead ? <button type="button" className="text-button" onClick={() => markRead(item)}>{publicLanguage.t('markRead')}</button> : null}</article>)}{!notifications.length ? <p className="notification-dropdown-empty">{publicLanguage.t('notificationsEmptyTitle')}</p> : null}</div><button type="button" className="notification-dropdown-all" onClick={() => { setNotificationPanelOpen(false); setTab('notifications'); }}>{publicLanguage.t('alertsInbox')} <ArrowRight size={15} aria-hidden="true" /></button></section> : null}</div><button type="button" className="user-name user-settings-shortcut" onClick={() => setTab('settings')} title={publicLanguage.t('accountSettings')} aria-label={`${publicLanguage.t('accountSettings')}: ${user.name || user.email}`}><UserRound size={16} aria-hidden="true" /><span>{user.name || user.email}</span></button><button className="icon-button" onClick={logout} aria-label={publicLanguage.t('signOut')} title={publicLanguage.t('signOut')}><LogOut size={18} /></button></div></header>
       <div className="workspace-body"><aside className="sidebar"><div className="sidebar-label">{publicLanguage.t('workspace')}</div><nav>{activeTabs.map((item) => { const Icon = item.icon; return <button className={`nav-item${tab === item.id ? ' active' : ''}`} key={item.id} onClick={() => setTab(item.id)}><Icon size={18} strokeWidth={1.8} /><span>{item.label}</span>{tab === item.id ? <span className="nav-mark" /> : null}</button>; })}</nav><div className="sidebar-foot"><Activity size={15} /><span>{publicLanguage.t('systemOnline')}</span></div></aside>
-      <section className="content-area"><div className="content-heading"><div><span className="eyebrow">{isAdmin ? publicLanguage.t('platformAdmin') : 'MILK SYSTEM'}</span><h1>{activeTabLabel}</h1></div><span className="date-stamp">{new Date().toLocaleDateString(publicLanguage.language === 'rw' ? 'rw-RW' : 'en-GB', { weekday: 'short', day: '2-digit', month: 'short', year: 'numeric' })}</span></div>
+      <section className="content-area"><div className="content-heading"><div><span className="eyebrow">{isAdmin ? publicLanguage.t('platformAdmin') : 'MILK SYSTEM'}</span><h1>{activeTabLabel}</h1></div><span className="date-stamp">{formatDateLabel(new Date(), publicLanguage.language, { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' })}</span></div>
         {error ? <div className="toast toast-error" role="alert"><span>{error}</span><button onClick={() => setError('')} aria-label="Dismiss"><X size={16} /></button></div> : null}
         {notice ? <div className="toast toast-success" role="status"><span>{notice}</span><button onClick={() => setNotice('')} aria-label="Dismiss"><X size={16} /></button></div> : null}
         {tab === 'dashboard' && isAdmin ? renderAdminDashboard() : null}
@@ -2614,15 +2770,16 @@ const visibleTabs = (isAdmin
         {tab === 'deductions' && !isAdmin ? renderDeductions() : null}
         {tab === 'transport' && !isAdmin && isCollector ? renderTransport() : null}
         {tab === 'ukwezi' && !isAdmin ? renderUkwezi() : null}
+        {tab === 'settlements' && !isAdmin ? renderSettlements() : null}
         {tab === 'reports' && !isAdmin ? renderReports() : null}
         {tab === 'billing' && !isAdmin ? renderBilling() : null}
         {tab === 'notifications' && !isAdmin ? <>{renderNotificationFilters()}{renderNotifications()}</> : null}
         {tab === 'settings' ? renderAccountSettings() : null}
+        {tab === 'notifications-admin' && isAdmin ? renderNotifications() : null}
         {tab === 'accounts' && isAdmin ? renderAdminAccounts() : null}
         {tab === 'audit' && isAdmin ? renderAdminAudit() : null}
         {tab === 'config' && isAdmin ? <div className="admin-pricing-layout">{renderAdminCollectorPricing()}{renderAdminConfig()}{renderAdminSubscriptionPolicy()}{renderAdminPaymentConfiguration()}{renderAdminPayments()}</div> : null}
         {tab === 'system-health' && isAdmin ? renderSystemHealth() : null}
-        {tab === 'notifications-admin' && isAdmin ? <>{renderNotificationFilters()}{renderNotifications()}</> : null}
         {adminAccountDetailsOpen ? renderAdminAccountDetailsModal() : null}
       </section></div>
       <nav className="mobile-nav" aria-label="Workspace navigation">

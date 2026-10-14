@@ -66,8 +66,41 @@ test('Ukwezi PDF renderer creates a valid multipage accounting document from the
   });
 });
 
-test('Ukwezi PDF renderer handles an empty accounting period without inventing rows', async () => {
-  const emptyReport = { ...report, farmerPayments: [], ownerSettlementRow: null };
+test('Ukwezi PDF renderer handles an empty accounting period and renders settlement reconciliation', async () => {
+  const emptyReport = {
+    ...report,
+    farmerPayments: [],
+    ownerSettlementRow: null,
+    settlementAccounting: {
+      saccoDistributionInstruction: 0,
+      saccoConfirmedAmount: 0,
+      cashApprovedAmount: 500,
+      cashConfirmedAmount: 250,
+      debtRepaymentAmount: 100,
+      outstandingDebt: 400,
+      debtBalancesComplete: true,
+      retainedUnpaidAmount: 650,
+      unexplainedDiscrepancy: 0,
+      ownerGrossReconciliation: { ownerGross: 1000, farmerGross: 1000, surplus: 0, discrepancy: 0 },
+      farmers: [{
+        farmerId: 19,
+        farmerName: 'Settlement-only test farmer',
+        totalVolume: 3,
+        grossAmount: 1000,
+        netAmount: 1000,
+        settlement: {
+          saccoDistributionInstruction: 0,
+          cashApprovedAmount: 500,
+          cashConfirmedAmount: 250,
+          debtRepaymentAmount: 100,
+          outstandingDebt: 400,
+          debtBalanceComplete: true,
+          retainedUnpaidAmount: 650,
+          unexplainedDiscrepancy: 0,
+        },
+      }],
+    },
+  };
   const pdf = await renderUkweziPdf({
     report: emptyReport,
     user: { id: 73, name: 'Latina', accountType: 'COLLECTION_CENTER' },
@@ -85,6 +118,16 @@ test('Ukwezi PDF renderer rejects missing accounting scope with a client error',
     () => renderUkweziPdf({ report: {}, user: { id: 73, accountType: 'COLLECTOR' }, query: { periodType: 'first-half' } }),
     (error) => error.statusCode === 400 && /valid account and accounting report/i.test(error.message)
   );
+});
+
+test('Ukwezi PDF signals settlement accounting migration gaps without dropping core report output', async () => {
+  const pdf = await renderUkweziPdf({
+    report: { ...report, farmerPayments: [], ownerSettlementRow: null, settlementAccountingStatus: 'MIGRATION_REQUIRED' },
+    user: { id: 73, name: 'Latina', accountType: 'COLLECTION_CENTER' },
+    query: { month: '10', year: '2026', periodType: 'first-half', language: 'en' },
+  });
+  assert.equal(pdf.subarray(0, 5).toString('ascii'), '%PDF-');
+  assert.ok(pdf.length > 1000);
 });
 
 test('Ukwezi PDF selects server-calculated accounting rows by account type, not performance-report rows', () => {

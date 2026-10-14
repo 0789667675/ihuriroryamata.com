@@ -7,7 +7,7 @@ const { registerUser, loginUser, getCurrentUser } = require('../lib/services/aut
 const { assertUserCanAccessOwnerScopedResource, buildOwnerScope } = require('../lib/security/ownership.js');
 const { requireAccountType } = require('../lib/security/account-access.js');
 const { createSessionToken } = require('../lib/security/session.js');
-const { getAuthenticatedUser, isSubscriptionRecoveryRequest } = require('../lib/security/authenticate.js');
+const { getAuthenticatedUser, isSubscriptionRecoveryRequest, isCollectionCenterAuthenticationPath } = require('../lib/security/authenticate.js');
 const { createUserWithConnection } = require('../lib/repositories/userRepository.js');
 
 const makeSession = (userId = null) => ({ userId });
@@ -236,7 +236,7 @@ test('business account authorization separates Collector and Collection Center a
   assert.throws(() => requireAccountType(admin, 'COLLECTOR'), { code: 'ACCOUNT_TYPE_FORBIDDEN', statusCode: 403 });
 });
 
-test('production public launch accepts Collectors but blocks Collection Center provisioning and access', async () => {
+test('production blocks public Collection Center registration but authenticates existing owners', async () => {
   const previousNodeEnv = process.env.NODE_ENV;
   const previousSessionSecret = process.env.SESSION_SECRET;
   const originalRepo = require('../lib/repositories/userRepository.js').repository;
@@ -255,22 +255,17 @@ test('production public launch accepts Collectors but blocks Collection Center p
       (error) => error.statusCode === 403 && error.code === 'ACCOUNT_TYPE_UNAVAILABLE'
     );
     const session = makeSession();
-    await assert.rejects(
-      () => loginUser({ repository, email: dairy.email, password: 'StrongPass123!', session }),
-      (error) => error.statusCode === 403 && error.code === 'ACCOUNT_TYPE_UNAVAILABLE'
-    );
-    assert.equal(session.userId, null);
-    assert.throws(() => requireAccountType({ id: dairy.id, role: 'user', accountType: 'COLLECTION_CENTER' }, 'COLLECTION_CENTER'), {
-      statusCode: 403,
-      code: 'ACCOUNT_TYPE_UNAVAILABLE',
-    });
+    await loginUser({ repository, email: dairy.email, password: 'StrongPass123!', session });
+    assert.equal(session.userId, dairy.id);
+    assert.equal(requireAccountType({ id: dairy.id, role: 'user', accountType: 'COLLECTION_CENTER' }, 'COLLECTION_CENTER').id, dairy.id);
 
     const superAdmin = await registerUser({ repository, name: 'Platform Admin', email: 'platform-admin@example.com', password: 'StrongPass123!', role: 'super_admin', accountType: 'COLLECTION_CENTER' });
     process.env.SESSION_SECRET = 'test-session-secret-with-at-least-32-characters';
     originalRepo.findUserById = async (id) => Number(id) === dairy.id ? dairy : Number(id) === superAdmin.id ? superAdmin : null;
     const token = createSessionToken({ id: dairy.id, role: 'user' });
-    const authenticated = await getAuthenticatedUser({ cookies: { get: () => ({ value: token }) } });
-    assert.equal(authenticated, null);
+    const authenticated = await getAuthenticatedUser({ url: 'https://milk.example.test/api/auth/me', cookies: { get: () => ({ value: token }) } });
+    assert.equal(authenticated.id, dairy.id);
+    assert.equal(authenticated.accountType, 'COLLECTION_CENTER');
     const adminToken = createSessionToken({ id: superAdmin.id, role: 'super_admin' });
     const authenticatedAdmin = await getAuthenticatedUser({ cookies: { get: () => ({ value: adminToken }) } });
     assert.equal(authenticatedAdmin.role, 'super_admin');
@@ -291,6 +286,15 @@ test('middleware fails closed without a session secret and exposes only intended
   assert.doesNotMatch(middleware, /development-session-secret/);
   assert.match(middleware, /PUBLIC_API_PATHS = new Set\(\['\/api\/subscription\/payments\/callback', '\/api\/subscription\/plans'\]\)/);
   assert.match(middleware, /PUBLIC_API_PATHS\.has\(pathname\)/);
+});
+
+test('production Collection Center authentication is limited to settlement and accounting entry points', () => {
+  assert.equal(isCollectionCenterAuthenticationPath('/api/auth/me'), true);
+  assert.equal(isCollectionCenterAuthenticationPath('/api/farmer-settlements'), true);
+  assert.equal(isCollectionCenterAuthenticationPath('/api/reports/summary'), true);
+  assert.equal(isCollectionCenterAuthenticationPath('/api/ukwezi/pdf'), true);
+  assert.equal(isCollectionCenterAuthenticationPath('/api/farmers'), false);
+  assert.equal(isCollectionCenterAuthenticationPath('/api/milk'), false);
 });
 
 test('subscription API gate keeps recovery routes open and blocks restricted data APIs', () => {

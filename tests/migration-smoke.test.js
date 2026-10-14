@@ -40,7 +40,7 @@ test('migration scaffold preserves the required owner and admin model', () => {
   assert.match(subscriptionLifecycleMigration, /subscription_usage_exceeded/);
   assert.doesNotMatch(subscriptionLifecycleMigration, /DROP TABLE|TRUNCATE|DELETE FROM|DROP TYPE/i);
   assert.match(healthRoute, /FROM supabase_migrations\.schema_migrations/);
-  assert.match(healthRoute, /'013',\s*'014'/);
+  assert.match(healthRoute, /'013',\s*'014',\s*'015',\s*'016'/);
   assert.match(healthRoute, /REQUIRED_MIGRATIONS\.every/);
   assert.match(healthRoute, /migrated,\s*\}/);
   assert.doesNotMatch(healthRoute, /migrated:\s*true/);

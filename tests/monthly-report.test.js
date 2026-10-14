@@ -171,6 +171,123 @@ test('monthly summary applies owner totals, deductions, center pricing, and farm
   assert.equal(summary.pricePerLiter, 400);
 });
 
+test('Ukwezi half-month reconciliation separates retained, cash, SACCO, and carried debt', async () => {
+  const activeFarmers = [
+    { farmerId: 1, farmerName: 'No SACCO details', accountNumber: null, totalVolume: 10, grossAmount: 4000, totalTransport: 0, totalDeductions: 0, milkValueComplete: true, transportIsComplete: true },
+    { farmerId: 2, farmerName: 'SACCO farmer', accountNumber: 'RW-12345', totalVolume: 5, grossAmount: 2000, totalTransport: 0, totalDeductions: 0, milkValueComplete: true, transportIsComplete: true },
+    { farmerId: 3, farmerName: 'No activity', accountNumber: null, totalVolume: 0, grossAmount: 0, totalTransport: 0, totalDeductions: 0, milkValueComplete: true, transportIsComplete: true },
+  ];
+  const dairyRepository = {
+    ...reportRepository({ accountType: 'COLLECTION_CENTER' }),
+    getTotalFarmers: async () => 3,
+    getPeriodTotals: async () => ({ totalVolume: 15, totalAmount: 6000 }),
+    getFarmerTotals: async () => activeFarmers,
+    getMilkLossRecords: async () => [],
+  };
+  const settlementRepository = {
+    getPeriodFinancials: async ({ rangeStart, rangeEnd }) => ({
+      settlements: rangeStart === '2026-10-01' ? [
+        { farmer_id: 1, payment_type: 'CASH', amount: 1000, settled_amount: 0, status: 'APPROVED' },
+        { farmer_id: 1, payment_type: 'CASH', amount: 500, settled_amount: 500, status: 'CONFIRMED' },
+      ] : [],
+      repayments: rangeStart === '2026-10-01' ? [{ farmer_id: 1, amount: 200 }] : [{ farmer_id: 1, amount: 100 }],
+      debts: [{ farmer_id: 1, opening_balance: 1000, total_repaid: 300, legacy_unallocated_repayments: 0, repaid_through_end: rangeEnd === '2026-10-15' ? 200 : 300 }],
+    }),
+  };
+
+  const firstHalf = await Reports.getSummary({
+    ownerUserId: 77,
+    query: { periodType: 'first-half', month: 10, year: 2026 },
+    repository: dairyRepository,
+    settlementRepository,
+  });
+  const accounting = firstHalf.settlementAccounting;
+  assert.equal(firstHalf.rangeStart, '2026-10-01');
+  assert.equal(firstHalf.rangeEnd, '2026-10-15');
+  assert.equal(firstHalf.totalRevenueMonth, 6000);
+  assert.equal(firstHalf.farmerPayments.length, 2);
+  assert.equal(firstHalf.farmerPayments[0].netAmount, 4000);
+  assert.equal(accounting.farmerGross, 6000);
+  assert.equal(accounting.saccoEligiblePayable, 2000);
+  assert.equal(accounting.saccoDistributionInstruction, 2000);
+  assert.equal(accounting.retainedUnpaidAmount, 3300);
+  assert.equal(accounting.cashApprovedAmount, 1500);
+  assert.equal(accounting.cashConfirmedAmount, 500);
+  assert.equal(accounting.debtRepaymentAmount, 200);
+  assert.equal(accounting.outstandingDebt, 800);
+  assert.equal(accounting.unexplainedDiscrepancy, 0);
+  assert.equal(accounting.debtRepaymentAmount + accounting.cashConfirmedAmount + accounting.retainedUnpaidAmount + accounting.saccoDistributionInstruction, 6000);
+  assert.equal(accounting.ownerGrossReconciliation.discrepancy, 0);
+  assert.equal(accounting.farmers.some((farmer) => farmer.farmerId === 3), false);
+
+  const overpayment = await Reports.getSummary({
+    ownerUserId: 77,
+    query: { periodType: 'first-half', month: 10, year: 2026 },
+    repository: dairyRepository,
+    settlementRepository: {
+      getPeriodFinancials: async () => ({
+        settlements: [{ farmer_id: 1, payment_type: 'CASH', amount: 4300, settled_amount: 4300, status: 'CONFIRMED' }],
+        repayments: [],
+        debts: [],
+      }),
+    },
+  });
+  assert.equal(overpayment.settlementAccounting.unexplainedDiscrepancy, -300);
+
+  const secondHalf = await Reports.getSummary({
+    ownerUserId: 77,
+    query: { periodType: 'second-half', month: 10, year: 2026 },
+    repository: dairyRepository,
+    settlementRepository,
+  });
+  assert.equal(secondHalf.rangeStart, '2026-10-16');
+  assert.equal(secondHalf.rangeEnd, '2026-10-31');
+  assert.equal(secondHalf.settlementAccounting.debtRepaymentAmount, 100);
+  assert.equal(secondHalf.settlementAccounting.outstandingDebt, 700);
+  assert.equal(secondHalf.settlementAccounting.saccoDistributionInstruction, 2000);
+});
+
+test('missing settlement tables preserve core Ukwezi and explicitly mark settlement accounting unavailable', async () => {
+  const summary = await Reports.getSummary({
+    ownerUserId: 77,
+    query: { periodType: 'first-half', month: 10, year: 2026 },
+    repository: reportRepository({ accountType: 'COLLECTION_CENTER' }),
+    settlementRepository: {
+      getPeriodFinancials: async () => { throw Object.assign(new Error('relation does not exist'), { code: '42P01' }); },
+    },
+  });
+  assert.equal(summary.totalRevenueMonth, 34000);
+  assert.equal(summary.settlementAccounting, null);
+  assert.equal(summary.settlementAccountingStatus, 'MIGRATION_REQUIRED');
+
+  await assert.rejects(() => Reports.getSummary({
+    ownerUserId: 77,
+    query: { periodType: 'first-half', month: 10, year: 2026 },
+    repository: reportRepository({ accountType: 'COLLECTION_CENTER' }),
+    settlementRepository: {
+      getPeriodFinancials: async () => { throw Object.assign(new Error('connection lost'), { code: '08006' }); },
+    },
+  }), { code: '08006' });
+});
+
+test('settlement reconciliation exposes a mismatch between Owner Ifishi gross and collector-sheet allocation', async () => {
+  const repository = {
+    ...reportRepository(),
+    getOwnerIfishiHistory: async () => [{ validVolumeLiters: 95, pricePerLiter: 400, grossAmount: 38000 }],
+  };
+  const summary = await Reports.getSummary({
+    ownerUserId: 42,
+    query: { periodType: 'first-half', month: 6, year: 2026 },
+    repository,
+    settlementRepository: { getPeriodFinancials: async () => ({ settlements: [], repayments: [], debts: [] }) },
+  });
+  assert.equal(summary.ownerGeneratedGross, 38000);
+  assert.equal(summary.settlementAccounting.ownerGrossReconciliation.ownerGross, 38000);
+  assert.equal(summary.settlementAccounting.ownerGrossReconciliation.farmerGross, 34000);
+  assert.equal(summary.settlementAccounting.ownerGrossReconciliation.surplus, 2000);
+  assert.equal(summary.settlementAccounting.ownerGrossReconciliation.discrepancy, 2000);
+});
+
 test('collector report reconciles historical milk, farmer payable, transport, deductions, and surplus', async () => {
   const summary = await Reports.getSummary({
     ownerUserId: 42,

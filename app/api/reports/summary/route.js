@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 
 const { getAuthenticatedUser } = require('@/lib/security/authenticate.js');
 const Reports = require('@/lib/services/monthly-report-service.js');
+const settlementRepository = require('@/lib/repositories/farmerSettlementRepository.js');
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -12,7 +13,7 @@ export async function GET(request) {
     if (!user) return NextResponse.json({ message: 'Not authenticated.' }, { status: 401 });
     const params = new URL(request.url).searchParams;
     const query = Object.fromEntries(params.entries());
-    const report = await Reports.getSummary({ ownerUserId: user.id, actorId: user.id, query });
+    const report = await Reports.getSummary({ ownerUserId: user.id, actorId: user.id, query, settlementRepository });
     return NextResponse.json(report);
   } catch (error) {
     const status = error.statusCode || (error.code === 'DATABASE_NOT_CONFIGURED' || error.code === 'SESSION_SECRET_NOT_CONFIGURED' ? 503 : 500);

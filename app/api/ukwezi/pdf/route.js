@@ -3,6 +3,7 @@ const { randomUUID } = require('node:crypto');
 
 const { getAuthenticatedUser } = require('@/lib/security/authenticate.js');
 const Reports = require('@/lib/services/monthly-report-service.js');
+const settlementRepository = require('@/lib/repositories/farmerSettlementRepository.js');
 const { renderUkweziPdf, buildUkweziResponseHeaders } = require('@/lib/services/ukwezi-pdf-service.js');
 
 export const runtime = 'nodejs';
@@ -23,7 +24,7 @@ export async function GET(request) {
       return NextResponse.json({ message: 'Choose a valid month, year, and Ukwezi accounting period.' }, { status: 400 });
     }
     query.language = query.language === 'en' ? 'en' : 'rw';
-    const report = await Reports.getSummary({ ownerUserId: user.id, actorId: user.id, query });
+    const report = await Reports.getSummary({ ownerUserId: user.id, actorId: user.id, query, settlementRepository });
     const pdf = await renderUkweziPdf({ report, user, query, generatedAt: new Date() });
     const headers = buildUkweziResponseHeaders({
       accountName: user.name || user.email || 'account',
