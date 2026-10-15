@@ -113,6 +113,14 @@ test('Ukwezi PDF renderer handles an empty accounting period and renders settlem
   assert.equal(pageCount, 1);
 });
 
+test('Ukwezi collector summary notes start at the page content margin', () => {
+  const source = fs.readFileSync(path.join(__dirname, '..', 'lib', 'services', 'ukwezi-pdf-service.js'), 'utf8');
+  const start = source.indexOf('text.reconciliation}:');
+  const end = source.indexOf('doc.moveDown(0.6);', start);
+  assert.ok(start >= 0 && end > start);
+  assert.match(source.slice(start, end), /leftMargin, doc\.y, \{ width: contentWidth \}/);
+});
+
 test('Ukwezi PDF renderer rejects missing accounting scope with a client error', async () => {
   await assert.rejects(
     () => renderUkweziPdf({ report: {}, user: { id: 73, accountType: 'COLLECTOR' }, query: { periodType: 'first-half' } }),

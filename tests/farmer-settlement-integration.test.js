@@ -137,6 +137,36 @@ test('cash settlement retries are idempotent and audit failure rolls back the wr
   assert.equal(fakeDatabase.settlements.size, 1);
 });
 
+test('period financial debt queries use only typed parameters for owner, date, and collector', async () => {
+  process.env.DATABASE_URL = 'postgres://test.invalid/database';
+  const calls = [];
+  const runQuery = async (sql, values) => {
+    calls.push({ sql, values });
+    return { rows: [] };
+  };
+
+  await farmerSettlementRepository.getPeriodFinancials({
+    ownerUserId: 7,
+    rangeStart: '2026-10-01',
+    rangeEnd: '2026-10-31',
+    runQuery,
+  });
+  assert.deepEqual(calls[2].values, [7, '2026-10-31']);
+  assert.match(calls[2].sql, /created_at AT TIME ZONE 'Africa\/Kigali'\)::date <= \$2::date/);
+  assert.doesNotMatch(calls[2].sql, /\$3/);
+
+  calls.length = 0;
+  await farmerSettlementRepository.getPeriodFinancials({
+    ownerUserId: 7,
+    rangeStart: '2026-10-01',
+    rangeEnd: '2026-10-31',
+    collectorUserId: 18,
+    runQuery,
+  });
+  assert.deepEqual(calls[2].values, [7, '2026-10-31', 18]);
+  assert.match(calls[2].sql, /created_at AT TIME ZONE 'Africa\/Kigali'\)::date <= \$2::date AND f\.collector_user_id = \$3/);
+});
+
 test.after(() => {
   if (originalDatabaseUrl === undefined) delete process.env.DATABASE_URL;
   else process.env.DATABASE_URL = originalDatabaseUrl;

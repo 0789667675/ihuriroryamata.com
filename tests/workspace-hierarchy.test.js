@@ -26,7 +26,8 @@ test('Collector Milk Entry puts the Owner and Owner Ifishi before the separate A
   assert.ok(farmerIfishiView > aborozi);
   assert.ok(milkEntry.indexOf('renderIfishi()', farmerIfishiView) > farmerIfishiView);
   assert.ok(aborozi > ownerIfishiView);
-  assert.match(milkEntry, /OWNER \/ ACCOUNT/);
+  assert.match(milkEntry, /publicLanguage\.t\('ownerIfishiTitle'\).*publicLanguage\.t\('account'\)/);
+  assert.doesNotMatch(ownerIfishi, /\(Morning\)|\(Evening\)|Daily total/);
   assert.match(milkEntry, /aria-expanded=\{ownerIfishiOpen\}/);
   assert.match(milkEntry, /openIfishiForFarmer\(row\.farmerId, row\.farmerName\)/);
   assert.match(workspace, /setIfishiFarmers\(\[selectedFarmer\]\)/);
@@ -80,6 +81,7 @@ test('Dairy navigation includes Settings and Dairy Amata is read-only Abacunda a
 
 test('Settlements and shared navigation use paired locale copy and accessible labels', () => {
   const settlementView = workspace.slice(workspace.indexOf('const renderSettlements'), workspace.indexOf('const renderReports'));
+  const ukweziView = workspace.slice(workspace.indexOf('const renderUkwezi'), workspace.indexOf('const renderBilling'));
   const navigation = workspace.slice(workspace.indexOf('const navigationCopy'), workspace.indexOf('const accountStatusCopy'));
   const localeKeys = [
     'navSettlements', 'workspaceNavigation', 'settlementsTitle', 'settlementsNote',
@@ -98,6 +100,7 @@ test('Settlements and shared navigation use paired locale copy and accessible la
   assert.match(settlementView, /formatDateLabel\(value, publicLanguage\.language/);
   assert.match(settlementView, /new Intl\.NumberFormat\(publicLanguage\.language/);
   assert.match(workspace, /ukweziReconciliationUnavailableDetail/);
+  assert.equal((ukweziView.match(/publicLanguage\.t\('ukweziReconciliationUnavailableDetail'\)/g) || []).length, 1);
   assert.match(workspace, /publicLanguage\.t\(settlementError\)/);
   assert.match(workspace, /settlementsRetry/);
   assert.doesNotMatch(publicCopy, /settlementsLoadError: '[^']*Ongera ugerageze/);
@@ -117,6 +120,8 @@ test('billing errors stay localized and singular while identical reads are coale
   assert.match(loader, /setBilling\(null\)/);
   assert.match(billing, /billing\?\.payments\?\.length \? <>/);
   assert.match(billing, /billing \? <div className="subscription-history-empty"/);
+  assert.match(publicCopy, /billingPaymentUnavailable: 'Ubwishyu ntibuboneka ubu\.[^']*MTN MoMo[^']*Nta cyifuzo cy’ubwishyu cyoherejwe\.'/);
+  assert.match(publicCopy, /billingPaymentUnavailable: 'Payments are unavailable right now\.[^']*MTN MoMo configuration; no payment request was sent\.'/);
   assert.match(billing, /publicLanguage\.t\(billingError\).*publicLanguage\.t\('tryAgain'\)/);
   assert.equal((billing.match(/billingError \? <div className="form-error" role="alert">/g) || []).length, 1);
   assert.match(workspace, /disabled=\{billingLoading\}/);
@@ -389,9 +394,9 @@ test('Ifishi has no PDF controls while Ukwezi retains its checked PDF download',
   assert.match(workspace, /ukweziPdfStatus/);
 });
 
-test('registration exposes Collection Center selection only outside production', () => {
+test('registration exposes Collection Center selection in production as part of the account type selector', () => {
   const login = workspace.slice(workspace.indexOf('function Login'), workspace.indexOf('export default function Workspace'));
-  assert.match(login, /process\.env\.NODE_ENV !== 'production' \? <option value="COLLECTION_CENTER">/);
+  assert.match(login, /<option value="COLLECTION_CENTER">\{t\('collectionCenter'\)\}<\/option>/);
 });
 
 test('Super Admin Alerts tab renders the notifications it loads', () => {

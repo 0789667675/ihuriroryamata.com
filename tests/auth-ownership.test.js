@@ -156,18 +156,16 @@ test('unverified accounts can sign in without being marked email-verified', asyn
   assert.equal(session.userId, result.user.id);
 });
 
-test('registration does not dispatch verification email or require verification completion', () => {
+test('registration now dispatches verification and welcome emails with production Collection Center access enabled', () => {
   const registrationRoute = fs.readFileSync(path.join(__dirname, '..', 'app', 'api', 'auth', 'register', 'route.js'), 'utf8');
   const registrationUi = fs.readFileSync(path.join(__dirname, '..', 'app', 'workspace.tsx'), 'utf8');
-  assert.doesNotMatch(registrationRoute, /sendRegistrationEmailVerification/);
-  assert.match(registrationRoute, /verificationRequired: false/);
+  assert.match(registrationRoute, /sendRegistrationEmailVerification/);
+  assert.match(registrationRoute, /verificationRequired: true/);
+  assert.match(registrationRoute, /sendWelcomeEmail/);
   assert.match(registrationRoute, /registerUser\(/);
-  assert.doesNotMatch(registrationRoute, /accountType !== 'COLLECTION_CENTER' && !selectedPlanCode/);
   assert.match(registrationRoute, /selectedPlanCode = body\.selectedPlanCode \|\| body\.planCode \|\| null/);
-  assert.doesNotMatch(registrationUi, /registration-tier-options|\/api\/subscription\/plans/);
-  assert.doesNotMatch(registrationUi, /selectedPlanCode, language/);
   assert.match(registrationUi, /registrationSubscriptionNotice/);
-  assert.match(registrationUi, /process\.env\.NODE_ENV !== 'production' \? <option value="COLLECTION_CENTER">/);
+  assert.match(registrationUi, /<option value="COLLECTION_CENTER">\{t\('collectionCenter'\)\}<\/option>/);
 });
 
 test('registerUser rejects duplicate email addresses', async () => {
@@ -268,7 +266,7 @@ test('business account authorization separates Collector and Collection Center a
   assert.throws(() => requireAccountType(admin, 'COLLECTOR'), { code: 'ACCOUNT_TYPE_FORBIDDEN', statusCode: 403 });
 });
 
-test('production blocks public Collection Center registration but authenticates existing owners', async () => {
+test('production permits public Collection Center registration and authenticates existing owners', async () => {
   const previousNodeEnv = process.env.NODE_ENV;
   const previousSessionSecret = process.env.SESSION_SECRET;
   const originalRepo = require('../lib/repositories/userRepository.js').repository;
@@ -282,10 +280,8 @@ test('production blocks public Collection Center registration but authenticates 
     const collectorSession = makeSession();
     await loginUser({ repository, email: collector.email, password: 'StrongPass123!', session: collectorSession });
     assert.equal(collectorSession.userId, collector.id);
-    await assert.rejects(
-      () => registerUser({ repository, name: 'Public Dairy', email: 'public-dairy@example.com', password: 'StrongPass123!', accountType: 'COLLECTION_CENTER' }),
-      (error) => error.statusCode === 403 && error.code === 'ACCOUNT_TYPE_UNAVAILABLE'
-    );
+    const publicDairy = await registerUser({ repository, name: 'Public Dairy', email: 'public-dairy@example.com', password: 'StrongPass123!', accountType: 'COLLECTION_CENTER' });
+    assert.equal(publicDairy.accountType, 'COLLECTION_CENTER');
     const session = makeSession();
     await loginUser({ repository, email: dairy.email, password: 'StrongPass123!', session });
     assert.equal(session.userId, dairy.id);

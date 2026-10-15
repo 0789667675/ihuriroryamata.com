@@ -105,6 +105,9 @@ test('creating a farmer with a selected center remains visible on the next owner
 });
 
 test('farmer listing enforces bounded server-side keyset pagination and owner scope', async () => {
+  assert.deepEqual(Farmers.normalizePaging({ limit: null }), {
+    search: '', center: '', cursor: null, limit: 50, sortBy: 'id', sortDirection: 'desc',
+  });
   let received;
   const expected = { data: [{ id: 30 }], pageSize: 25, nextCursor: '30', hasMore: true };
   const result = await Farmers.listFarmers({

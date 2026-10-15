@@ -19,7 +19,7 @@ test('branded email shell carries the official mark, responsive sizing, and Dair
 test('supported auth and subscription emails use the branded template and preserve secure links', () => {
   const source = read('lib/services/email-service.js');
   for (const method of [
-    'sendPasswordResetCode', 'sendRegistrationEmailVerification', 'sendEmailChangeConfirmation',
+    'sendWelcomeEmail', 'sendPasswordResetCode', 'sendRegistrationEmailVerification', 'sendEmailChangeConfirmation',
     'sendPaymentConfirmation', 'sendSubscriptionReminder', 'sendSubscriptionExpired', 'sendSubscriptionUsageExceeded',
   ]) {
     const start = source.indexOf(`const ${method} =`);

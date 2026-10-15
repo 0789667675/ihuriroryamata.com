@@ -290,7 +290,7 @@ function Login({ onLogin, language, setLanguage, t }: { onLogin: (user: User) =>
           <label>{t('email')}<input type="email" autoComplete="email" required value={email} onChange={(event) => setEmail(event.target.value)} /></label>
           <label>{t('password')}<span className="password-field"><input type={passwordVisible ? 'text' : 'password'} autoComplete={registering ? 'new-password' : 'current-password'} required minLength={8} value={password} onChange={(event) => setPassword(event.target.value)} /><button className="password-toggle" type="button" aria-label={passwordVisible ? t('hidePassword') : t('showPassword')} aria-pressed={passwordVisible} onClick={() => setPasswordVisible((visible) => !visible)}>{passwordVisible ? <EyeOff size={19} aria-hidden="true" /> : <Eye size={19} aria-hidden="true" />}</button></span></label>
           {!registering ? <Link className="auth-forgot-link" href="/forgot-password">{t('forgotPassword')}</Link> : null}
-          {registering ? <label>{t('accountType')}<select value={accountType} onChange={(event) => setAccountType(event.target.value)}><option value="COLLECTOR">{t('collector')}</option>{process.env.NODE_ENV !== 'production' ? <option value="COLLECTION_CENTER">{t('collectionCenter')}</option> : null}</select></label> : null}
+          {registering ? <label>{t('accountType')}<select value={accountType} onChange={(event) => setAccountType(event.target.value)}><option value="COLLECTOR">{t('collector')}</option><option value="COLLECTION_CENTER">{t('collectionCenter')}</option></select></label> : null}
           {registering ? <p className="subscription-registration-period">{t('registrationSubscriptionNotice')}</p> : null}
           {error ? <p className="form-error" role="alert">{error}</p> : null}
           <button className="button button-primary button-wide" disabled={busy}>{busy ? t('wait') : registering ? t('createAccount') : t('signIn')}<ArrowRight size={17} /></button>
@@ -1837,7 +1837,7 @@ const visibleTabs = (isAdmin
         <div className="panel-heading"><div><span className="eyebrow">{publicLanguage.t('navMilk')}</span><h2>{publicLanguage.t('milkEntries')}</h2></div><span className="milk-period-badge"><CalendarDays size={15} aria-hidden="true" />{currentPeriod}</span></div>
       </div>
       {isCollector ? <section className="panel owner-account-panel">
-        <div className="panel-heading"><div><span className="eyebrow">OWNER / ACCOUNT</span><h2>{user?.name || user?.email}</h2></div><UserRound size={19} aria-hidden="true" /></div>
+        <div className="panel-heading"><div><span className="eyebrow">{publicLanguage.t('ownerIfishiTitle')} / {publicLanguage.t('account')}</span><h2>{user?.name || user?.email}</h2></div><UserRound size={19} aria-hidden="true" /></div>
         <div className="metric-strip milk-summary owner-account-summary"><div><span>{publicLanguage.t('ownerIfishiOwnerMilk')}</span><b>{collectorMilkEntry ? `${liters(Number(collectorMilkEntry.effectiveVolumeLiters ?? collectorMilkEntry.volumeLiters))} L` : '—'}</b></div></div>
         <div className="owner-ifishi-actions">
           <button type="button" className="button button-primary small-button owner-ifishi-action" aria-haspopup="dialog" aria-expanded={ownerIfishiOpen} onClick={() => { setIfishiOpen(false); openOwnerIfishiEntry(); }}><Plus size={15} aria-hidden="true" />{publicLanguage.t('ownerIfishiTitle')}</button>
@@ -1910,9 +1910,9 @@ const visibleTabs = (isAdmin
       <p className="muted-note owner-ifishi-entry-period">{ifishiMonth} · {selectedPeriod}</p>
       <form className="form-stack compact owner-ifishi-entry-form" onSubmit={saveOwnerIfishiEntry}>
         <label>{publicLanguage.t('milkCollectionDate')}<input type="date" max={today()} value={ifishiDate} onChange={(event) => selectOwnerIfishiDate(event.target.value)} required /></label>
-        <label>Mu gitondo (Morning) · 06:30–09:00 · L<input type="number" min="0" step="0.01" value={ownerIfishiMorning} onChange={(event) => setOwnerIfishiMorning(event.target.value)} /></label>
-        <label>Nimugoroba (Evening) · 17:30–19:00 · L<input type="number" min="0" step="0.01" value={ownerIfishiEvening} onChange={(event) => setOwnerIfishiEvening(event.target.value)} /></label>
-        <p className="muted-note">Daily total: {liters((Number(ownerIfishiMorning) || 0) + (Number(ownerIfishiEvening) || 0))} L</p>
+        <label>{publicLanguage.t('dashboardMorning')} · 06:30–09:00 · L<input type="number" min="0" step="0.01" value={ownerIfishiMorning} onChange={(event) => setOwnerIfishiMorning(event.target.value)} /></label>
+        <label>{publicLanguage.t('dashboardEvening')} · 17:30–19:00 · L<input type="number" min="0" step="0.01" value={ownerIfishiEvening} onChange={(event) => setOwnerIfishiEvening(event.target.value)} /></label>
+        <p className="muted-note">{publicLanguage.t('milkTotal')}: {liters((Number(ownerIfishiMorning) || 0) + (Number(ownerIfishiEvening) || 0))} L</p>
         {ownerIfishiLoading ? <p className="muted-note" role="status">{publicLanguage.t('ownerIfishiLoading')}</p> : null}
         {selectedEntry?.id && selectedEntry.status !== 'valid' ? <p className="form-error" role="status">{publicLanguage.t('ownerIfishiLocked')}</p> : null}
         {selectedEntry?.id && selectedEntry.status === 'valid' ? <p className="muted-note">{publicLanguage.t('ownerIfishiCorrectionAudit')}</p> : null}
@@ -2396,7 +2396,6 @@ const visibleTabs = (isAdmin
                   ? <span>{publicLanguage.t('ukweziBreakdownUnavailable')}</span>
                   : <span>{publicLanguage.t('ukweziBreakdown')}: {money(ukweziReport.collectorSurplusAmount)} + {money(ukweziReport.collectorFarmerDeductions)} + {money(ukweziReport.collectorFarmerTransport)} = {money(ukweziReport.collectorPayableFromBreakdown)} RWF</span>}
           </section> : null}
-          {ukweziReport.settlementAccountingStatus === 'MIGRATION_REQUIRED' && !ukweziReport.settlementAccounting ? <p className="form-error" role="alert">{publicLanguage.t('ukweziReconciliationUnavailableDetail')}</p> : null}
           {ukweziReport.settlementAccounting ? <section className="ukwezi-loss-reconciliation">
             <div className="panel-heading"><div><span className="eyebrow">Settlement and debt</span><h3>Period payment reconciliation</h3></div></div>
             <div className="metric-strip report-summary">
