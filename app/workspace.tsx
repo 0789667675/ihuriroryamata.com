@@ -107,7 +107,7 @@ const dairyTabs: Array<{ id: Tab; label: string; icon: typeof Milk }> = [
 
 const navigationCopy = {
   dashboard: 'navDashboard', farmers: 'navFarmers', centers: 'navCenters', milk: 'navMilk',
-  deductions: 'navDeductions', transport: 'navTransport', ukwezi: 'navUkwezi', reports: 'navReports', billing: 'navSubscription', notifications: 'navAlerts', settings: 'navSettings',
+  deductions: 'navDeductions', transport: 'navTransport', ukwezi: 'navUkwezi', settlements: 'navSettlements', reports: 'navReports', billing: 'navSubscription', notifications: 'navAlerts', settings: 'navSettings',
   accounts: 'navAccounts', audit: 'navAudit', config: 'navPricing', subscriptions: 'navSubscriptions', 'system-health': 'systemHealth', 'notifications-admin': 'navAdminAlerts',
 } as const;
 
@@ -410,6 +410,7 @@ const [report, setReport] = useState<Report | null>(null);
   const [settlementData, setSettlementData] = useState<SettlementData | null>(null);
   const [settlementDebts, setSettlementDebts] = useState<any[]>([]);
   const [settlementLoading, setSettlementLoading] = useState(false);
+  const [settlementError, setSettlementError] = useState('');
   const [settlementAmounts, setSettlementAmounts] = useState<Record<number, string>>({});
   const settlementRequestKeys = useRef<Record<string, string>>({});
   const [debtForm, setDebtForm] = useState({ farmerId: '', amount: '', reason: '' });
@@ -522,8 +523,6 @@ const visibleTabs = (isAdmin
     : (isCollector ? collectorTabs : isDairy ? dairyTabs : collectorTabs)).map((item) => {
       const labelKey = item.id === 'dashboard' && isAdmin
         ? 'navAdminOverview'
-        : item.id === 'farmers' && isDairy
-        ? 'navAbacunda'
         : item.id === 'settings' && isAdmin
           ? 'navAdminSettings'
         : item.id in navigationCopy
@@ -613,6 +612,12 @@ const visibleTabs = (isAdmin
     setBusy(true);
     clearMessages();
     try { await operation(); } catch (reason) { setError(reason instanceof Error ? reason.message : 'The request failed.'); }
+    finally { setBusy(false); }
+  };
+  const runSettlement = async (operation: () => Promise<void>) => {
+    setBusy(true);
+    clearMessages();
+    try { await operation(); } catch { setError(publicLanguage.t('settlementsActionError')); }
     finally { setBusy(false); }
   };
 
@@ -851,6 +856,11 @@ const visibleTabs = (isAdmin
         setSettlementData(await api<SettlementData>(`/api/farmer-settlements?${params}`, { cache: 'no-store' }));
         setSettlementDebts([]);
       }
+      setSettlementError('');
+    } catch {
+      setSettlementData(null);
+      setSettlementDebts([]);
+      setSettlementError('settlementsLoadError');
     } finally {
       setSettlementLoading(false);
     }
@@ -1628,7 +1638,7 @@ const visibleTabs = (isAdmin
         </form>
       </section> : null}
       <section className="panel panel-wide">
-        <div className="panel-heading"><div><span className="eyebrow">{isDairy ? publicLanguage.t('dashboardCenter') : publicLanguage.t('directory')}</span><h2>{isDairy ? publicLanguage.t('navAbacunda') : accountCopy('navFarmers', 'navAbacunda')}</h2></div><div className="panel-heading-actions"><span className="count-label">{farmers ? `${farmers.data.length} ${accountCopy('farmersLoaded', 'abacundaLoaded')}` : '…'}{isDairy && selectedCenter ? ` · ${centers.find((center) => String(center.id) === selectedCenter)?.name || ''}` : !isDairy ? ` · ${accountCopy('pageSize', 'abacundaPageSize')}` : ''}</span><button type="button" className="button button-primary small-button" onClick={() => { setFarmerCreateError(''); setFarmerCreateOpen(true); }} disabled={Boolean((isCollector || isDairy) && !selectedCenter)}><Plus size={15} aria-hidden="true" />{accountCopy('farmersAdd', 'abacundaAdd')}</button></div></div>
+        <div className="panel-heading"><div><span className="eyebrow">{isDairy ? publicLanguage.t('dashboardCenter') : publicLanguage.t('directory')}</span><h2>{publicLanguage.t('navFarmers')}</h2></div><div className="panel-heading-actions"><span className="count-label">{farmers ? `${farmers.data.length} ${publicLanguage.t('farmersLoaded')}` : '…'}{isDairy && selectedCenter ? ` · ${centers.find((center) => String(center.id) === selectedCenter)?.name || ''}` : !isDairy ? ` · ${publicLanguage.t('pageSize')}` : ''}</span><button type="button" className="button button-primary small-button" onClick={() => { setFarmerCreateError(''); setFarmerCreateOpen(true); }} disabled={Boolean((isCollector || isDairy) && !selectedCenter)}><Plus size={15} aria-hidden="true" />{publicLanguage.t('farmersAdd')}</button></div></div>
         <div className="toolbar farmers-toolbar">
           <form className={['search', 'form'].join('-')} onSubmit={(event) => { event.preventDefault(); setFarmerSearch(farmerQuery.trim()); }}><Search size={17} /><input aria-label={publicLanguage.t('farmersSearchPlaceholder')} placeholder={publicLanguage.t('farmersSearchPlaceholder')} value={farmerQuery} onChange={(event) => setFarmerQuery(event.target.value)} /><button className="button button-secondary">{publicLanguage.t('search')}</button></form>
           {isDairy ? centers.length > 1 ? <select aria-label="Active Ikigo" value={selectedCenter} onChange={(event) => setSelectedCenter(event.target.value)}>{centers.map((center) => <option key={center.id} value={String(center.id)}>{center.name}</option>)}</select> : null : <select aria-label={publicLanguage.t('allCenters')} value={farmerCenter} onChange={(event) => setFarmerCenter(event.target.value)}><option value="">{publicLanguage.t('allCenters')}</option>{centers.map((center) => <option key={center.id} value={center.name}>{center.name}</option>)}</select>}
@@ -1684,11 +1694,11 @@ const visibleTabs = (isAdmin
         </tr></thead><tbody>
           {(farmers?.data || []).map((farmer) => <tr key={farmer.id}><td className="strong-cell">{farmer.name}</td><td>{farmer.location || '—'}</td><td>{farmer.phone || '—'}</td><td>{farmer.nationalId || '—'}</td><td>{farmer.collectionCenter || '—'}</td><td className="actions-cell"><button className="text-button" onClick={() => editFarmerStart(farmer)}>{publicLanguage.t('edit')}</button><button className="text-button danger-text" onClick={() => deleteFarmer(farmer)}>{publicLanguage.t('delete')}</button></td></tr>)}
         </tbody></table></div>
-        {farmers ? farmers.data.length ? <div className="farmer-mobile-list">{farmers.data.map((farmer) => <article className="farmer-mobile-card" key={farmer.id}><header><b>{farmer.name}</b><span>{farmer.collectionCenter || farmer.location || '—'}</span></header><dl><div><dt>{publicLanguage.t('columnLocation')}</dt><dd>{farmer.location || '—'}</dd></div><div><dt>{publicLanguage.t('columnPhone')}</dt><dd>{farmer.phone || '—'}</dd></div><div><dt>{publicLanguage.t('columnNationalId')}</dt><dd>{farmer.nationalId || '—'}</dd></div><div><dt>{publicLanguage.t('columnCenter')}</dt><dd>{farmer.collectionCenter || '—'}</dd></div>{!isDairy ? <div><dt>{publicLanguage.t('assignedCollector')}</dt><dd>{getFarmerCollectorName(farmer.collectorUserId)}</dd></div> : null}</dl><footer><button type="button" className="button button-secondary small-button" onClick={() => openIfishiForFarmer(farmer.id, farmer.name)}><BookOpen size={15} />{publicLanguage.t('navIfishi')}</button><button className="button button-secondary small-button" onClick={() => editFarmerStart(farmer)}>{publicLanguage.t('edit')}</button><button className="button button-secondary small-button danger-text" onClick={() => deleteFarmer(farmer)}>{publicLanguage.t('delete')}</button></footer></article>)}</div> : <div className="workspace-empty" role="status"><span className="workspace-empty-icon"><Users size={21} aria-hidden="true" /></span><div><b>{accountCopy('farmersEmptyTitle', 'abacundaEmptyTitle')}</b><p>{accountCopy('farmersEmptyBody', 'abacundaEmptyBody')}</p></div>{farmerSearch || farmerCenter || farmerCollectorFilter ? <button type="button" className="button button-secondary small-button" onClick={() => { setFarmerSearch(''); setFarmerQuery(''); setFarmerCenter(''); setFarmerCollectorFilter(''); }}>{publicLanguage.t('milkClearSearch')}</button> : <button type="button" className="button button-primary small-button" onClick={() => { setFarmerCreateError(''); setFarmerCreateOpen(true); }}><Plus size={15} />{accountCopy('farmersAdd', 'abacundaAdd')}</button>}</div> : <div className="workspace-empty workspace-loading" role="status"><span className="loading-indicator" />{publicLanguage.t('dashboardLoading')}</div>}
-        {farmers?.hasMore ? <div className="panel-footer"><button className="button button-secondary" onClick={() => loadFarmers(farmers.nextCursor, true)}>{accountCopy('milkLoadMore', 'milkLoadMoreAbacunda')} <ChevronDown size={16} /></button></div> : null}
+        {farmers ? farmers.data.length ? <div className="farmer-mobile-list">{farmers.data.map((farmer) => <article className="farmer-mobile-card" key={farmer.id}><header><b>{farmer.name}</b><span>{farmer.collectionCenter || farmer.location || '—'}</span></header><dl><div><dt>{publicLanguage.t('columnLocation')}</dt><dd>{farmer.location || '—'}</dd></div><div><dt>{publicLanguage.t('columnPhone')}</dt><dd>{farmer.phone || '—'}</dd></div><div><dt>{publicLanguage.t('columnNationalId')}</dt><dd>{farmer.nationalId || '—'}</dd></div><div><dt>{publicLanguage.t('columnCenter')}</dt><dd>{farmer.collectionCenter || '—'}</dd></div>{!isDairy ? <div><dt>{publicLanguage.t('assignedCollector')}</dt><dd>{getFarmerCollectorName(farmer.collectorUserId)}</dd></div> : null}</dl><footer><button type="button" className="button button-secondary small-button" onClick={() => openIfishiForFarmer(farmer.id, farmer.name)}><BookOpen size={15} />{publicLanguage.t('navIfishi')}</button><button className="button button-secondary small-button" onClick={() => editFarmerStart(farmer)}>{publicLanguage.t('edit')}</button><button className="button button-secondary small-button danger-text" onClick={() => deleteFarmer(farmer)}>{publicLanguage.t('delete')}</button></footer></article>)}</div> : <div className="workspace-empty" role="status"><span className="workspace-empty-icon"><Users size={21} aria-hidden="true" /></span><div><b>{publicLanguage.t('farmersEmptyTitle')}</b><p>{publicLanguage.t('farmersEmptyBody')}</p></div>{farmerSearch || farmerCenter || farmerCollectorFilter ? <button type="button" className="button button-secondary small-button" onClick={() => { setFarmerSearch(''); setFarmerQuery(''); setFarmerCenter(''); setFarmerCollectorFilter(''); }}>{publicLanguage.t('milkClearSearch')}</button> : <button type="button" className="button button-primary small-button" onClick={() => { setFarmerCreateError(''); setFarmerCreateOpen(true); }}><Plus size={15} />{publicLanguage.t('farmersAdd')}</button>}</div> : <div className="workspace-empty workspace-loading" role="status"><span className="loading-indicator" />{publicLanguage.t('dashboardLoading')}</div>}
+        {farmers?.hasMore ? <div className="panel-footer"><button className="button button-secondary" onClick={() => loadFarmers(farmers.nextCursor, true)}>{publicLanguage.t('milkLoadMore')} <ChevronDown size={16} /></button></div> : null}
       </section>
-      {farmerCreateOpen ? <Modal ariaLabel={accountCopy('farmersAdd', 'abacundaAdd')} onClose={() => setFarmerCreateOpen(false)} dismissible={!busy}>
-        <div className="panel-heading"><div><span className="eyebrow">{publicLanguage.t('newRecord')}</span><h2>{accountCopy('farmersAdd', 'abacundaAdd')}</h2></div><button type="button" className="icon-button" onClick={() => setFarmerCreateOpen(false)} disabled={busy} aria-label={publicLanguage.t('cancel')}><X size={18} aria-hidden="true" /></button></div>
+      {farmerCreateOpen ? <Modal ariaLabel={publicLanguage.t('farmersAdd')} onClose={() => setFarmerCreateOpen(false)} dismissible={!busy}>
+        <div className="panel-heading"><div><span className="eyebrow">{publicLanguage.t('newRecord')}</span><h2>{publicLanguage.t('farmersAdd')}</h2></div><button type="button" className="icon-button" onClick={() => setFarmerCreateOpen(false)} disabled={busy} aria-label={publicLanguage.t('cancel')}><X size={18} aria-hidden="true" /></button></div>
         <form className="form-stack compact" onSubmit={createFarmer}>
           <label>{publicLanguage.t('fullName')}<input id="new-farmer-name" autoComplete="name" required value={farmerForm.name} onChange={(event) => setFarmerForm({ ...farmerForm, name: event.target.value })} /></label>
           {isCollector ? <>
@@ -1701,7 +1711,7 @@ const visibleTabs = (isAdmin
           <label>{publicLanguage.t('cowType')}<input value={farmerForm.cowType} onChange={(event) => setFarmerForm({ ...farmerForm, cowType: event.target.value })} /></label>
           {!isCollector && !isDairy ? <label>{publicLanguage.t('assignedCollector')}<select value={farmerForm.collectorUserId} onChange={(event) => setFarmerForm({ ...farmerForm, collectorUserId: event.target.value })}><option value="">{publicLanguage.t('noCollector')}</option>{collectorAssignments.map((assignment) => <option key={assignment.collector_user_id} value={assignment.collector_user_id}>{assignment.collector_name}</option>)}</select></label> : null}
           {farmerCreateError ? <p className="form-error" role="alert">{farmerCreateError}</p> : null}
-          <div className="form-actions"><button type="button" className="button button-secondary" onClick={() => setFarmerCreateOpen(false)} disabled={busy}>{publicLanguage.t('cancel')}</button><button className="button button-primary" disabled={busy || ((isCollector || isDairy) && !selectedCenter)}><Plus size={16} aria-hidden="true" />{busy ? publicLanguage.t('wait') : accountCopy('farmersAdd', 'abacundaAdd')}</button></div>
+          <div className="form-actions"><button type="button" className="button button-secondary" onClick={() => setFarmerCreateOpen(false)} disabled={busy}>{publicLanguage.t('cancel')}</button><button className="button button-primary" disabled={busy || ((isCollector || isDairy) && !selectedCenter)}><Plus size={16} aria-hidden="true" />{busy ? publicLanguage.t('wait') : publicLanguage.t('farmersAdd')}</button></div>
         </form>
       </Modal> : null}
       {editingFarmer ? <Modal ariaLabel={`${publicLanguage.t('edit')} ${editingFarmer.name}`} onClose={() => setEditingFarmer(null)} dismissible={!busy}><div className="panel-heading"><h2 id="edit-farmer-title">{publicLanguage.t('edit')} {editingFarmer.name}</h2><button type="button" className="icon-button" onClick={() => setEditingFarmer(null)} disabled={busy} aria-label={publicLanguage.t('cancel')}><X size={18} /></button></div><form className="form-stack" onSubmit={saveFarmer}>
@@ -1821,7 +1831,7 @@ const visibleTabs = (isAdmin
         <label><span>{publicLanguage.t('milkPageSize')}</span><select value={dailyPageSize} onChange={(event) => setDailyPageSize(Number(event.target.value))}><option value={10}>10</option><option value={25}>25</option><option value={50}>50</option><option value={100}>100</option></select></label>
       </div>
       <div className="metric-strip milk-summary"><div><span>{accountCopy('dashboardFarmers', 'dashboardAbacundaToday')}</span><b>{dailySummary.presentCount} / {dailySummary.totalFarmers}</b></div><div><span>{publicLanguage.t('dashboardCollected')}</span><b>{liters(dailySummary.totalVolume)} L</b></div><div><span>{publicLanguage.t('dashboardMorning')}</span><b>{liters(dailySummary.totalMorning)} L</b></div><div><span>{publicLanguage.t('dashboardEvening')}</span><b>{liters(dailySummary.totalEvening)} L</b></div></div>
-      <div className="panel-heading"><div><span className="eyebrow">{isCollector ? 'ABOROZI' : 'ACTIVE IKIGO'}</span><h2>{accountCopy('navFarmers', 'navAbacunda')}</h2></div><span className="count-label">{publicLanguage.t('milkResultsCount')}: {visibleRows.length} / {dailySummary.totalFarmers}</span></div>
+      <div className="panel-heading"><div><span className="eyebrow">{isCollector ? 'ABOROZI' : 'ACTIVE IKIGO'}</span><h2>{publicLanguage.t('navFarmers')}</h2></div><span className="count-label">{publicLanguage.t('milkResultsCount')}: {visibleRows.length} / {dailySummary.totalFarmers}</span></div>
       {isDairy && !selectedCenter ? (
         centers.length ? (
           <div className="workspace-empty" role="status">
@@ -2036,7 +2046,7 @@ const visibleTabs = (isAdmin
     const recentRows = daily.filter((row) => row.recordId && row.totalVolume > 0).slice(0, 6);
     const quickActions = [
       { id: 'milk' as Tab, label: publicLanguage.t('dashboardEnterMilk'), icon: Milk },
-      { id: 'farmers' as Tab, label: accountCopy('navFarmers', 'navAbacunda'), icon: Users },
+      { id: 'farmers' as Tab, label: publicLanguage.t('navFarmers'), icon: Users },
       { id: 'deductions' as Tab, label: publicLanguage.t('navDeductions'), icon: CircleDollarSign },
       { id: 'reports' as Tab, label: publicLanguage.t('navReports'), icon: FileBarChart2 },
       { id: 'notifications' as Tab, label: publicLanguage.t('navAlerts'), icon: Bell },
@@ -2133,6 +2143,22 @@ const visibleTabs = (isAdmin
     const confirmableRows = settlementData?.data || [];
     const retainedRows = settlementData?.retained || [];
     const settlementRecords = settlementData?.records || [];
+    const settlementNumber = new Intl.NumberFormat(publicLanguage.language === 'rw' ? 'rw-RW' : 'en-GB', { maximumFractionDigits: 0 });
+    const settlementMoney = (value: number | null | undefined) => value === null || value === undefined ? '—' : settlementNumber.format(Number(value || 0));
+    const settlementDate = (value?: string) => value
+      ? formatDateLabel(value, publicLanguage.language, { day: 'numeric', month: 'long', year: 'numeric' })
+      : '—';
+    const settlementStatus = (status: string) => {
+      const statusKeys: Record<string, Parameters<PublicLanguageState['t']>[0]> = {
+        PENDING: 'settlementsStatusPending',
+        APPROVED: 'settlementsStatusApproved',
+        CONFIRMED: 'settlementsStatusConfirmed',
+        REJECTED: 'settlementsStatusRejected',
+        PARTIALLY_SETTLED: 'settlementsStatusPartiallySettled',
+        SETTLED: 'settlementsStatusSettled',
+      };
+      return statusKeys[status] ? publicLanguage.t(statusKeys[status]) : status;
+    };
     const requestKey = (scope: string) => {
       settlementRequestKeys.current[scope] ||= globalThis.crypto?.randomUUID?.() || `${user?.id}-${Date.now()}-${Math.random().toString(36).slice(2)}`;
       return settlementRequestKeys.current[scope];
@@ -2143,7 +2169,7 @@ const visibleTabs = (isAdmin
       await api('/api/farmer-settlements', json('POST', {
         action: 'cash', farmerId, amount, periodStart: startDate, periodEnd: endDate, requestKey: requestKey(keyScope),
       }));
-      setNotice('Cash payment approved and awaiting collector confirmation.');
+      setNotice(publicLanguage.t('settlementsCashApproved'));
       await loadSettlementData();
       delete settlementRequestKeys.current[keyScope];
     };
@@ -2155,7 +2181,7 @@ const visibleTabs = (isAdmin
         action: 'debt', farmerId: Number(debtForm.farmerId), openingBalance: Number(debtForm.amount),
         periodStart: startDate, periodEnd: endDate, requestKey: requestKey(keyScope), reason: debtForm.reason || 'DEBT',
       }));
-      setNotice('Farmer debt recorded.');
+      setNotice(publicLanguage.t('settlementsDebtRecorded'));
       await loadSettlementData();
       delete settlementRequestKeys.current[keyScope];
       setDebtForm({ farmerId: '', amount: '', reason: '' });
@@ -2166,7 +2192,7 @@ const visibleTabs = (isAdmin
       await api('/api/farmer-settlements', json('POST', {
         action: 'debt-repayment', debtId, amount: Number(debtRepaymentAmounts[debtId] || 0), requestKey: requestKey(keyScope),
       }));
-      setNotice('Debt repayment recorded.');
+      setNotice(publicLanguage.t('settlementsRepaymentRecorded'));
       await loadSettlementData();
       delete settlementRequestKeys.current[keyScope];
       setDebtRepaymentAmounts((current) => ({ ...current, [debtId]: '' }));
@@ -2177,38 +2203,39 @@ const visibleTabs = (isAdmin
         action: 'confirm', settlementId: row.settlementId, farmerId: row.farmerId,
         periodStart: row.periodStart, periodEnd: row.periodEnd,
       }));
-      setNotice('Payment confirmation recorded.');
+      setNotice(publicLanguage.t('settlementsPaymentConfirmed'));
       await loadSettlementData();
     };
 
     return <div className="ukwezi-view">
       <section className="panel">
-        <div className="panel-heading"><div><span className="eyebrow">{publicLanguage.t('dashboardPeriod')}</span><h2>Farmer settlements</h2></div><Wallet size={20} aria-hidden="true" /></div>
-        <div className="toolbar"><label>{publicLanguage.t('ukweziMonth')}<input type="month" value={settlementMonth} onChange={(event) => setSettlementMonth(event.target.value)} /></label><label>{publicLanguage.t('ukweziPeriod')}<select value={settlementHalf} onChange={(event) => setSettlementHalf(event.target.value as typeof settlementHalf)}><option value="first-half">1–15</option><option value="second-half">16–{getMonthBounds(settlementMonth).endDate.slice(-2)}</option></select></label><button type="button" className="button button-secondary" onClick={() => run(loadSettlementData)} disabled={busy || settlementLoading}>{publicLanguage.t('reportsRefresh')}</button></div>
-        <p role="note">Settlement activity is separate from Ukwezi and is not included in current report or PDF totals.</p>
+        <div className="panel-heading"><div><span className="eyebrow">{publicLanguage.t('dashboardPeriod')}</span><h2>{publicLanguage.t('settlementsTitle')}</h2></div><Wallet size={20} aria-hidden="true" /></div>
+        <div className="toolbar"><label>{publicLanguage.t('ukweziMonth')}<input type="month" value={settlementMonth} onChange={(event) => setSettlementMonth(event.target.value)} /></label><label>{publicLanguage.t('ukweziPeriod')}<select value={settlementHalf} onChange={(event) => setSettlementHalf(event.target.value as typeof settlementHalf)}><option value="first-half">1–15</option><option value="second-half">16–{getMonthBounds(settlementMonth).endDate.slice(-2)}</option></select></label><button type="button" className="button button-secondary" onClick={() => run(() => loadSettlementData())} disabled={busy || settlementLoading}>{publicLanguage.t('reportsRefresh')}</button></div>
+        <p role="note">{publicLanguage.t('settlementsNote')}</p>
+        {settlementError ? <div className="workspace-empty" role="alert"><b>{publicLanguage.t('settlementsLoadError')}</b><button type="button" className="button button-secondary small-button" onClick={() => loadSettlementData()} disabled={settlementLoading}>{publicLanguage.t('settlementsRetry')}</button></div> : null}
         {settlementLoading ? <div className="workspace-empty workspace-loading" role="status"><span className="loading-indicator" />{publicLanguage.t('dashboardLoading')}</div> : null}
 
         {isDairy ? <>
-          <div className="metric-strip"><div><span>Retained farmers</span><b>{settlementData?.summary?.retainedCount ?? 0}</b></div><div><span>Retained payable</span><b>{money(settlementData?.summary?.retainedAmount)} RWF</b></div><div><span>Awaiting confirmation</span><b>{settlementData?.summary?.approvedCount ?? 0}</b></div></div>
-          <div className="table-wrap"><table><thead><tr><th>Farmer</th><th>Retained balance</th><th>Cash payment</th><th /></tr></thead><tbody>
-            {retainedRows.map((farmer) => <tr key={farmer.farmerId}><td>{farmer.farmerName}</td><td>{farmer.netAmount === null ? 'Incomplete accounting' : `${money(farmer.retainedAmount)} RWF`}</td><td><input aria-label={`Cash amount for ${farmer.farmerName}`} type="number" min="0.01" max={farmer.retainedAmount} step="0.01" value={settlementAmounts[farmer.farmerId] ?? String(farmer.retainedAmount)} onChange={(event) => setSettlementAmounts((current) => ({ ...current, [farmer.farmerId]: event.target.value }))} /></td><td><button type="button" className="button button-secondary" disabled={busy || farmer.netAmount === null || farmer.retainedAmount <= 0} onClick={() => run(() => approveCashPayment(farmer.farmerId, Number(settlementAmounts[farmer.farmerId] ?? farmer.retainedAmount)))}>Approve cash</button></td></tr>)}
-            {!retainedRows.length ? <tr><td colSpan={4}>No retained balances for this period.</td></tr> : null}
+          <div className="metric-strip"><div><span>{publicLanguage.t('settlementsRetainedFarmers')}</span><b>{settlementNumber.format(settlementData?.summary?.retainedCount ?? 0)}</b></div><div><span>{publicLanguage.t('settlementsRetainedPayable')}</span><b>{settlementMoney(settlementData?.summary?.retainedAmount)} RWF</b></div><div><span>{publicLanguage.t('settlementsAwaitingConfirmation')}</span><b>{settlementNumber.format(settlementData?.summary?.approvedCount ?? 0)}</b></div></div>
+          <div className="table-wrap"><table><thead><tr><th>{publicLanguage.t('settlementsFarmer')}</th><th>{publicLanguage.t('settlementsRetainedBalance')}</th><th>{publicLanguage.t('settlementsCashPayment')}</th><th /></tr></thead><tbody>
+            {retainedRows.map((farmer) => <tr key={farmer.farmerId}><td>{farmer.farmerName}</td><td>{farmer.netAmount === null ? publicLanguage.t('settlementsIncompleteAccounting') : `${settlementMoney(farmer.retainedAmount)} RWF`}</td><td><input aria-label={`${publicLanguage.t('settlementsCashAmount')} · ${farmer.farmerName}`} type="number" min="0.01" max={farmer.retainedAmount} step="0.01" value={settlementAmounts[farmer.farmerId] ?? String(farmer.retainedAmount)} onChange={(event) => setSettlementAmounts((current) => ({ ...current, [farmer.farmerId]: event.target.value }))} /></td><td><button type="button" className="button button-secondary" disabled={busy || farmer.netAmount === null || farmer.retainedAmount <= 0} onClick={() => runSettlement(() => approveCashPayment(farmer.farmerId, Number(settlementAmounts[farmer.farmerId] ?? farmer.retainedAmount)))}>{publicLanguage.t('settlementsApproveCash')}</button></td></tr>)}
+            {!retainedRows.length ? <tr><td colSpan={4}>{publicLanguage.t('settlementsEmptyRetained')}</td></tr> : null}
           </tbody></table></div>
-          <div className="table-wrap"><table><thead><tr><th>Farmer</th><th>Cash amount</th><th>Period</th><th>Status</th></tr></thead><tbody>
-            {settlementRecords.map((record) => <tr key={record.id}><td>{record.farmer_name}</td><td>{money(record.amount)} RWF</td><td>{record.period_start} to {record.period_end}</td><td>{record.status}</td></tr>)}
-            {!settlementRecords.length ? <tr><td colSpan={4}>No cash settlements recorded for this period.</td></tr> : null}
+          <div className="table-wrap"><table><thead><tr><th>{publicLanguage.t('settlementsFarmer')}</th><th>{publicLanguage.t('settlementsCashAmount')}</th><th>{publicLanguage.t('settlementsPeriod')}</th><th>{publicLanguage.t('settlementsStatus')}</th></tr></thead><tbody>
+            {settlementRecords.map((record) => <tr key={record.id}><td>{record.farmer_name}</td><td>{settlementMoney(record.amount)} RWF</td><td>{settlementDate(record.period_start)} – {settlementDate(record.period_end)}</td><td>{settlementStatus(record.status)}</td></tr>)}
+            {!settlementRecords.length ? <tr><td colSpan={4}>{publicLanguage.t('settlementsEmptyRecords')}</td></tr> : null}
           </tbody></table></div>
-          <form className="panel-footer settlement-debt-form" onSubmit={(event) => run(() => addFarmerDebt(event))}>
-            <div className="panel-heading"><div><span className="eyebrow">Farmer debt</span><h3>Record debt</h3></div></div>
-            <div className="toolbar"><label>Farmer ID<input type="number" min="1" required value={debtForm.farmerId} onChange={(event) => setDebtForm((current) => ({ ...current, farmerId: event.target.value }))} /></label><label>Amount (RWF)<input type="number" min="0.01" step="0.01" required value={debtForm.amount} onChange={(event) => setDebtForm((current) => ({ ...current, amount: event.target.value }))} /></label><label>Reason<input value={debtForm.reason} onChange={(event) => setDebtForm((current) => ({ ...current, reason: event.target.value }))} /></label><button type="submit" className="button button-primary" disabled={busy}>Record debt</button></div>
+          <form className="panel-footer settlement-debt-form" onSubmit={(event) => runSettlement(() => addFarmerDebt(event))}>
+            <div className="panel-heading"><div><span className="eyebrow">{publicLanguage.t('settlementsFarmerDebt')}</span><h3>{publicLanguage.t('settlementsRecordDebt')}</h3></div></div>
+            <div className="toolbar"><label>{publicLanguage.t('settlementsFarmerId')}<input type="number" min="1" required value={debtForm.farmerId} onChange={(event) => setDebtForm((current) => ({ ...current, farmerId: event.target.value }))} /></label><label>{publicLanguage.t('settlementsAmount')}<input type="number" min="0.01" step="0.01" required value={debtForm.amount} onChange={(event) => setDebtForm((current) => ({ ...current, amount: event.target.value }))} /></label><label>{publicLanguage.t('settlementsReason')}<input value={debtForm.reason} onChange={(event) => setDebtForm((current) => ({ ...current, reason: event.target.value }))} /></label><button type="submit" className="button button-primary" disabled={busy}>{publicLanguage.t('settlementsRecordDebt')}</button></div>
           </form>
-          <div className="table-wrap"><table><thead><tr><th>Farmer</th><th>Original debt</th><th>Outstanding</th><th>Repayment (RWF)</th><th /></tr></thead><tbody>
-            {settlementDebts.map((debt) => <tr key={debt.id}><td>{debt.farmer_name}</td><td>{money(Number(debt.opening_balance))} RWF</td><td>{money(Number(debt.remaining_balance))} RWF</td><td><input aria-label={`Repayment amount for ${debt.farmer_name}`} type="number" min="0.01" step="0.01" max={Number(debt.remaining_balance)} value={debtRepaymentAmounts[debt.id] || ''} onChange={(event) => setDebtRepaymentAmounts((current) => ({ ...current, [debt.id]: event.target.value }))} /></td><td><button type="button" className="button button-secondary" disabled={busy || !debtRepaymentAmounts[debt.id]} onClick={() => run(() => repayFarmerDebt(Number(debt.id)))}>Record repayment</button></td></tr>)}
-            {!settlementDebts.length ? <tr><td colSpan={5}>No outstanding farmer debts.</td></tr> : null}
+          <div className="table-wrap"><table><thead><tr><th>{publicLanguage.t('settlementsFarmer')}</th><th>{publicLanguage.t('settlementsOriginalDebt')}</th><th>{publicLanguage.t('settlementsOutstanding')}</th><th>{publicLanguage.t('settlementsRepayment')}</th><th /></tr></thead><tbody>
+            {settlementDebts.map((debt) => <tr key={debt.id}><td>{debt.farmer_name}</td><td>{settlementMoney(Number(debt.opening_balance))} RWF</td><td>{settlementMoney(Number(debt.remaining_balance))} RWF</td><td><input aria-label={`${publicLanguage.t('settlementsRepayment')} · ${debt.farmer_name}`} type="number" min="0.01" step="0.01" max={Number(debt.remaining_balance)} value={debtRepaymentAmounts[debt.id] || ''} onChange={(event) => setDebtRepaymentAmounts((current) => ({ ...current, [debt.id]: event.target.value }))} /></td><td><button type="button" className="button button-secondary" disabled={busy || !debtRepaymentAmounts[debt.id]} onClick={() => runSettlement(() => repayFarmerDebt(Number(debt.id)))}>{publicLanguage.t('settlementsRecordRepayment')}</button></td></tr>)}
+            {!settlementDebts.length ? <tr><td colSpan={5}>{publicLanguage.t('settlementsEmptyDebts')}</td></tr> : null}
           </tbody></table></div>
-        </> : <div className="table-wrap"><table><thead><tr><th>Farmer</th><th>Approved payment</th><th>Period</th><th>Action</th></tr></thead><tbody>
-          {confirmableRows.map((record) => <tr key={record.settlementId}><td>{record.farmerName}</td><td>{money(record.amount)} RWF</td><td>{record.periodStart} to {record.periodEnd}</td><td><button type="button" className="button button-secondary" disabled={busy} onClick={() => run(() => confirmCashPayment(record))}>Confirm received</button></td></tr>)}
-          {!confirmableRows.length ? <tr><td colSpan={4}>No approved payments for this period.</td></tr> : null}
+        </> : <div className="table-wrap"><table><thead><tr><th>{publicLanguage.t('settlementsFarmer')}</th><th>{publicLanguage.t('settlementsApprovedPayment')}</th><th>{publicLanguage.t('settlementsPeriod')}</th><th>{publicLanguage.t('settlementsAction')}</th></tr></thead><tbody>
+          {confirmableRows.map((record) => <tr key={record.settlementId}><td>{record.farmerName}</td><td>{settlementMoney(record.amount)} RWF</td><td>{settlementDate(record.periodStart)} – {settlementDate(record.periodEnd)}</td><td><button type="button" className="button button-secondary" disabled={busy} onClick={() => runSettlement(() => confirmCashPayment(record))}>{publicLanguage.t('settlementsConfirmReceived')}</button></td></tr>)}
+          {!confirmableRows.length ? <tr><td colSpan={4}>{publicLanguage.t('settlementsEmptyApproved')}</td></tr> : null}
         </tbody></table></div>}
       </section>
     </div>;
@@ -2317,12 +2344,18 @@ const visibleTabs = (isAdmin
             <div><span>{publicLanguage.t('ukweziPayable')}</span><b>{payable === null || payable === undefined ? '—' : `${money(payable)} RWF`}</b></div>
           </div>
           {isCollector ? <section className="settlement-reconciliation" role="status">
-            <b>{ukweziReport.collectorIsReconciled ? publicLanguage.t('ukweziReconciled') : publicLanguage.t('ukweziReconciliationPending')}</b>
-            {ukweziReport.collectorIsReconciled === null
-              ? <span>{missingInputMessages.length ? missingInputMessages.join(' · ') : publicLanguage.t('ukweziReconciliationPending')}</span>
-              : <span>{publicLanguage.t('ukweziBreakdown')}: {money(ukweziReport.collectorSurplusAmount || 0)} + {money(ukweziReport.collectorFarmerDeductions || 0)} + {money(ukweziReport.collectorFarmerTransport)} = {ukweziReport.collectorPayableFromBreakdown == null ? '—' : `${money(ukweziReport.collectorPayableFromBreakdown)} RWF`}</span>}
+            <b>{ukweziReport.settlementAccountingStatus === 'MIGRATION_REQUIRED'
+              ? publicLanguage.t('ukweziReconciliationUnavailable')
+              : ukweziReport.collectorIsReconciled ? publicLanguage.t('ukweziReconciled') : publicLanguage.t('ukweziReconciliationPending')}</b>
+            {ukweziReport.settlementAccountingStatus === 'MIGRATION_REQUIRED'
+              ? <span>{publicLanguage.t('ukweziReconciliationUnavailableDetail')}</span>
+              : ukweziReport.collectorIsReconciled === null
+                ? <span>{missingInputMessages.length ? missingInputMessages.join(' · ') : publicLanguage.t('ukweziReconciliationPending')}</span>
+                : ukweziReport.collectorSurplusAmount == null || ukweziReport.collectorFarmerDeductions == null || ukweziReport.collectorFarmerTransport == null || ukweziReport.collectorPayableFromBreakdown == null
+                  ? <span>{publicLanguage.t('ukweziBreakdownUnavailable')}</span>
+                  : <span>{publicLanguage.t('ukweziBreakdown')}: {money(ukweziReport.collectorSurplusAmount)} + {money(ukweziReport.collectorFarmerDeductions)} + {money(ukweziReport.collectorFarmerTransport)} = {money(ukweziReport.collectorPayableFromBreakdown)} RWF</span>}
           </section> : null}
-          {ukweziReport.settlementAccountingStatus === 'MIGRATION_REQUIRED' && !ukweziReport.settlementAccounting ? <p className="form-error" role="alert">Settlement reconciliation is unavailable until migrations 015 and 016 are applied. Existing milk and owner-gross calculations remain unchanged.</p> : null}
+          {ukweziReport.settlementAccountingStatus === 'MIGRATION_REQUIRED' && !ukweziReport.settlementAccounting ? <p className="form-error" role="alert">{publicLanguage.t('ukweziReconciliationUnavailableDetail')}</p> : null}
           {ukweziReport.settlementAccounting ? <section className="ukwezi-loss-reconciliation">
             <div className="panel-heading"><div><span className="eyebrow">Settlement and debt</span><h3>Period payment reconciliation</h3></div></div>
             <div className="metric-strip report-summary">
@@ -2758,7 +2791,7 @@ const renderNotifications = () => <section className="panel"><div className="pan
   return (
     <main className="workspace-shell">
       <header className="topbar"><BrandLockup className="topbar-brand" imageSize={34} /><div className="topbar-right"><span className={`account-tag${online ? '' : ' offline-tag'}`}><span className={`status-dot${online ? '' : ' offline-dot'}`} />{online ? isAdmin ? publicLanguage.t('platformAdmin') : user.accountType.replace('_', ' ') : `Offline · ${pendingWrites} queued`}</span><div className="notification-menu"><button type="button" className="icon-button notification-trigger" aria-label={`${publicLanguage.t('navAlerts')}: ${unreadCount ?? 0}`} aria-expanded={notificationPanelOpen} onClick={toggleNotificationPanel}><Bell size={19} aria-hidden="true" />{unreadCount ? <span className="notification-badge">{unreadCount > 99 ? '99+' : unreadCount}</span> : null}</button>{notificationPanelOpen ? <section className="notification-dropdown" aria-label={publicLanguage.t('navAlerts')}><div className="notification-dropdown-heading"><b>{publicLanguage.t('navAlerts')}</b><button type="button" className="text-button" onClick={() => markAllNotificationsRead()}>{publicLanguage.t('markAllRead')}</button></div><div className="notification-dropdown-list">{notifications.slice(0, 8).map((item) => <article className={`notification-dropdown-item${item.isRead ? '' : ' unread'}`} key={item.id}><span className="eyebrow">{item.notification_type.replaceAll('_', ' ')}</span><b>{item.title}</b><p>{item.message}</p><small>{formatDateLabel(item.createdAt, publicLanguage.language, { day: 'numeric', month: 'long', year: 'numeric', time: 'short' })}</small>{!item.isRead ? <button type="button" className="text-button" onClick={() => markRead(item)}>{publicLanguage.t('markRead')}</button> : null}</article>)}{!notifications.length ? <p className="notification-dropdown-empty">{publicLanguage.t('notificationsEmptyTitle')}</p> : null}</div><button type="button" className="notification-dropdown-all" onClick={() => { setNotificationPanelOpen(false); setTab('notifications'); }}>{publicLanguage.t('alertsInbox')} <ArrowRight size={15} aria-hidden="true" /></button></section> : null}</div><button type="button" className="user-name user-settings-shortcut" onClick={() => setTab('settings')} title={publicLanguage.t('accountSettings')} aria-label={`${publicLanguage.t('accountSettings')}: ${user.name || user.email}`}><UserRound size={16} aria-hidden="true" /><span>{user.name || user.email}</span></button><button className="icon-button" onClick={logout} aria-label={publicLanguage.t('signOut')} title={publicLanguage.t('signOut')}><LogOut size={18} /></button></div></header>
-      <div className="workspace-body"><aside className="sidebar"><div className="sidebar-label">{publicLanguage.t('workspace')}</div><nav>{activeTabs.map((item) => { const Icon = item.icon; return <button className={`nav-item${tab === item.id ? ' active' : ''}`} key={item.id} onClick={() => setTab(item.id)}><Icon size={18} strokeWidth={1.8} /><span>{item.label}</span>{tab === item.id ? <span className="nav-mark" /> : null}</button>; })}</nav><div className="sidebar-foot"><Activity size={15} /><span>{publicLanguage.t('systemOnline')}</span></div></aside>
+      <div className="workspace-body"><aside className="sidebar"><div className="sidebar-label">{publicLanguage.t('workspace')}</div><nav aria-label={publicLanguage.t('workspaceNavigation')}>{activeTabs.map((item) => { const Icon = item.icon; return <button className={`nav-item${tab === item.id ? ' active' : ''}`} key={item.id} aria-label={item.label} title={item.label} aria-current={tab === item.id ? 'page' : undefined} onClick={() => setTab(item.id)}><Icon size={18} strokeWidth={1.8} /><span>{item.label}</span>{tab === item.id ? <span className="nav-mark" /> : null}</button>; })}</nav><div className="sidebar-foot"><Activity size={15} aria-hidden="true" /><span>{publicLanguage.t('systemOnline')}</span></div></aside>
       <section className="content-area"><div className="content-heading"><div><span className="eyebrow">{isAdmin ? publicLanguage.t('platformAdmin') : 'MILK SYSTEM'}</span><h1>{activeTabLabel}</h1></div><span className="date-stamp">{formatDateLabel(new Date(), publicLanguage.language, { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' })}</span></div>
         {error ? <div className="toast toast-error" role="alert"><span>{error}</span><button onClick={() => setError('')} aria-label="Dismiss"><X size={16} /></button></div> : null}
         {notice ? <div className="toast toast-success" role="status"><span>{notice}</span><button onClick={() => setNotice('')} aria-label="Dismiss"><X size={16} /></button></div> : null}
@@ -2782,12 +2815,12 @@ const renderNotifications = () => <section className="panel"><div className="pan
         {tab === 'system-health' && isAdmin ? renderSystemHealth() : null}
         {adminAccountDetailsOpen ? renderAdminAccountDetailsModal() : null}
       </section></div>
-      <nav className="mobile-nav" aria-label="Workspace navigation">
-        {mobilePrimaryTabs.map((item) => { const Icon = item.icon; return <button type="button" key={item.id} className={tab === item.id ? 'active' : ''} aria-current={tab === item.id ? 'page' : undefined} onClick={() => setTab(item.id)}><Icon size={18} /><span>{item.label}</span></button>; })}
+      <nav className="mobile-nav" aria-label={publicLanguage.t('workspaceNavigation')}>
+        {mobilePrimaryTabs.map((item) => { const Icon = item.icon; return <button type="button" key={item.id} className={tab === item.id ? 'active' : ''} aria-label={item.label} title={item.label} aria-current={tab === item.id ? 'page' : undefined} onClick={() => setTab(item.id)}><Icon size={18} aria-hidden="true" /><span>{item.label}</span></button>; })}
         {mobileMoreTabs.length ? <button type="button" className={`mobile-more-trigger${mobileMoreTabs.some((item) => item.id === tab) ? ' active' : ''}`} aria-controls="mobile-more-menu" aria-expanded={mobileMoreOpen} aria-label={publicLanguage.t('more')} onClick={() => setMobileMoreOpen((open) => !open)}><ChevronDown size={18} /><span>{publicLanguage.t('more')}</span></button> : null}
       </nav>
-      {mobileMoreOpen && mobileMoreTabs.length ? <div className="mobile-more-menu" id="mobile-more-menu" aria-label="More workspace sections">
-        {mobileMoreTabs.map((item) => { const Icon = item.icon; return <button type="button" key={item.id} aria-current={tab === item.id ? 'page' : undefined} onClick={() => { setTab(item.id); setMobileMoreOpen(false); }}><Icon size={18} /><span>{item.label}</span></button>; })}
+      {mobileMoreOpen && mobileMoreTabs.length ? <div className="mobile-more-menu" id="mobile-more-menu" aria-label={publicLanguage.t('more')}>
+        {mobileMoreTabs.map((item) => { const Icon = item.icon; return <button type="button" key={item.id} aria-label={item.label} title={item.label} aria-current={tab === item.id ? 'page' : undefined} onClick={() => { setTab(item.id); setMobileMoreOpen(false); }}><Icon size={18} aria-hidden="true" /><span>{item.label}</span></button>; })}
       </div> : null}
     </main>
   );

@@ -36,14 +36,14 @@ test('Collector Milk Entry puts the Owner and Owner Ifishi before the separate A
   assert.doesNotMatch(workspace.slice(workspace.indexOf('const renderIfishi ='), workspace.indexOf('const renderDashboard')), /if \(isCollector\) return renderOwnerIfishi/);
 });
 
-test('Collection Center Abacunda uses owner-scoped farmer management without Collector assignment UI', () => {
+test('Collection Center farmer management uses owner scope without Collector assignment UI', () => {
   const listRoute = fs.readFileSync(path.join(__dirname, '..', 'app', 'api', 'farmers', 'route.ts'), 'utf8');
   const detailRoute = fs.readFileSync(path.join(__dirname, '..', 'app', 'api', 'farmers', '[id]', 'route.js'), 'utf8');
   const farmerView = workspace.slice(workspace.indexOf('const renderFarmers'), workspace.indexOf('const renderCenters'));
 
   assert.match(workspace, /tab === 'farmers' && !isAdmin \? renderFarmers\(\)/);
   assert.doesNotMatch(workspace, /tab === 'farmers' && !isAdmin && isDairy \? renderAbacundaDirectory/);
-  assert.match(farmerView, /isDairy \? publicLanguage\.t\('navAbacunda'\)/);
+  assert.match(farmerView, /<h2>\{publicLanguage\.t\('navFarmers'\)\}<\/h2>/);
   assert.match(farmerView, /<div className="toolbar farmers-toolbar">/);
   assert.match(farmerView, /!isCollector && !isDairy \? <div className="assignment-tool">/);
   const farmerTable = farmerView.slice(farmerView.indexOf('table-scroll farmers-desktop-table'), farmerView.indexOf('{farmers ? farmers.data.length'));
@@ -76,6 +76,30 @@ test('Dairy navigation includes Settings and Dairy Amata is read-only Abacunda a
   assert.match(milkEntry, /publicLanguage\.t\('milkResultsCount'\)/);
   assert.match(milkEntry, /isCollector \? <><span className=\{`milk-entry-state/);
   assert.match(milkEntry, /isCollector \? <><button type="button" className="button button-secondary small-button" onClick=\{\(\) => openIfishiForFarmer/);
+});
+
+test('Settlements and shared navigation use paired locale copy and accessible labels', () => {
+  const settlementView = workspace.slice(workspace.indexOf('const renderSettlements'), workspace.indexOf('const renderReports'));
+  const navigation = workspace.slice(workspace.indexOf('const navigationCopy'), workspace.indexOf('const accountStatusCopy'));
+  const localeKeys = [
+    'navSettlements', 'workspaceNavigation', 'settlementsTitle', 'settlementsNote',
+    'settlementsEmptyApproved', 'settlementsLoadError', 'settlementsActionError',
+    'settlementsStatusPending', 'settlementsStatusApproved', 'settlementsStatusConfirmed',
+    'ukweziReconciliationUnavailable', 'ukweziReconciliationUnavailableDetail', 'ukweziBreakdownUnavailable',
+  ];
+
+  assert.match(navigation, /settlements: 'navSettlements'/);
+  assert.match(workspace, /aria-label=\{publicLanguage\.t\('workspaceNavigation'\)\}/);
+  assert.match(navigation, /farmers: 'navFarmers'/);
+  assert.doesNotMatch(workspace, /item\.id === 'farmers' && isDairy/);
+  assert.doesNotMatch(settlementView, /Farmer settlements|Settlement activity is separate|No approved payments|Confirm received/);
+  assert.doesNotMatch(workspace, /0 \+ 0 \+ 0 = 0 RWF|0 \+ 0 \+ 0 = 0/);
+  assert.match(settlementView, /formatDateLabel\(value, publicLanguage\.language/);
+  assert.match(settlementView, /new Intl\.NumberFormat\(publicLanguage\.language/);
+  assert.match(workspace, /ukweziReconciliationUnavailableDetail/);
+  for (const key of localeKeys) {
+    assert.equal((publicCopy.match(new RegExp(`\\b${key}:`, 'g')) || []).length, 2, `${key} must exist in both locales`);
+  }
 });
 
 test('Milk Entry exposes secure search, session, page-size, clear, and reset controls', () => {
