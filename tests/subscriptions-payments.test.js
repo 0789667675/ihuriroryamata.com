@@ -1,9 +1,13 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const path = require('node:path');
 const Subscriptions = require('../lib/services/subscription-service.js');
 const Provider = require('../lib/services/payment-provider.js');
 const SubscriptionRepository = require('../lib/repositories/subscriptionRepository.js');
 const EmailService = require('../lib/services/email-service.js');
+const customerSubscriptionRoute = fs.readFileSync(path.join(__dirname, '..', 'app', 'api', 'subscription', 'route.js'), 'utf8');
+const customerPaymentRoute = fs.readFileSync(path.join(__dirname, '..', 'app', 'api', 'subscription', 'payments', 'route.js'), 'utf8');
 
 const plan = {
   id: 8,
@@ -225,6 +229,7 @@ test('customer subscription returns validated plan and payment arrays for collec
   assert.equal(result.plans.length, 5);
   assert.ok(Array.isArray(result.plans));
   assert.ok(Array.isArray(result.payments));
+  assert.equal(result.payments.length, 0);
   assert.equal(result.account.name, 'Milk User');
   assert.equal(result.account.accountType, 'COLLECTOR');
   assert.equal(result.pricing.planCode, 'USAGE_0_5000_MONTHLY');
@@ -320,6 +325,17 @@ test('customer payment history is owner-scoped and bounded to the newest 100 row
   assert.match(statement.text, /sp\.user_id = \$1/);
   assert.match(statement.text, /ORDER BY sp\.created_at DESC, sp\.id DESC LIMIT \$2/);
   assert.deepEqual(statement.values, [42, 100]);
+});
+
+test('customer payment information routes require the customer role and use the authenticated owner ID', () => {
+  assert.match(customerSubscriptionRoute, /if \(!user\).*status: 401/);
+  assert.match(customerSubscriptionRoute, /if \(user\.role !== 'user'\).*status: 403/);
+  assert.match(customerSubscriptionRoute, /userId: user\.id/);
+  assert.match(customerSubscriptionRoute, /'Failed to load subscription\.'/);
+  assert.match(customerPaymentRoute, /if \(!user\).*status: 401/);
+  assert.match(customerPaymentRoute, /if \(user\.role !== 'user'\).*status: 403/);
+  assert.match(customerPaymentRoute, /getPaymentsByUser\(user\.id\)/);
+  assert.match(customerPaymentRoute, /'PAYMENT_PROVIDER_UNAVAILABLE'/);
 });
 
 test('collector billing accepts editable contiguous tier ranges and current stored prices', async () => {

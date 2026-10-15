@@ -21,6 +21,16 @@ const monthRange = () => {
 
 const readOwnerId = (value) => parsePositiveId(value, 'ownerUserId');
 const statusFor = (error) => error.statusCode || (error.code === 'DATABASE_NOT_CONFIGURED' || error.code === 'SESSION_SECRET_NOT_CONFIGURED' ? 503 : 500);
+const settlementErrorResponse = (error) => {
+  if (error.code === '42P01' || error.code === '42703') {
+    return NextResponse.json({ ok: false, code: 'SETTLEMENT_SCHEMA_UNAVAILABLE', message: 'Settlement information is temporarily unavailable.' }, { status: 503 });
+  }
+  const status = statusFor(error);
+  if (status >= 500) {
+    return NextResponse.json({ ok: false, code: 'SETTLEMENTS_UNAVAILABLE', message: 'Settlement information is temporarily unavailable.' }, { status });
+  }
+  return NextResponse.json({ ok: false, message: error.message || 'Unable to process the settlement request.' }, { status });
+};
 
 export async function GET(request) {
   try {
@@ -86,7 +96,7 @@ export async function GET(request) {
       records,
     });
   } catch (error) {
-    return NextResponse.json({ ok: false, message: error.message || 'Unable to load settlements.' }, { status: statusFor(error) });
+    return settlementErrorResponse(error);
   }
 }
 
@@ -174,6 +184,6 @@ export async function POST(request) {
     return NextResponse.json({ ok: false, message: 'Unsupported settlement action.' }, { status: 400 });
   } catch (error) {
     const status = error instanceof SyntaxError ? 400 : statusFor(error);
-    return NextResponse.json({ ok: false, message: error.message || 'Unable to process settlement action.' }, { status });
+    return status >= 500 ? settlementErrorResponse(error) : NextResponse.json({ ok: false, message: error.message || 'Unable to process settlement action.' }, { status });
   }
 }

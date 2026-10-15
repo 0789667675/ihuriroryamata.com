@@ -182,7 +182,8 @@ export const publicCopy = {
     settlementsStatusRejected: 'Byanzwe',
     settlementsStatusPartiallySettled: 'Byishyuwe igice',
     settlementsStatusSettled: 'Byishyuwe',
-    settlementsLoadError: 'Ntibishobotse kureba amakuru y’ubwishyu. Ongera ugerageze.',
+    settlementsLoadError: 'Ntibishobotse kubona amakuru y’ubwishyu.',
+    settlementsSchemaUnavailable: 'Amakuru y’ubwishyu ntaraboneka kuko ivugurura ry’ububikoshingiro 015 na 016 ritarashyirwaho. Ibaruramari ry’amata risanzwe ntirihinduka.',
     settlementsActionError: 'Igikorwa ku bwishyu nticyakunze. Ongera ugerageze.',
     settlementsRetry: 'Ongera ugerageze',
 
@@ -541,6 +542,10 @@ export const publicCopy = {
     billingPaymentPayer: 'Konti yishyura',
     billingPaymentInstruction: 'Icyifuzo cyo kwishyura cyoherezwa kuri telefone yabitswe kuri iyi konti.',
     billingPaymentUnavailable: 'Uburyo bwo kwishyura ntiburafungurwa. Ongera ugerageze nyuma.',
+    billingLoadError: 'Ntibishobotse gufungura amakuru yo kwishyura.',
+    billingAuthError: 'Igihe cyo kwinjira cyarangiye. Ongera winjire kugira ngo urebe amakuru yo kwishyura.',
+    billingAccessError: 'Nta burenganzira ufite bwo kureba amakuru yo kwishyura kuri iyi konti.',
+    billingAccountError: 'Konti y’ubwishyu ntiyabonetse. Reba ko winjiye kuri konti iboneye.',
     adminPlansMissing: 'Nta gahunda z’ibiciro by’abacunda zabonetse.',
     adminCollectorPlansIncomplete: 'Ibyiciro bitanu by’ibiciro by’abacunda ntibiboneka.',
 
@@ -776,7 +781,8 @@ export const publicCopy = {
     settlementsStatusRejected: 'Rejected',
     settlementsStatusPartiallySettled: 'Partially settled',
     settlementsStatusSettled: 'Settled',
-    settlementsLoadError: 'Unable to load settlement information. Please try again.',
+    settlementsLoadError: 'Unable to load settlement information.',
+    settlementsSchemaUnavailable: 'Settlement information is unavailable because database migrations 015 and 016 have not been applied. Existing milk accounting remains unchanged.',
     settlementsActionError: 'The settlement action failed. Please try again.',
     settlementsRetry: 'Retry',
 
@@ -1135,6 +1141,10 @@ export const publicCopy = {
     billingPaymentPayer: 'Payer account',
     billingPaymentInstruction: 'The payment request is sent to the phone saved on this account.',
     billingPaymentUnavailable: 'Payments are not enabled right now. Please try again later.',
+    billingLoadError: 'Unable to load payment information.',
+    billingAuthError: 'Your session has expired. Sign in again to view payment information.',
+    billingAccessError: 'This account is not allowed to view payment information.',
+    billingAccountError: 'The payment account was not found. Check that you are signed in to the correct account.',
     adminPlansMissing: 'No Collector subscription tiers were returned.',
     adminCollectorPlansIncomplete: 'All five active Collector pricing tiers must be available before saving.',
 

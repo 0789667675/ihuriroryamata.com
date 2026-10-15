@@ -28,3 +28,10 @@ test('settlement POST confirms only the assigned collector and exact approved fa
   assert.match(repositorySource, /farmer_id = \$6 AND owner_user_id = \$7 AND status = 'APPROVED'/);
   assert.match(repositorySource, /ca\.collector_user_id = \$1 AND ca\.revoked_at IS NULL/);
 });
+
+test('missing settlement schema returns a safe unavailable response without database details', () => {
+  assert.match(routeSource, /error\.code === '42P01' \|\| error\.code === '42703'/);
+  assert.match(routeSource, /code: 'SETTLEMENT_SCHEMA_UNAVAILABLE'/);
+  assert.match(routeSource, /Settlement information is temporarily unavailable\./);
+  assert.doesNotMatch(routeSource, /message: error\.message \|\| 'Unable to load settlements\.'/);
+});

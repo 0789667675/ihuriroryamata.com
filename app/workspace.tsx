@@ -4,9 +4,11 @@ import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { usePathname, useSearchParams } from 'next/navigation';
 import {
-  Activity, ArrowRight, Bell, Building2, Check, ChevronDown, ChevronLeft, ChevronRight, Eye, EyeOff,
-  ArrowDown, ArrowUp, ArrowUpDown, CircleDollarSign, ClipboardList, FileBarChart2, LogOut, Milk, Plus, Search, Settings, Shield,
-  UserRound, Users, X, ArrowUpRight, Wallet, CalendarDays, BookOpen, Truck,
+  Activity, ArrowDown, ArrowRight, ArrowUp, ArrowUpDown, ArrowUpRight, BadgeDollarSign, Bell, BellRing,
+  Building2, CalendarDays, ChartNoAxesCombined, Check, ChevronDown, ChevronLeft, ChevronRight,
+  BookOpen, CircleDollarSign, ClipboardList, ContactRound, CreditCard, Eye, EyeOff, FileBarChart2, Gauge,
+  HandCoins, History, LayoutDashboard, LogOut, Milk, Plus, ReceiptText, Search, Settings, Shield, Truck, UserRound,
+  Users, UsersRound, Wallet, Warehouse, X,
 } from 'lucide-react';
 import { flushOfflineWrites, getOfflineWrites, queueOfflineWrite } from '@/lib/offline-queue';
 import { buildFarmerListQuery } from '@/lib/farmer-list-query';
@@ -55,7 +57,7 @@ const api = async <T,>(path: string, options?: RequestInit): Promise<T> => {
   const response = await fetch(path, { credentials: 'include', ...options });
   const body = await response.json().catch(() => ({}));
   if (!response.ok) {
-    throw Object.assign(new Error(body.message || `Request failed (${response.status})`), { status: response.status });
+    throw Object.assign(new Error(body.message || `Request failed (${response.status})`), { status: response.status, code: body.code });
   }
   return body as T;
 };
@@ -84,25 +86,45 @@ const money = (value: number | null | undefined) => value === null || value === 
 const liters = (value: number) => new Intl.NumberFormat('rw-RW', { maximumFractionDigits: 2 }).format(Number(value || 0));
 const isCollectorTier = (plan: SubscriptionPlan) => plan.code.startsWith('USAGE_');
 
-const collectorTabs: Array<{ id: Tab; label: string; icon: typeof Milk }> = [
-  { id: 'dashboard', label: 'Dashboard', icon: Activity },
-  { id: 'farmers', label: 'Farmers', icon: Users },
-  { id: 'milk', label: 'Milk', icon: Milk },
-  { id: 'deductions', label: 'Deductions', icon: CircleDollarSign },
-  { id: 'reports', label: 'Reports', icon: FileBarChart2 },
-  { id: 'ukwezi', label: 'Ukwezi', icon: Wallet },
-  { id: 'settlements', label: 'Settlements', icon: CircleDollarSign },
-  { id: 'settings', label: 'Settings', icon: Settings },
+const navigationIcons: Record<Tab, typeof Milk> = {
+  dashboard: LayoutDashboard,
+  farmers: Users,
+  centers: Warehouse,
+  milk: Milk,
+  deductions: ReceiptText,
+  transport: Truck,
+  ukwezi: CalendarDays,
+  settlements: HandCoins,
+  reports: ChartNoAxesCombined,
+  billing: CreditCard,
+  notifications: Bell,
+  settings: Settings,
+  accounts: UsersRound,
+  audit: History,
+  config: BadgeDollarSign,
+  'system-health': Gauge,
+  'notifications-admin': BellRing,
+};
+
+const collectorTabs: Array<{ id: Tab; label: string }> = [
+  { id: 'dashboard', label: 'Dashboard' },
+  { id: 'farmers', label: 'Farmers' },
+  { id: 'milk', label: 'Milk' },
+  { id: 'deductions', label: 'Deductions' },
+  { id: 'reports', label: 'Reports' },
+  { id: 'ukwezi', label: 'Ukwezi' },
+  { id: 'settlements', label: 'Settlements' },
+  { id: 'settings', label: 'Settings' },
 ];
 
-const dairyTabs: Array<{ id: Tab; label: string; icon: typeof Milk }> = [
-  { id: 'dashboard', label: 'Dashboard', icon: Activity },
-  { id: 'farmers', label: 'Abacunda', icon: Users },
-  { id: 'milk', label: 'Milk', icon: Milk },
-  { id: 'reports', label: 'Reports', icon: FileBarChart2 },
-  { id: 'ukwezi', label: 'Ukwezi', icon: Wallet },
-  { id: 'settlements', label: 'Settlements', icon: CircleDollarSign },
-  { id: 'settings', label: 'Settings', icon: Settings },
+const dairyTabs: Array<{ id: Tab; label: string }> = [
+  { id: 'dashboard', label: 'Dashboard' },
+  { id: 'farmers', label: 'Farmers' },
+  { id: 'milk', label: 'Milk' },
+  { id: 'reports', label: 'Reports' },
+  { id: 'ukwezi', label: 'Ukwezi' },
+  { id: 'settlements', label: 'Settlements' },
+  { id: 'settings', label: 'Settings' },
 ];
 
 const navigationCopy = {
@@ -410,7 +432,7 @@ const [report, setReport] = useState<Report | null>(null);
   const [settlementData, setSettlementData] = useState<SettlementData | null>(null);
   const [settlementDebts, setSettlementDebts] = useState<any[]>([]);
   const [settlementLoading, setSettlementLoading] = useState(false);
-  const [settlementError, setSettlementError] = useState('');
+  const [settlementError, setSettlementError] = useState<'settlementsLoadError' | 'settlementsSchemaUnavailable' | ''>('');
   const [settlementAmounts, setSettlementAmounts] = useState<Record<number, string>>({});
   const settlementRequestKeys = useRef<Record<string, string>>({});
   const [debtForm, setDebtForm] = useState({ farmerId: '', amount: '', reason: '' });
@@ -469,7 +491,9 @@ const [report, setReport] = useState<Report | null>(null);
   const adminAccountDetailsRequestRef = useRef(0);
   const [billing, setBilling] = useState<any>(null);
   const [billingLoading, setBillingLoading] = useState(false);
-  const [billingError, setBillingError] = useState('');
+  const [billingError, setBillingError] = useState<'billingLoadError' | 'billingAuthError' | 'billingAccessError' | 'billingAccountError' | ''>('');
+  const billingRequestRef = useRef<{ key: string; id: number; promise: Promise<void> } | null>(null);
+  const billingRequestSequenceRef = useRef(0);
   const [customerPaymentStatus, setCustomerPaymentStatus] = useState('');
   const [customerPaymentSortBy, setCustomerPaymentSortBy] = useState<'date' | 'amount'>('date');
   const [customerPaymentSortDirection, setCustomerPaymentSortDirection] = useState<'asc' | 'desc'>('desc');
@@ -512,13 +536,13 @@ const [report, setReport] = useState<Report | null>(null);
   const collectorOwnedCenters = centers.filter((center) => Number(center.owner_user_id) === Number(user?.id));
 const visibleTabs = (isAdmin
     ? [
-        { id: 'dashboard' as Tab, label: publicLanguage.t('navAdminOverview'), icon: Activity },
-        { id: 'accounts' as Tab, label: publicLanguage.t('navAccounts'), icon: Users },
-        { id: 'audit' as Tab, label: publicLanguage.t('navAudit'), icon: Shield },
-        { id: 'config' as Tab, label: publicLanguage.t('navPricing'), icon: CircleDollarSign },
-        { id: 'settings' as Tab, label: publicLanguage.t('navAdminSettings'), icon: Settings },
-        { id: 'system-health' as Tab, label: publicLanguage.t('systemHealth'), icon: Building2 },
-        { id: 'notifications-admin' as Tab, label: publicLanguage.t('navAdminAlerts'), icon: Bell },
+        { id: 'dashboard' as Tab, label: publicLanguage.t('navAdminOverview') },
+        { id: 'accounts' as Tab, label: publicLanguage.t('navAccounts') },
+        { id: 'audit' as Tab, label: publicLanguage.t('navAudit') },
+        { id: 'config' as Tab, label: publicLanguage.t('navPricing') },
+        { id: 'settings' as Tab, label: publicLanguage.t('navAdminSettings') },
+        { id: 'system-health' as Tab, label: publicLanguage.t('systemHealth') },
+        { id: 'notifications-admin' as Tab, label: publicLanguage.t('navAdminAlerts') },
       ]
     : (isCollector ? collectorTabs : isDairy ? dairyTabs : collectorTabs)).map((item) => {
       const labelKey = item.id === 'dashboard' && isAdmin
@@ -528,7 +552,7 @@ const visibleTabs = (isAdmin
         : item.id in navigationCopy
           ? navigationCopy[item.id as keyof typeof navigationCopy]
           : null;
-      return { ...item, label: labelKey ? publicLanguage.t(labelKey) : item.label };
+      return { ...item, icon: navigationIcons[item.id], label: labelKey ? publicLanguage.t(labelKey) : item.label };
     });
   const mobilePrimaryTabs = visibleTabs.slice(0, 4);
   const mobileMoreTabs = visibleTabs.slice(4);
@@ -857,10 +881,12 @@ const visibleTabs = (isAdmin
         setSettlementDebts([]);
       }
       setSettlementError('');
-    } catch {
+    } catch (reason) {
       setSettlementData(null);
       setSettlementDebts([]);
-      setSettlementError('settlementsLoadError');
+      setSettlementError((reason as { code?: string })?.code === 'SETTLEMENT_SCHEMA_UNAVAILABLE'
+        ? 'settlementsSchemaUnavailable'
+        : 'settlementsLoadError');
     } finally {
       setSettlementLoading(false);
     }
@@ -1003,25 +1029,45 @@ const visibleTabs = (isAdmin
     setAdminSummary(await api<AdminSummary>('/api/admin/accounts/summary'));
   };
 
-  const loadBilling = async (planCode = selectedSubscriptionPlanCode, paymentOverrides: { status?: string; sortBy?: typeof customerPaymentSortBy; sortDirection?: typeof customerPaymentSortDirection } = {}) => {
+  const loadBilling = (planCode = selectedSubscriptionPlanCode, paymentOverrides: { status?: string; sortBy?: typeof customerPaymentSortBy; sortDirection?: typeof customerPaymentSortDirection } = {}) => {
+    const status = paymentOverrides.status !== undefined ? paymentOverrides.status : customerPaymentStatus;
+    const sortBy = paymentOverrides.sortBy || customerPaymentSortBy;
+    const sortDirection = paymentOverrides.sortDirection || customerPaymentSortDirection;
+    const key = JSON.stringify([planCode, status, sortBy, sortDirection]);
+    if (billingRequestRef.current?.key === key) return billingRequestRef.current.promise;
+
     setBillingLoading(true);
     setBillingError('');
-    try {
-      const params = new URLSearchParams({ billingPeriod });
-      if (planCode) params.set('planCode', planCode);
-      if (paymentOverrides.status !== undefined ? paymentOverrides.status : customerPaymentStatus) params.set('paymentStatus', paymentOverrides.status !== undefined ? paymentOverrides.status : customerPaymentStatus);
-      params.set('paymentSortBy', paymentOverrides.sortBy || customerPaymentSortBy);
-      params.set('paymentSortDirection', paymentOverrides.sortDirection || customerPaymentSortDirection);
-      const data = await api<any>(`/api/subscription?${params}`, { cache: 'no-store' });
-      setBilling(data);
-      setPaymentPhone(data.account?.phone || '');
-      if (data.pricing?.planCode) setSelectedSubscriptionPlanCode(data.pricing.planCode);
-    } catch (reason) {
-      setBillingError(reason instanceof Error ? reason.message : 'Failed to load subscription.');
-      throw reason;
-    } finally {
-      setBillingLoading(false);
-    }
+    const requestId = ++billingRequestSequenceRef.current;
+    const request = Promise.resolve().then(async () => {
+      try {
+        const params = new URLSearchParams({ billingPeriod });
+        if (planCode) params.set('planCode', planCode);
+        if (status) params.set('paymentStatus', status);
+        params.set('paymentSortBy', sortBy);
+        params.set('paymentSortDirection', sortDirection);
+        const data = await api<any>(`/api/subscription?${params}`, { cache: 'no-store' });
+        if (billingRequestRef.current?.id !== requestId) return;
+        setBilling(data);
+        setPaymentPhone(data.account?.phone || '');
+        if (data.pricing?.planCode) setSelectedSubscriptionPlanCode(data.pricing.planCode);
+      } catch (reason) {
+        if (billingRequestRef.current?.id === requestId) {
+          const statusCode = (reason as { status?: number })?.status;
+          setBilling(null);
+          setBillingError(statusCode === 401 ? 'billingAuthError'
+            : statusCode === 403 ? 'billingAccessError'
+              : statusCode === 404 ? 'billingAccountError' : 'billingLoadError');
+        }
+      } finally {
+        if (billingRequestRef.current?.id === requestId) {
+          billingRequestRef.current = null;
+          setBillingLoading(false);
+        }
+      }
+    });
+    billingRequestRef.current = { key, id: requestId, promise: request };
+    return request;
   };
 
   const loadAdminPayments = async (page = adminPaymentPage, status = adminPaymentStatus) => {
@@ -1105,7 +1151,7 @@ const visibleTabs = (isAdmin
     }
     if (tab === 'settings') {
       loadAccountProfile().catch((reason) => setError(reason.message));
-      if (!isAdmin) loadBilling().catch((reason) => setError(reason.message));
+      if (!isAdmin) void loadBilling();
       if (isCollector) loadCollectorPrices().catch((reason) => setError(reason.message));
       return;
     }
@@ -1121,7 +1167,7 @@ const visibleTabs = (isAdmin
       loadDeductions().catch((reason) => setError(reason.message));
       loadDeductionFarmers().catch((reason) => setError(reason.message));
     }
-    if (tab === 'billing') loadBilling().catch((reason) => setError(reason.message));
+    if (tab === 'billing') void loadBilling();
     if (tab === 'notifications') loadNotifications().catch((reason) => setError(reason.message));
   }, [user, tab, selectedCenter]);
 
@@ -1172,7 +1218,7 @@ const visibleTabs = (isAdmin
     if (user && tab === 'reports') loadReport().catch((reason) => setError(reason.message));
   }, [user, tab, reportMonth, selectedCenter]);
   useEffect(() => {
-    if (user && tab === 'settlements') loadSettlementData().catch((reason) => setError(reason.message));
+    if (user && tab === 'settlements') void loadSettlementData();
   }, [user, tab, settlementMonth, settlementHalf, isDairy]);
 
   const logout = async () => {
@@ -2212,7 +2258,7 @@ const visibleTabs = (isAdmin
         <div className="panel-heading"><div><span className="eyebrow">{publicLanguage.t('dashboardPeriod')}</span><h2>{publicLanguage.t('settlementsTitle')}</h2></div><Wallet size={20} aria-hidden="true" /></div>
         <div className="toolbar"><label>{publicLanguage.t('ukweziMonth')}<input type="month" value={settlementMonth} onChange={(event) => setSettlementMonth(event.target.value)} /></label><label>{publicLanguage.t('ukweziPeriod')}<select value={settlementHalf} onChange={(event) => setSettlementHalf(event.target.value as typeof settlementHalf)}><option value="first-half">1–15</option><option value="second-half">16–{getMonthBounds(settlementMonth).endDate.slice(-2)}</option></select></label><button type="button" className="button button-secondary" onClick={() => run(() => loadSettlementData())} disabled={busy || settlementLoading}>{publicLanguage.t('reportsRefresh')}</button></div>
         <p role="note">{publicLanguage.t('settlementsNote')}</p>
-        {settlementError ? <div className="workspace-empty" role="alert"><b>{publicLanguage.t('settlementsLoadError')}</b><button type="button" className="button button-secondary small-button" onClick={() => loadSettlementData()} disabled={settlementLoading}>{publicLanguage.t('settlementsRetry')}</button></div> : null}
+        {settlementError ? <div className="workspace-empty" role="alert"><b>{publicLanguage.t(settlementError)}</b><button type="button" className="button button-secondary small-button" onClick={() => void loadSettlementData()} disabled={settlementLoading}>{publicLanguage.t('settlementsRetry')}</button></div> : null}
         {settlementLoading ? <div className="workspace-empty workspace-loading" role="status"><span className="loading-indicator" />{publicLanguage.t('dashboardLoading')}</div> : null}
 
         {isDairy ? <>
@@ -2414,7 +2460,7 @@ const visibleTabs = (isAdmin
           <UserRound size={17} aria-hidden="true" />{publicLanguage.t('myAccount')}
         </button>
         <button type="button" id="account-settings-tab-management" className="account-settings-tab" role="tab" aria-selected={accountSettingsTab === 'management'} aria-controls="account-settings-panel-management" tabIndex={accountSettingsTab === 'management' ? 0 : -1} onClick={() => setAccountSettingsTab('management')} onKeyDown={handleTabKeyDown}>
-          <Building2 size={17} aria-hidden="true" />{publicLanguage.t('accountManagement')}
+          <ContactRound size={17} aria-hidden="true" />{publicLanguage.t('accountManagement')}
         </button>
       </div>
 
@@ -2519,7 +2565,7 @@ const visibleTabs = (isAdmin
     return <div className="subscription-layout account-settings-subscription">
       <section className="panel subscription-overview" id="account-subscription-status">
         <div className="panel-heading"><div><span className="eyebrow">{publicLanguage.t('accountStatus')}</span><h2>{publicLanguage.t('navSubscription')}</h2></div><ClipboardList size={20} aria-hidden="true" /></div>
-        {billingError ? <div className="form-error" role="alert">{billingError}<button type="button" className="text-button" onClick={() => loadBilling().catch(() => undefined)}>{publicLanguage.t('reportsRefresh')}</button></div> : null}
+        {billingError ? <div className="form-error" role="alert">{publicLanguage.t(billingError)} <button type="button" className="text-button" onClick={() => void loadBilling()} disabled={billingLoading}>{publicLanguage.t('tryAgain')}</button></div> : null}
         {billingError && !billing ? null : billingLoading && !billing ? <div className="workspace-empty workspace-loading" role="status"><span className="loading-indicator" />{publicLanguage.t('dashboardLoading')}</div> : <div className="subscription-state"><span className={`status-dot status-${billing?.subscription?.effective_status || billing?.subscription?.status || 'pending'}`} />{subscriptionStatusLabel(billing?.subscription?.effective_status || billing?.subscription?.status)}</div>}
         {billing?.subscription?.effective_status === 'suspended' || billing?.subscription?.effective_status === 'expired' ? <p className="form-error subscription-overdue" role="status">{publicLanguage.t('subscriptionOverdue')}</p> : null}
         {billing?.subscription ? <dl className="subscription-period-details">

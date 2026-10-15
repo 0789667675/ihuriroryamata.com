@@ -86,6 +86,7 @@ test('Settlements and shared navigation use paired locale copy and accessible la
     'settlementsEmptyApproved', 'settlementsLoadError', 'settlementsActionError',
     'settlementsStatusPending', 'settlementsStatusApproved', 'settlementsStatusConfirmed',
     'ukweziReconciliationUnavailable', 'ukweziReconciliationUnavailableDetail', 'ukweziBreakdownUnavailable',
+    'settlementsSchemaUnavailable', 'billingLoadError', 'billingAuthError', 'billingAccessError', 'billingAccountError',
   ];
 
   assert.match(navigation, /settlements: 'navSettlements'/);
@@ -97,9 +98,49 @@ test('Settlements and shared navigation use paired locale copy and accessible la
   assert.match(settlementView, /formatDateLabel\(value, publicLanguage\.language/);
   assert.match(settlementView, /new Intl\.NumberFormat\(publicLanguage\.language/);
   assert.match(workspace, /ukweziReconciliationUnavailableDetail/);
+  assert.match(workspace, /publicLanguage\.t\(settlementError\)/);
+  assert.match(workspace, /settlementsRetry/);
+  assert.doesNotMatch(publicCopy, /settlementsLoadError: '[^']*Ongera ugerageze/);
   for (const key of localeKeys) {
     assert.equal((publicCopy.match(new RegExp(`\\b${key}:`, 'g')) || []).length, 2, `${key} must exist in both locales`);
   }
+});
+
+test('billing errors stay localized and singular while identical reads are coalesced', () => {
+  const loader = workspace.slice(workspace.indexOf('const loadBilling ='), workspace.indexOf('const loadAdminPayments'));
+  const billing = workspace.slice(workspace.indexOf('const renderBilling'), workspace.indexOf('const renderNotifications'));
+  const customerRoute = fs.readFileSync(path.join(__dirname, '..', 'app', 'api', 'subscription', 'route.js'), 'utf8');
+
+  assert.match(loader, /billingRequestRef\.current\?\.key === key/);
+  assert.match(loader, /billingRequestRef\.current\?\.id === requestId/);
+  assert.match(loader, /statusCode === 401 \? 'billingAuthError'/);
+  assert.match(loader, /setBilling\(null\)/);
+  assert.match(billing, /billing\?\.payments\?\.length \? <>/);
+  assert.match(billing, /billing \? <div className="subscription-history-empty"/);
+  assert.match(billing, /publicLanguage\.t\(billingError\).*publicLanguage\.t\('tryAgain'\)/);
+  assert.equal((billing.match(/billingError \? <div className="form-error" role="alert">/g) || []).length, 1);
+  assert.match(workspace, /disabled=\{billingLoading\}/);
+  assert.match(workspace, /!isAdmin \? renderBilling\(\) : null/);
+  assert.match(customerRoute, /if \(user\.role !== 'user'\)/);
+  assert.match(customerRoute, /userId: user\.id/);
+  assert.doesNotMatch(workspace, /loadBilling\(\)\.catch\(\(reason\) => setError\(reason\.message\)\)/);
+  assert.doesNotMatch(workspace, /tab === 'settlements'\) loadSettlementData\(\)\.catch\(\(reason\) => setError/);
+});
+
+test('workspace navigation uses unique supported semantic Lucide icons across roles', () => {
+  const iconMap = workspace.slice(workspace.indexOf('const navigationIcons'), workspace.indexOf('const collectorTabs'));
+  const mapped = [...iconMap.matchAll(/^\s+(?:'([^']+)'|(\w+)): (\w+),$/gm)];
+  const iconNames = mapped.map((match) => match[3]);
+  const lucide = require('lucide-react');
+
+  assert.ok(iconNames.length >= 17);
+  assert.equal(new Set(iconNames).size, iconNames.length);
+  for (const iconName of iconNames) assert.ok(lucide[iconName], `${iconName} must exist in installed Lucide`);
+  for (const id of ['dashboard', 'farmers', 'milk', 'ukwezi', 'settlements', 'reports', 'billing', 'accounts', 'audit', 'settings']) {
+    assert.match(iconMap, new RegExp(`\\b${id}:`));
+  }
+  assert.match(workspace, /aria-label=\{publicLanguage\.t\('workspaceNavigation'\)\}/);
+  assert.match(workspace, /tab === 'billing' && !isAdmin/);
 });
 
 test('Milk Entry exposes secure search, session, page-size, clear, and reset controls', () => {
