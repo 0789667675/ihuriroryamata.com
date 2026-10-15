@@ -1,9 +1,12 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const path = require('node:path');
 
 const Config = require('../lib/services/platform-config-service.js');
+const ConfigRepository = require('../lib/repositories/platformConfigRepository.js');
 
-test('platform admin collection-center pricing validates non-negative values and writes as the actor', async () => {
+test('platform admin collection-center pricing validates positive RWF prices and writes as the actor', async () => {
   let written;
   const result = await Config.updateCollectionCenterPricing({
     actorId: 1,
@@ -12,13 +15,65 @@ test('platform admin collection-center pricing validates non-negative values and
   });
   assert.deepEqual(written, { actorId: 1, amount: 32000, boundary: 55000 });
   assert.equal(result.amount, 32000);
-  await assert.rejects(() => Config.updateCollectionCenterPricing({ actorId: 1, input: { monthlyAmount: -1 }, repository: {} }), /Invalid Collection Center pricing/i);
+  for (const monthlyAmount of [0, -1, 32000.5]) {
+    await assert.rejects(() => Config.updateCollectionCenterPricing({ actorId: 1, input: { monthlyAmount }, repository: {} }), /Invalid Collection Center pricing/i);
+  }
+});
+
+test('Collection Center price transaction audits the prior and new configured amounts', async () => {
+  const calls = [];
+  const client = {
+    query: async (text, values = []) => {
+      calls.push({ text, values });
+      if (text.includes('SELECT monthly_amount')) return { rows: [{ monthly_amount: '30000', first_volume_boundary_liters: '50000', currency: 'RWF' }] };
+      if (text.includes('SELECT * FROM subscription_plans')) return { rows: [{ id: 91, price: '30000', currency: 'RWF' }] };
+      if (text.includes('UPDATE collection_center_subscription_config')) return { rows: [{ id: 1 }] };
+      if (text.includes('UPDATE subscription_plans')) return { rows: [{ id: 91, price: '32000', currency: 'RWF', billing_period: 'monthly' }] };
+      return { rows: [] };
+    },
+    release() {},
+  };
+  await ConfigRepository.updateCollectionCenterPricing({
+    actorId: 17,
+    amount: 32000,
+    boundary: 55000,
+    poolProvider: () => ({ connect: async () => client }),
+  });
+
+  const audit = calls.find(({ text }) => text.includes('INSERT INTO audit_logs'));
+  assert.ok(calls.some(({ text }) => text === 'BEGIN'));
+  assert.ok(calls.some(({ text }) => text === 'COMMIT'));
+  assert.equal(audit.values[2], 17);
+  assert.deepEqual(JSON.parse(audit.values[1]), {
+    previous: { monthlyAmount: 30000, firstVolumeBoundaryLiters: 50000, currency: 'RWF' },
+    current: { monthlyAmount: 32000, firstVolumeBoundaryLiters: 55000, currency: 'RWF' },
+  });
+  assert.equal(calls.some(({ text }) => /UPDATE\s+subscription_payments|DELETE\s+FROM\s+subscription_payments/i.test(text)), false);
+});
+
+test('both subscription price configuration APIs remain Super Admin-only', () => {
+  for (const file of [
+    'app/api/admin/config/plans/route.js',
+    'app/api/admin/config/collection-center/route.js',
+  ]) {
+    const route = fs.readFileSync(path.join(__dirname, '..', file), 'utf8');
+    assert.match(route, /getAuthenticatedUser/);
+    assert.match(route, /user\.role !== 'super_admin'/);
+  }
 });
 
 test('platform plan views are delegated to the server repository', async () => {
   const plans = [{ code: 'USAGE_0_5000_MONTHLY' }];
   assert.equal(await Config.getPlans({ repository: { listPlans: async () => plans } }), plans);
   assert.deepEqual(await Config.getCollectionCenterPricing({ repository: { getCollectionCenterPricing: async () => ({ config: null, plan: null }) } }), { config: null, plan: null });
+});
+
+test('subscription price configuration routes permit edits only to Super Admin', () => {
+  for (const file of ['plans', 'collection-center']) {
+    const route = fs.readFileSync(path.join(__dirname, '..', 'app', 'api', 'admin', 'config', file, 'route.js'), 'utf8');
+    assert.match(route, /getAuthenticatedUser/);
+    assert.match(route, /user\.role !== 'super_admin'/);
+  }
 });
 
 test('admin tier pricing accepts editable monthly tiers and creates tiers without client-assigned codes', async () => {

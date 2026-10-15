@@ -10,9 +10,6 @@ export async function POST(request) {
     const body = await request.json();
     const accountType = String(body.accountType || body.account_type || 'COLLECTOR').toUpperCase();
     const selectedPlanCode = body.selectedPlanCode || body.planCode || null;
-    if (accountType !== 'COLLECTION_CENTER' && !selectedPlanCode) {
-      return NextResponse.json({ ok: false, message: 'Select a monthly volume tier before creating the account.' }, { status: 400 });
-    }
     const user = await registerUser({
       repository,
       name: body.name,

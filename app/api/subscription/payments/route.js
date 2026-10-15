@@ -6,7 +6,7 @@ const Subscriptions = require('@/lib/services/subscription-service.js');
 export const runtime = 'nodejs';
 
 const errorResponse = (error) => {
-  if (['PHONE_NUMBER_MISSING', 'PHONE_NUMBER_MISMATCH', 'INVALID_PHONE_NUMBER', 'UNSUPPORTED_PROVIDER', 'BILLING_PERIOD_NOT_SUPPORTED'].includes(error.code)) {
+  if (['PHONE_NUMBER_MISSING', 'PHONE_NUMBER_MISMATCH', 'INVALID_PHONE_NUMBER', 'UNSUPPORTED_PROVIDER', 'BILLING_PERIOD_NOT_SUPPORTED', 'PAYMENT_CURRENCY_UNSUPPORTED'].includes(error.code)) {
     return NextResponse.json({ success: false, code: error.code, message: error.message }, { status: 400 });
   }
   if (error.code === 'PLAN_NOT_AVAILABLE') return NextResponse.json({ success: false, code: 'PAYMENT_INITIATION_FAILED', message: error.message }, { status: 400 });

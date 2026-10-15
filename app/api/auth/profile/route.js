@@ -42,3 +42,14 @@ export async function PUT(request) {
     return respond(error, 'Failed to save account settings.');
   }
 }
+
+export async function PATCH(request) {
+  try {
+    const user = await getAuthenticatedUser(request);
+    if (!user) return NextResponse.json({ ok: false, message: 'Not authenticated.' }, { status: 401 });
+    const { language } = await request.json();
+    return NextResponse.json(await Accounts.updateLanguage({ userId: user.id, language }));
+  } catch (error) {
+    return respond(error, 'Failed to save account language.');
+  }
+}

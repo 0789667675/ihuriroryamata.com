@@ -35,14 +35,13 @@ type CollectorSettlementFields = { collectorFarmerMilkValue?: number | null; col
 type SettlementAccounting = { farmerGross: number | null; expectedFarmerPayable: number; saccoEligiblePayable: number; saccoDistributionInstruction: number; saccoConfirmedAmount: number; retainedUnpaidAmount: number; cashApprovedAmount: number; cashConfirmedAmount: number; debtRepaymentAmount: number; outstandingDebt: number | null; legacyUnallocatedDebtRepayments: number; debtBalancesComplete: boolean; unexplainedDiscrepancy: number; ownerGrossReconciliation: { ownerGross: number | null; farmerGross: number | null; surplus: number | null; discrepancy: number | null }; farmers: Array<ReportFarmerRow & { settlement: { saccoEligible: boolean; saccoDistributionInstruction: number; cashApprovedAmount: number; cashConfirmedAmount: number; debtRepaymentAmount: number; outstandingDebt: number | null; retainedUnpaidAmount: number; unexplainedDiscrepancy: number | null } }> };
 type Report = { totalFarmers: number; totalVolume: number; totalMorning: number; totalEvening: number; totalRevenueMonth: number; ownerGeneratedGross?: number | null; ownerGeneratedVolume?: number; totalDeductionsMonth: number; totalTransportFeesMonth: number; netRevenueMonth: number; todayTotal: number; todayMorning: number; todayEvening: number; rangeStart: string; rangeEnd: string; collectorPayable: number | null; collectorGross?: number | null; collectorActualVolume?: number; collectorOriginalVolume?: number; collectorLostVolume?: number; collectorFarmersValidLiters?: number; collectorTotalFarmersPayable?: number; collectorFarmerDeductions?: number; collectorFarmerTransport?: number; collectorSurplusAmount?: number | null; collectorPayableFromBreakdown?: number | null; collectorIsReconciled?: boolean | null; collectorProfile?: { name: string } | null; collectorEntries?: Array<{ id: number; date: string; status: string; volumeLiters: number; effectiveVolumeLiters: number; farmerLostLiters: number; voidReason?: string | null; voidedBy?: number | null; voidedAt?: string | null }>; milkLossRecords?: Array<{ id: number; farmerId: number; farmerName: string; date: string; status: string; originalVolume: number; validVolume: number; lostVolume: number; reason: string | null; adjustedBy: number | null; adjustedAt: string | null }>; collectorSettlementRows?: any[]; ownerSettlementRow?: ReportOwnerRow | null; farmerPayments: ReportFarmerRow[]; settlementAccounting?: SettlementAccounting | null; settlementAccountingStatus?: 'AVAILABLE' | 'MIGRATION_REQUIRED' | null };
 type Account = { user_id: number; account_name: string; account_email: string; account_type: string; account_status: string; effective_status: string; farmer_count: number; center_count: number };
-type AdminAccountDetails = { account: { id: number; name: string; email: string; account_type: string; account_status: string; email_verified: boolean; phone: string | null; created_at: string }; subscription: { status: string; plan_id: number | null; current_price: number | string | null; currency: string | null; tier_code: string | null; access_started_at: string | null; payment_due_at: string | null; subscription_started_at: string | null; subscription_ends_at: string | null } | null; counts: { centers: number; farmers: number; milk_records: number; deductions: number; payments: number; notifications: number } };
+type AdminAccountDetails = { account: { id: number; name: string; email: string; account_type: string; account_status: string; email_verified: boolean; phone: string | null; created_at: string }; subscription: { status: string; effective_status?: string; billing_exempt?: boolean; exemption_reason?: string | null; exemption_granted_at?: string | null; exemption_revoked_at?: string | null; plan_id: number | null; current_price: number | string | null; currency: string | null; tier_code: string | null; access_started_at: string | null; payment_due_at: string | null; subscription_started_at: string | null; subscription_ends_at: string | null } | null; counts: { centers: number; farmers: number; milk_records: number; deductions: number; payments: number; notifications: number } };
 type AdminPaymentSummary = { successfulCount: number; successfulAmount: number; pendingCount: number; failedCount: number; cancelledCount: number; expiredCount: number };
-type AdminSummary = { accounts: { total_accounts: number; without_subscription: number; not_approved: number; pending: number; active: number; suspended: number; expired: number }; registrations_last_30_days: number };
+type AdminSummary = { accounts: { total_accounts: number; without_subscription: number; not_approved: number; pending: number; active: number; suspended: number; expired: number; exempt: number }; registrations_last_30_days: number };
 type SystemHealth = { ok: boolean; service: string; database: { configured: boolean; provider: string; connected: boolean }; supabase: { configured: boolean; url: string | null }; migrated: boolean };
 type SubscriptionPlan = { id: number; code: string; name: string; price: number | string; currency: string; billing_period: string; min_volume_liters: number | string | null; max_volume_liters: number | string | null; is_active: boolean };
 type CollectorTierEdit = { name: string; price: string; minVolumeLiters: string; maxVolumeLiters: string; isActive: boolean };
 type SubscriptionPolicy = { initial_access_days: number; grace_period_days: number; enforcement_time: string; time_zone: string };
-type RegistrationConfiguration = { plans: SubscriptionPlan[]; policy: SubscriptionPolicy };
 type PaymentConfiguration = { provider: string; paymentMethod: string; displayName: string; currency: string; payerAccount: string; payerPhoneSource: string; realPaymentsEnabled: boolean; credentialsConfigured: boolean; apiConfigured: boolean; callbackConfigured: boolean; ready: boolean };
 type AdminPayment = { id: number; account_name: string; account_email: string; subscription_status: string; plan_name: string | null; plan_code: string | null; amount: number; currency: string; status: string; payment_method: string; provider: string | null; billing_period: string; provider_reference: string; provider_transaction_id: string | null; mobile_money_phone: string | null; created_at: string; completed_at: string | null };
 type CollectorAssignment = { id: number; collector_user_id: number; collector_name: string; collector_account_number: string | null; collector_national_id: string | null; collector_phone: string | null; abacunda_count: number };
@@ -139,12 +138,14 @@ const accountStatusCopy = {
   active: 'statusActive',
   suspended: 'statusSuspended',
   expired: 'statusExpired',
+  exempt: 'statusExempt',
   none: 'statusNone',
 } as const;
 const subscriptionStatusCopy = {
   pending: 'statusPending',
   trial: 'statusPending',
   active: 'statusActive',
+  exempt: 'statusExempt',
   suspended: 'statusSuspended',
   expired: 'statusExpired',
   cancelled: 'statusExpired',
@@ -162,10 +163,6 @@ function Login({ onLogin, language, setLanguage, t }: { onLogin: (user: User) =>
   const [passwordVisible, setPasswordVisible] = useState(false);
   const [name, setName] = useState('');
   const [accountType, setAccountType] = useState('COLLECTOR');
-  const [registrationPlans, setRegistrationPlans] = useState<SubscriptionPlan[]>([]);
-  const [registrationAccessDays, setRegistrationAccessDays] = useState(15);
-  const [registrationPlansLoading, setRegistrationPlansLoading] = useState(false);
-  const [selectedPlanCode, setSelectedPlanCode] = useState('');
   const [resetStep, setResetStep] = useState<'request' | 'verify' | 'password' | 'complete'>('request');
   const [resetCode, setResetCode] = useState('');
   const [newPassword, setNewPassword] = useState('');
@@ -173,23 +170,6 @@ function Login({ onLogin, language, setLanguage, t }: { onLogin: (user: User) =>
   const [resetMessage, setResetMessage] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
-
-  useEffect(() => {
-    if (!registering || accountType !== 'COLLECTOR') return;
-    let mounted = true;
-    setRegistrationPlansLoading(true);
-    api<RegistrationConfiguration>('/api/subscription/plans', { cache: 'no-store' }).then((config) => {
-      if (mounted) {
-        setRegistrationPlans(config.plans);
-        setRegistrationAccessDays(config.policy.initial_access_days);
-      }
-    }).catch((reason) => {
-      if (mounted) setError(reason instanceof Error ? reason.message : 'Subscription pricing is unavailable.');
-    }).finally(() => {
-      if (mounted) setRegistrationPlansLoading(false);
-    });
-    return () => { mounted = false; };
-  }, [registering, accountType]);
 
   const requestResetCode = async () => {
     setBusy(true);
@@ -251,9 +231,10 @@ function Login({ onLogin, language, setLanguage, t }: { onLogin: (user: User) =>
     setError('');
     try {
       if (registering) {
-        await api('/api/auth/register', json('POST', { name, email, password, accountType, selectedPlanCode, language }));
+        await api('/api/auth/register', json('POST', { name, email, password, accountType, language }));
       }
       const result = await api<{ user: User }>('/api/auth/login', json('POST', { email, password }));
+      await api('/api/auth/profile', json('PATCH', { language })).catch(() => undefined);
       onLogin(result.user);
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : 'Unable to sign in.');
@@ -309,21 +290,10 @@ function Login({ onLogin, language, setLanguage, t }: { onLogin: (user: User) =>
           <label>{t('email')}<input type="email" autoComplete="email" required value={email} onChange={(event) => setEmail(event.target.value)} /></label>
           <label>{t('password')}<span className="password-field"><input type={passwordVisible ? 'text' : 'password'} autoComplete={registering ? 'new-password' : 'current-password'} required minLength={8} value={password} onChange={(event) => setPassword(event.target.value)} /><button className="password-toggle" type="button" aria-label={passwordVisible ? t('hidePassword') : t('showPassword')} aria-pressed={passwordVisible} onClick={() => setPasswordVisible((visible) => !visible)}>{passwordVisible ? <EyeOff size={19} aria-hidden="true" /> : <Eye size={19} aria-hidden="true" />}</button></span></label>
           {!registering ? <Link className="auth-forgot-link" href="/forgot-password">{t('forgotPassword')}</Link> : null}
-          {registering ? <label>{t('accountType')}<select value={accountType} onChange={(event) => { setAccountType(event.target.value); setSelectedPlanCode(''); }}><option value="COLLECTOR">{t('collector')}</option>{process.env.NODE_ENV !== 'production' ? <option value="COLLECTION_CENTER">{t('collectionCenter')}</option> : null}</select></label> : null}
-          {registering && accountType === 'COLLECTOR' ? <>
-            <fieldset className="registration-tier-options">
-              <legend>{t('subscriptionSelectTier')}</legend>
-              {registrationPlansLoading ? <p>{t('dashboardLoading')}</p> : registrationPlans.map((plan) => <label className="registration-tier-option" key={plan.id}>
-                <input type="radio" name="registration-tier" value={plan.code} checked={selectedPlanCode === plan.code} onChange={() => setSelectedPlanCode(plan.code)} />
-                <span><b>{plan.name}</b><small>{Number(plan.min_volume_liters).toLocaleString()}–{plan.max_volume_liters === null ? '∞' : Number(plan.max_volume_liters).toLocaleString()} L / {t('billingMonthly')}</small></span>
-                <strong>{money(Number(plan.price))} {plan.currency}</strong>
-              </label>)}
-              {!registrationPlansLoading && !registrationPlans.length ? <p role="status">{t('subscriptionUnavailable')}</p> : null}
-            </fieldset>
-            <p className="subscription-registration-period">{t('initialAccessDisclosure').replace('{days}', String(registrationAccessDays))}</p>
-          </> : null}
+          {registering ? <label>{t('accountType')}<select value={accountType} onChange={(event) => setAccountType(event.target.value)}><option value="COLLECTOR">{t('collector')}</option>{process.env.NODE_ENV !== 'production' ? <option value="COLLECTION_CENTER">{t('collectionCenter')}</option> : null}</select></label> : null}
+          {registering ? <p className="subscription-registration-period">{t('registrationSubscriptionNotice')}</p> : null}
           {error ? <p className="form-error" role="alert">{error}</p> : null}
-          <button className="button button-primary button-wide" disabled={busy || (registering && accountType === 'COLLECTOR' && (!selectedPlanCode || registrationPlansLoading))}>{busy ? t('wait') : registering ? t('createAccount') : t('signIn')}<ArrowRight size={17} /></button>
+          <button className="button button-primary button-wide" disabled={busy}>{busy ? t('wait') : registering ? t('createAccount') : t('signIn')}<ArrowRight size={17} /></button>
         </form>
         <div className="auth-navigation">
           <Link className="text-button auth-switch" href={registering ? '/login' : '/register'}>
@@ -488,6 +458,7 @@ const [report, setReport] = useState<Report | null>(null);
   const [adminAccountDetailsTargetId, setAdminAccountDetailsTargetId] = useState<number | null>(null);
   const [adminAccountDetailsLoading, setAdminAccountDetailsLoading] = useState(false);
   const [adminAccountDetailsError, setAdminAccountDetailsError] = useState('');
+  const [adminExemptionReason, setAdminExemptionReason] = useState('');
   const adminAccountDetailsRequestRef = useRef(0);
   const [billing, setBilling] = useState<any>(null);
   const [billingLoading, setBillingLoading] = useState(false);
@@ -999,6 +970,7 @@ const visibleTabs = (isAdmin
     setAdminAccountDetailsTargetId(userId);
     setAdminAccountDetails(null);
     setAdminAccountDetailsError('');
+    setAdminExemptionReason('');
     setAdminAccountDetailsLoading(true);
     try {
       const details = await api<AdminAccountDetails>(`/api/admin/accounts/${userId}`);
@@ -1018,6 +990,29 @@ const visibleTabs = (isAdmin
     setAdminAccountDetails(null);
     setAdminAccountDetailsTargetId(null);
     setAdminAccountDetailsError('');
+    setAdminExemptionReason('');
+  };
+
+  const updateAdminSubscriptionExemption = async (grant: boolean) => {
+    const userId = adminAccountDetailsTargetId;
+    const reason = adminExemptionReason.trim();
+    if (userId === null) return;
+    if (reason.length < 5) {
+      setAdminAccountDetailsError(publicLanguage.t('subscriptionExemptionReasonRequired'));
+      return;
+    }
+    setBusy(true);
+    setAdminAccountDetailsError('');
+    try {
+      await api(`/api/admin/accounts/${userId}/${grant ? 'grant-exemption' : 'revoke-exemption'}`, json('POST', { reason }));
+      setAdminExemptionReason('');
+      setNotice(publicLanguage.t(grant ? 'subscriptionExemptionGranted' : 'subscriptionExemptionRevoked'));
+      await loadAdminAccountDetails(userId);
+    } catch (reasonError) {
+      setAdminAccountDetailsError(reasonError instanceof Error ? reasonError.message : publicLanguage.t('adminAccountActionFailed'));
+    } finally {
+      setBusy(false);
+    }
   };
 
   const loadAudit = async () => {
@@ -2492,8 +2487,8 @@ const visibleTabs = (isAdmin
           <div className="panel-heading"><div><span className="eyebrow">{publicLanguage.t('accountLanguage')}</span><h2>{publicLanguage.t('languageLabel')}</h2></div></div>
           <div className="account-settings-quick-actions">
             <div className="language-setting"><span>{publicLanguage.t('accountLanguage')}</span><div className="public-language-switch" role="group" aria-label={publicLanguage.t('languageLabel')}>
-              <button type="button" aria-label={publicLanguage.t('languageKinyarwanda')} aria-pressed={publicLanguage.language === 'rw'} onClick={() => publicLanguage.setLanguage('rw')}>RW</button>
-              <button type="button" aria-label={publicLanguage.t('languageEnglish')} aria-pressed={publicLanguage.language === 'en'} onClick={() => publicLanguage.setLanguage('en')}>EN</button>
+              <button type="button" aria-label={publicLanguage.t('languageKinyarwanda')} aria-pressed={publicLanguage.language === 'rw'} onClick={() => { publicLanguage.setLanguage('rw'); void api('/api/auth/profile', json('PATCH', { language: 'rw' })).catch(() => setError(publicLanguage.t('accountLanguageSaveError'))); }}>RW</button>
+              <button type="button" aria-label={publicLanguage.t('languageEnglish')} aria-pressed={publicLanguage.language === 'en'} onClick={() => { publicLanguage.setLanguage('en'); void api('/api/auth/profile', json('PATCH', { language: 'en' })).catch(() => setError(publicLanguage.t('accountLanguageSaveError'))); }}>EN</button>
             </div></div>
           </div>
         </section>
@@ -2644,15 +2639,21 @@ const renderNotifications = () => <section className="panel"><div className="pan
           <div><dt>{publicLanguage.t('accountType')}</dt><dd>{adminAccountDetails.account.account_type === 'COLLECTION_CENTER' ? publicLanguage.t('collectionCenter') : publicLanguage.t('collector')}</dd></div>
           <div><dt>{publicLanguage.t('status')}</dt><dd>{publicLanguage.t(accountStatusCopy[(adminAccountDetails.account.account_status || 'active') as keyof typeof accountStatusCopy] || 'statusActive')}</dd></div>
           <div><dt>{publicLanguage.t('accountPhone')}</dt><dd>{adminAccountDetails.account.phone || '—'}</dd></div>
-          <div><dt>Created</dt><dd>{formatDateLabel(adminAccountDetails.account.created_at, publicLanguage.language, { day: 'numeric', month: 'long', year: 'numeric', time: 'short' })}</dd></div>
-          <div><dt>{publicLanguage.t('navSubscription')}</dt><dd>{adminAccountDetails.subscription ? `${adminAccountDetails.subscription.status || 'unknown'} · ${typeof adminAccountDetails.subscription.current_price === 'number' ? money(adminAccountDetails.subscription.current_price) : (adminAccountDetails.subscription.current_price || '—')} ${adminAccountDetails.subscription.currency || 'RWF'}` : publicLanguage.t('subscriptionNoAccount')}</dd></div>
+          <div><dt>{publicLanguage.t('accountCreated')}</dt><dd>{formatDateLabel(adminAccountDetails.account.created_at, publicLanguage.language, { day: 'numeric', month: 'long', year: 'numeric', time: 'short' })}</dd></div>
+          <div><dt>{publicLanguage.t('navSubscription')}</dt><dd>{adminAccountDetails.subscription ? `${publicLanguage.t(subscriptionStatusCopy[(adminAccountDetails.subscription.effective_status || adminAccountDetails.subscription.status || 'pending').toLowerCase() as keyof typeof subscriptionStatusCopy] || 'statusPending')} · ${typeof adminAccountDetails.subscription.current_price === 'number' ? money(adminAccountDetails.subscription.current_price) : (adminAccountDetails.subscription.current_price || '—')} ${adminAccountDetails.subscription.currency || 'RWF'}` : publicLanguage.t('subscriptionNoAccount')}</dd></div>
         </dl>
+        {adminAccountDetails.subscription ? <section className="panel compact-panel subscription-exemption-controls">
+          <div className="panel-heading"><h3>{publicLanguage.t('subscriptionExemption')}</h3></div>
+          <p role="status">{publicLanguage.t(adminAccountDetails.subscription.billing_exempt ? 'subscriptionExemptionActive' : 'subscriptionExemptionInactive')}{adminAccountDetails.subscription.exemption_reason ? ` · ${adminAccountDetails.subscription.exemption_reason}` : ''}</p>
+          <label>{publicLanguage.t('subscriptionExemptionReason')}<input maxLength={255} value={adminExemptionReason} onChange={(event) => setAdminExemptionReason(event.target.value)} /></label>
+          <button type="button" className="button button-secondary" disabled={busy || adminExemptionReason.trim().length < 5} onClick={() => void updateAdminSubscriptionExemption(!adminAccountDetails.subscription?.billing_exempt)}>{publicLanguage.t(adminAccountDetails.subscription.billing_exempt ? 'subscriptionExemptionRevoke' : 'subscriptionExemptionGrant')}</button>
+        </section> : null}
         <div className="admin-account-stat-grid">
           <div><span>{publicLanguage.t('navCenters')}</span><b>{adminAccountDetails.counts.centers}</b></div>
           <div><span>{publicLanguage.t('farmers')}</span><b>{adminAccountDetails.counts.farmers}</b></div>
           <div><span>{publicLanguage.t('navMilk')}</span><b>{adminAccountDetails.counts.milk_records}</b></div>
           <div><span>{publicLanguage.t('navDeductions')}</span><b>{adminAccountDetails.counts.deductions}</b></div>
-          <div><span>Payments</span><b>{adminAccountDetails.counts.payments}</b></div>
+          <div><span>{publicLanguage.t('adminPaymentsCount')}</span><b>{adminAccountDetails.counts.payments}</b></div>
           <div><span>{publicLanguage.t('navAlerts')}</span><b>{adminAccountDetails.counts.notifications}</b></div>
         </div>
       </div> : null}
@@ -2661,7 +2662,14 @@ const renderNotifications = () => <section className="panel"><div className="pan
 
   const renderAdminAudit = () => <section className="panel"><div className="panel-heading"><div><span className="eyebrow">{publicLanguage.t('auditSecurity')}</span><h2>{publicLanguage.t('auditLog')}</h2></div><span className="count-label">{auditRows?.total ?? '…'} {publicLanguage.t('events')}</span></div><div className="table-scroll"><table><thead><tr><th>{publicLanguage.t('when')}</th><th>{publicLanguage.t('actor')}</th><th>{publicLanguage.t('entity')}</th><th>{publicLanguage.t('actions')}</th><th>{publicLanguage.t('details')}</th></tr></thead><tbody>{(auditRows?.items || []).map((row: any) => <tr key={row.id}><td>{formatDateLabel(row.created_at, publicLanguage.language, { day: 'numeric', month: 'long', year: 'numeric', time: 'short' })}</td><td>{row.actor_name || row.changed_by || 'System'}</td><td>{row.entity_type} #{row.entity_id}</td><td>{row.action}</td><td><code>{JSON.stringify(row.details || {})}</code></td></tr>)}</tbody></table></div></section>;
 
-  const renderAdminConfig = () => <section className="panel"><div className="panel-heading"><div><span className="eyebrow">{publicLanguage.t('pricingPlatform')}</span><h2>{publicLanguage.t('centerPlan')}</h2></div><CircleDollarSign size={20} /></div><div className="config-callout">{adminConfigLoading ? publicLanguage.t('dashboardLoading') : `${centerPricing?.plan?.name || 'Collection Center Monthly'} · ${money(centerPricing?.plan?.price || centerPricing?.config?.monthly_amount || 0)} RWF`}</div><form key={centerPricing?.config?.updated_at || 'collection-center-pricing-loading'} className="form-stack compact config-form" onSubmit={(event) => { event.preventDefault(); run(async () => { const formData = new FormData(event.currentTarget); await api('/api/admin/config/collection-center', json('PUT', { monthlyAmount: Number(formData.get('amount')), firstVolumeBoundaryLiters: Number(formData.get('boundary')) })); const updated = await api('/api/admin/config/collection-center'); setCenterPricing(updated); setNotice(publicLanguage.t('pricingSaved')); }); }}><label>{publicLanguage.t('monthlyAmount')}<input name="amount" type="number" min="0" disabled={adminConfigLoading} defaultValue={centerPricing?.config?.monthly_amount || centerPricing?.plan?.price || 30000} /></label><label>{publicLanguage.t('firstVolumeBoundary')}<input name="boundary" type="number" min="0" disabled={adminConfigLoading} defaultValue={centerPricing?.config?.first_volume_boundary_liters || 50000} /></label><button className="button button-primary" disabled={busy || adminConfigLoading}>{publicLanguage.t('savePricing')}</button></form></section>;
+  const renderAdminConfig = () => {
+    const configuredAmount = centerPricing?.config?.monthly_amount ?? centerPricing?.plan?.price;
+    const currency = centerPricing?.config?.currency ?? centerPricing?.plan?.currency ?? 'RWF';
+    const billingPeriodLabel = centerPricing?.plan?.billing_period
+      ? publicLanguage.t('billingMonthly')
+      : '';
+    return <section className="panel"><div className="panel-heading"><div><span className="eyebrow">{publicLanguage.t('pricingPlatform')}</span><h2>{publicLanguage.t('centerPlan')}</h2></div><CircleDollarSign size={20} /></div><div className="config-callout">{adminConfigLoading ? publicLanguage.t('dashboardLoading') : configuredAmount == null ? publicLanguage.t('subscriptionUnavailable') : `${centerPricing?.plan?.name || publicLanguage.t('centerPlan')} · ${money(Number(configuredAmount))} ${currency}${billingPeriodLabel ? ` / ${billingPeriodLabel}` : ''}`}</div><form key={centerPricing?.config?.updated_at || 'collection-center-pricing-loading'} className="form-stack compact config-form" onSubmit={(event) => { event.preventDefault(); run(async () => { const formData = new FormData(event.currentTarget); await api('/api/admin/config/collection-center', json('PUT', { monthlyAmount: Number(formData.get('amount')), firstVolumeBoundaryLiters: Number(formData.get('boundary')) })); const updated = await api('/api/admin/config/collection-center'); setCenterPricing(updated); setNotice(publicLanguage.t('pricingSaved')); }); }}><label>{publicLanguage.t('monthlyAmount')}<input name="amount" type="number" min="1" step="1" required disabled={adminConfigLoading} defaultValue={configuredAmount ?? ''} /></label><label>{publicLanguage.t('firstVolumeBoundary')}<input name="boundary" type="number" min="0" step="1" required disabled={adminConfigLoading} defaultValue={centerPricing?.config?.first_volume_boundary_liters ?? ''} /></label><button className="button button-primary" disabled={busy || adminConfigLoading}>{publicLanguage.t('savePricing')}</button></form></section>;
+  };
 
   const renderAdminSubscriptionPolicy = () => <section className="panel">
     <div className="panel-heading"><div><span className="eyebrow">{publicLanguage.t('pricingPlatform')}</span><h2>{publicLanguage.t('subscriptionPolicyTitle')}</h2></div><CalendarDays size={20} aria-hidden="true" /></div>
@@ -2684,6 +2692,7 @@ const renderNotifications = () => <section className="panel"><div className="pan
       { label: publicLanguage.t('adminInitialAccessAccounts'), value: stats?.pending },
       { label: publicLanguage.t('adminSuspendedAccounts'), value: stats?.suspended },
       { label: publicLanguage.t('adminExpiredAccounts'), value: stats?.expired },
+      { label: publicLanguage.t('adminExemptAccounts'), value: stats?.exempt },
     ];
 
     return <div className="dashboard-view admin-dashboard">
@@ -2745,7 +2754,7 @@ const renderNotifications = () => <section className="panel"><div className="pan
       ? <MtnMoMoBrand compact />
       : payment.payment_method || '—';
     return <section className="panel panel-wide admin-payment-history">
-      <div className="panel-heading"><div><span className="eyebrow">{publicLanguage.t('dashboardAccounting')}</span><h2>{publicLanguage.t('adminPaymentHistory')}</h2></div><div className="admin-payment-controls"><label>{publicLanguage.t('paymentStatus')}<select value={adminPaymentStatus} onChange={(event) => loadAdminPayments(1, event.target.value).catch((reason) => setError(reason.message))}><option value="">All</option><option value="SUCCESS">Successful</option><option value="PENDING">Pending</option><option value="FAILED">Failed</option><option value="CANCELLED">Cancelled</option><option value="EXPIRED">Expired</option></select></label><button type="button" className="button button-secondary" onClick={() => loadAdminPayments().catch((reason) => setError(reason.message))}>{publicLanguage.t('reportsRefresh')}</button></div></div>
+      <div className="panel-heading"><div><span className="eyebrow">{publicLanguage.t('dashboardAccounting')}</span><h2>{publicLanguage.t('adminPaymentHistory')}</h2></div><div className="admin-payment-controls"><label>{publicLanguage.t('paymentStatus')}<select value={adminPaymentStatus} onChange={(event) => loadAdminPayments(1, event.target.value).catch((reason) => setError(reason.message))}><option value="">{publicLanguage.t('allStatuses')}</option><option value="SUCCESS">{publicLanguage.t('paymentSuccessful')}</option><option value="PENDING">{publicLanguage.t('paymentPending')}</option><option value="FAILED">{publicLanguage.t('paymentFailed')}</option><option value="CANCELLED">{publicLanguage.t('paymentCancelled')}</option><option value="EXPIRED">{publicLanguage.t('paymentExpired')}</option></select></label><button type="button" className="button button-secondary" onClick={() => loadAdminPayments().catch((reason) => setError(reason.message))}>{publicLanguage.t('reportsRefresh')}</button></div></div>
       {adminPaymentSummary ? <div className="admin-payment-summary">
         <div><span>{publicLanguage.t('adminVerifiedPayments')}</span><b>{adminPaymentSummary.successfulCount}</b></div>
         <div><span>{publicLanguage.t('adminVerifiedPaymentAmount')}</span><b>{money(adminPaymentSummary.successfulAmount)} RWF</b></div>
@@ -2755,8 +2764,8 @@ const renderNotifications = () => <section className="panel"><div className="pan
         <div><span>{publicLanguage.t('paymentExpired')}</span><b>{adminPaymentSummary.expiredCount}</b></div>
       </div> : null}
       {adminConfigLoading ? <div className="workspace-empty workspace-loading" role="status"><span className="loading-indicator" />{publicLanguage.t('dashboardLoading')}</div> : adminPayments.length ? <>
-        <div className="table-scroll admin-payment-table"><table><thead><tr><th>{publicLanguage.t('account')}</th><th>{publicLanguage.t('paymentPlan')}</th><th>{publicLanguage.t('deductionsAmount')}</th><th>{publicLanguage.t('billingPaymentProvider')}</th><th>{publicLanguage.t('accountPhone')}</th><th>{publicLanguage.t('paymentStatus')}</th><th>{publicLanguage.t('paymentReference')}</th><th>{publicLanguage.t('paymentDate')}</th><th>{publicLanguage.t('paymentConfirmationDate')}</th><th /></tr></thead><tbody>{adminPayments.map((payment) => <tr key={payment.id}><td><b>{payment.account_name || '—'}</b><small className="block-muted">{payment.account_email}</small></td><td>{payment.plan_name || payment.plan_code || '—'}<small className="block-muted">{payment.billing_period}</small></td><td>{money(payment.amount)} {payment.currency}</td><td>{paymentMethod(payment)}</td><td>{payment.mobile_money_phone || '—'}</td><td><span className={`payment-status-badge payment-status-${payment.status.toLowerCase()}`}>{statusLabel(payment.status)}</span></td><td><b>{payment.provider_reference || '—'}</b>{payment.provider_transaction_id ? <small className="block-muted">{payment.provider_transaction_id}</small> : null}</td><td>{payment.created_at ? formatDateLabel(payment.created_at, publicLanguage.language, { day: 'numeric', month: 'long', year: 'numeric', time: 'short' }) : '—'}</td><td>{payment.completed_at ? formatDateLabel(payment.completed_at, publicLanguage.language, { day: 'numeric', month: 'long', year: 'numeric', time: 'short' }) : '—'}</td><td>{payment.status === 'PENDING' ? <button type="button" className="text-button" onClick={() => checkAdminPayment(payment.id)} disabled={busy}>{publicLanguage.t('paymentCheckStatus')}</button> : null}</td></tr>)}</tbody></table></div>
-        <div className="admin-payment-mobile-list">{adminPayments.map((payment) => <article className="admin-payment-card" key={`mobile-${payment.id}`}><header><div><b>{payment.account_name || '—'}</b><small>{payment.account_email}</small></div><span className={`payment-status-badge payment-status-${payment.status.toLowerCase()}`}>{statusLabel(payment.status)}</span></header><dl><div><dt>{publicLanguage.t('paymentPlan')}</dt><dd>{payment.plan_name || payment.plan_code || '—'} · {payment.billing_period}</dd></div><div><dt>{publicLanguage.t('deductionsAmount')}</dt><dd>{money(payment.amount)} {payment.currency}</dd></div><div><dt>{publicLanguage.t('billingPaymentProvider')}</dt><dd>{paymentMethod(payment)}</dd></div><div><dt>{publicLanguage.t('accountPhone')}</dt><dd>{payment.mobile_money_phone || '—'}</dd></div><div><dt>{publicLanguage.t('paymentReference')}</dt><dd>{payment.provider_reference || '—'}{payment.provider_transaction_id ? <small>{payment.provider_transaction_id}</small> : null}</dd></div><div><dt>{publicLanguage.t('paymentDate')}</dt><dd>{payment.created_at ? formatDateLabel(payment.created_at, publicLanguage.language, { day: 'numeric', month: 'long', year: 'numeric', time: 'short' }) : '—'}</dd></div><div><dt>{publicLanguage.t('paymentConfirmationDate')}</dt><dd>{payment.completed_at ? formatDateLabel(payment.completed_at, publicLanguage.language, { day: 'numeric', month: 'long', year: 'numeric', time: 'short' }) : '—'}</dd></div></dl>{payment.status === 'PENDING' ? <button type="button" className="text-button" onClick={() => checkAdminPayment(payment.id)} disabled={busy}>{publicLanguage.t('paymentCheckStatus')}</button> : null}</article>)}</div>
+        <div className="table-scroll admin-payment-table"><table><thead><tr><th>{publicLanguage.t('account')}</th><th>{publicLanguage.t('paymentPlan')}</th><th>{publicLanguage.t('deductionsAmount')}</th><th>{publicLanguage.t('billingPaymentProvider')}</th><th>{publicLanguage.t('accountPhone')}</th><th>{publicLanguage.t('paymentStatus')}</th><th>{publicLanguage.t('paymentReference')}</th><th>{publicLanguage.t('paymentDate')}</th><th>{publicLanguage.t('paymentConfirmationDate')}</th><th /></tr></thead><tbody>{adminPayments.map((payment) => <tr key={payment.id}><td><b>{payment.account_name || '—'}</b><small className="block-muted">{payment.account_email}</small></td><td>{payment.plan_name || payment.plan_code || '—'}<small className="block-muted">{payment.billing_period === 'monthly' ? publicLanguage.t('billingMonthly') : payment.billing_period}</small></td><td>{money(payment.amount)} {payment.currency}</td><td>{paymentMethod(payment)}</td><td>{payment.mobile_money_phone || '—'}</td><td><span className={`payment-status-badge payment-status-${payment.status.toLowerCase()}`}>{statusLabel(payment.status)}</span></td><td><b>{payment.provider_reference || '—'}</b>{payment.provider_transaction_id ? <small className="block-muted">{payment.provider_transaction_id}</small> : null}</td><td>{payment.created_at ? formatDateLabel(payment.created_at, publicLanguage.language, { day: 'numeric', month: 'long', year: 'numeric', time: 'short' }) : '—'}</td><td>{payment.completed_at ? formatDateLabel(payment.completed_at, publicLanguage.language, { day: 'numeric', month: 'long', year: 'numeric', time: 'short' }) : '—'}</td><td>{payment.status === 'PENDING' ? <button type="button" className="text-button" onClick={() => checkAdminPayment(payment.id)} disabled={busy}>{publicLanguage.t('paymentCheckStatus')}</button> : null}</td></tr>)}</tbody></table></div>
+        <div className="admin-payment-mobile-list">{adminPayments.map((payment) => <article className="admin-payment-card" key={`mobile-${payment.id}`}><header><div><b>{payment.account_name || '—'}</b><small>{payment.account_email}</small></div><span className={`payment-status-badge payment-status-${payment.status.toLowerCase()}`}>{statusLabel(payment.status)}</span></header><dl><div><dt>{publicLanguage.t('paymentPlan')}</dt><dd>{payment.plan_name || payment.plan_code || '—'} · {payment.billing_period === 'monthly' ? publicLanguage.t('billingMonthly') : payment.billing_period}</dd></div><div><dt>{publicLanguage.t('deductionsAmount')}</dt><dd>{money(payment.amount)} {payment.currency}</dd></div><div><dt>{publicLanguage.t('billingPaymentProvider')}</dt><dd>{paymentMethod(payment)}</dd></div><div><dt>{publicLanguage.t('accountPhone')}</dt><dd>{payment.mobile_money_phone || '—'}</dd></div><div><dt>{publicLanguage.t('paymentReference')}</dt><dd>{payment.provider_reference || '—'}{payment.provider_transaction_id ? <small>{payment.provider_transaction_id}</small> : null}</dd></div><div><dt>{publicLanguage.t('paymentDate')}</dt><dd>{payment.created_at ? formatDateLabel(payment.created_at, publicLanguage.language, { day: 'numeric', month: 'long', year: 'numeric', time: 'short' }) : '—'}</dd></div><div><dt>{publicLanguage.t('paymentConfirmationDate')}</dt><dd>{payment.completed_at ? formatDateLabel(payment.completed_at, publicLanguage.language, { day: 'numeric', month: 'long', year: 'numeric', time: 'short' }) : '—'}</dd></div></dl>{payment.status === 'PENDING' ? <button type="button" className="text-button" onClick={() => checkAdminPayment(payment.id)} disabled={busy}>{publicLanguage.t('paymentCheckStatus')}</button> : null}</article>)}</div>
         <div className="panel-footer admin-payment-pagination"><span>{adminPaymentTotal} · {adminPaymentPage} / {totalPages}</span><div><button type="button" className="button button-secondary small-button" disabled={adminPaymentPage <= 1} onClick={() => loadAdminPayments(adminPaymentPage - 1).catch((reason) => setError(reason.message))}>{publicLanguage.t('previousPage')}</button><button type="button" className="button button-secondary small-button" disabled={adminPaymentPage >= totalPages} onClick={() => loadAdminPayments(adminPaymentPage + 1).catch((reason) => setError(reason.message))}>{publicLanguage.t('nextPage')}</button></div></div>
       </> : <div className="workspace-empty" role="status"><b>{publicLanguage.t('subscriptionNoHistory')}</b></div>}
     </section>;
@@ -2777,7 +2786,7 @@ const renderNotifications = () => <section className="panel"><div className="pan
         id,
         code: `USAGE_NEW_${Math.abs(id)}`,
         name,
-        price: 1,
+        price: '',
         currency: 'RWF',
         billing_period: 'monthly',
         min_volume_liters: minimum,
@@ -2786,7 +2795,7 @@ const renderNotifications = () => <section className="panel"><div className="pan
       }]);
       setCollectorTierEdits((current) => ({
         ...current,
-        [String(id)]: { name, price: '1', minVolumeLiters: String(minimum), maxVolumeLiters: '', isActive: true },
+        [String(id)]: { name, price: '', minVolumeLiters: String(minimum), maxVolumeLiters: '', isActive: true },
       }));
     };
     return <section className="panel panel-wide">

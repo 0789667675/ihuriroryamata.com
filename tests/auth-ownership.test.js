@@ -113,6 +113,31 @@ test('registration persistence creates configured initial access in the same tra
   assert.match(statements[1].text, /policy\.initial_access_days \+ policy\.grace_period_days/);
 });
 
+test('registration without a tier creates pending access without assigning a paid plan', async () => {
+  const statements = [];
+  const client = {
+    query: async (text, values) => {
+      statements.push({ text, values });
+      if (text.includes('INSERT INTO users')) {
+        return { rows: [{ id: 16, name: 'Milk User', email: 'milk@example.com', passwordHash: 'hashed', role: 'user', accountType: 'COLLECTOR' }] };
+      }
+      return { rows: [{ id: 100, user_id: 16, status: 'pending', selected_plan_snapshot: null }] };
+    },
+  };
+  const result = await createUserWithConnection(client, {
+    name: 'Milk User',
+    email: 'milk@example.com',
+    passwordHash: 'hashed',
+    role: 'user',
+    accountType: 'COLLECTOR',
+  });
+
+  assert.deepEqual(statements[1].values, [16, null]);
+  assert.match(statements[1].text, /LEFT JOIN subscription_plans plan ON plan\.code = \$2 AND plan\.is_active = TRUE/);
+  assert.equal(result.subscription.status, 'pending');
+  assert.equal(result.subscription.selected_plan_snapshot, null);
+});
+
 test('unverified accounts can sign in without being marked email-verified', async () => {
   const unverifiedUsers = new Map();
   const unverifiedRepository = {
@@ -133,9 +158,16 @@ test('unverified accounts can sign in without being marked email-verified', asyn
 
 test('registration does not dispatch verification email or require verification completion', () => {
   const registrationRoute = fs.readFileSync(path.join(__dirname, '..', 'app', 'api', 'auth', 'register', 'route.js'), 'utf8');
+  const registrationUi = fs.readFileSync(path.join(__dirname, '..', 'app', 'workspace.tsx'), 'utf8');
   assert.doesNotMatch(registrationRoute, /sendRegistrationEmailVerification/);
   assert.match(registrationRoute, /verificationRequired: false/);
   assert.match(registrationRoute, /registerUser\(/);
+  assert.doesNotMatch(registrationRoute, /accountType !== 'COLLECTION_CENTER' && !selectedPlanCode/);
+  assert.match(registrationRoute, /selectedPlanCode = body\.selectedPlanCode \|\| body\.planCode \|\| null/);
+  assert.doesNotMatch(registrationUi, /registration-tier-options|\/api\/subscription\/plans/);
+  assert.doesNotMatch(registrationUi, /selectedPlanCode, language/);
+  assert.match(registrationUi, /registrationSubscriptionNotice/);
+  assert.match(registrationUi, /process\.env\.NODE_ENV !== 'production' \? <option value="COLLECTION_CENTER">/);
 });
 
 test('registerUser rejects duplicate email addresses', async () => {
@@ -288,13 +320,35 @@ test('middleware fails closed without a session secret and exposes only intended
   assert.match(middleware, /PUBLIC_API_PATHS\.has\(pathname\)/);
 });
 
-test('production Collection Center authentication is limited to settlement and accounting entry points', () => {
+test('production Collection Center authentication permits only its owned workspace and recovery routes', () => {
   assert.equal(isCollectionCenterAuthenticationPath('/api/auth/me'), true);
+  assert.equal(isCollectionCenterAuthenticationPath('/api/auth/profile'), true);
+  assert.equal(isCollectionCenterAuthenticationPath('/api/collection-centers'), true);
+  assert.equal(isCollectionCenterAuthenticationPath('/api/collection-centers/4'), true);
+  assert.equal(isCollectionCenterAuthenticationPath('/api/collector-assignments'), true);
+  assert.equal(isCollectionCenterAuthenticationPath('/api/collector-assignments/8'), true);
+  assert.equal(isCollectionCenterAuthenticationPath('/api/farmers'), true);
+  assert.equal(isCollectionCenterAuthenticationPath('/api/farmers/12'), true);
+  assert.equal(isCollectionCenterAuthenticationPath('/api/milk/daily'), true);
+  assert.equal(isCollectionCenterAuthenticationPath('/api/collection-center-prices'), true);
+  assert.equal(isCollectionCenterAuthenticationPath('/api/subscription'), true);
+  assert.equal(isCollectionCenterAuthenticationPath('/api/subscription/payments'), true);
+  assert.equal(isCollectionCenterAuthenticationPath('/api/subscription/payments/15'), true);
+  assert.equal(isCollectionCenterAuthenticationPath('/api/notifications/14/read'), true);
   assert.equal(isCollectionCenterAuthenticationPath('/api/farmer-settlements'), true);
   assert.equal(isCollectionCenterAuthenticationPath('/api/reports/summary'), true);
   assert.equal(isCollectionCenterAuthenticationPath('/api/ukwezi/pdf'), true);
-  assert.equal(isCollectionCenterAuthenticationPath('/api/farmers'), false);
+  assert.equal(isCollectionCenterAuthenticationPath('/api/admin/config/plans'), false);
   assert.equal(isCollectionCenterAuthenticationPath('/api/milk'), false);
+  assert.equal(isCollectionCenterAuthenticationPath('/api/ifishi/owner'), false);
+});
+
+test('expired users retain authorized GET access to historical reports and settlement pages only', () => {
+  for (const pathname of ['/api/reports/summary', '/api/ukwezi/pdf', '/api/farmer-settlements']) {
+    assert.equal(isSubscriptionRecoveryRequest({ url: `https://milk.example.test${pathname}`, method: 'GET' }), true);
+    assert.equal(isSubscriptionRecoveryRequest({ url: `https://milk.example.test${pathname}`, method: 'POST' }), false);
+  }
+  assert.equal(isSubscriptionRecoveryRequest({ url: 'https://milk.example.test/api/subscription/payments/15', method: 'POST' }), true);
 });
 
 test('subscription API gate keeps recovery routes open and blocks restricted data APIs', () => {

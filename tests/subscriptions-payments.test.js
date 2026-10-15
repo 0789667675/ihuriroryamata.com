@@ -33,6 +33,7 @@ test('subscription payment helpers resolve legacy tier aliases and enforce month
   assert.equal(Subscriptions.canonicalPlanCode('USAGE_35001_PLUS_MONTHLY', 'monthly'), 'USAGE_40001_PLUS_MONTHLY');
   assert.equal(Subscriptions.canonicalPlanCode('USAGE_5001_10000', 'monthly'), 'USAGE_5001_10000_MONTHLY');
   assert.equal(Subscriptions.calculatePrice({}, { ...plan, price: 10000, intro_price: 7000, intro_periods: 1 }, 'monthly').amount, 10000);
+  assert.throws(() => Subscriptions.calculatePrice({}, { ...plan, currency: 'USD' }, 'monthly'), (error) => error.code === 'PAYMENT_CURRENCY_UNSUPPORTED');
   assert.throws(() => Subscriptions.calculatePrice({}, plan, '6_months'), (error) => error.code === 'BILLING_PERIOD_NOT_SUPPORTED');
   assert.throws(() => Subscriptions.calculatePrice({}, plan, 'yearly'), (error) => error.code === 'BILLING_PERIOD_NOT_SUPPORTED');
 });
@@ -191,6 +192,25 @@ test('callback validation requires the documented LMBTech transaction fields', (
   assert.equal(Provider.verifyCallbackPayload({ ...body, transaction_id: '' }).valid, false);
   assert.equal(Provider.verifyCallbackPayload({ ...body, payment_method: 'card' }).valid, false);
   assert.equal(Provider.verifyCallbackPayload({ ...body, status: 'processing' }).valid, false);
+  assert.equal(Provider.verifyCallbackPayload({ ...body, currency: 'USD' }).valid, false);
+});
+
+test('provider status currency mismatch cannot settle a subscription payment', async () => {
+  let settlements = 0;
+  const payment = { id: 299, user_id: 42, status: 'PENDING', provider: 'mtn_momo', provider_reference: 'ref-299', amount: 5000, currency: 'RWF' };
+  const result = await Subscriptions.reconcilePayment({
+    paymentId: payment.id,
+    userId: 42,
+    repository: {
+      getPaymentByIdForUser: async () => payment,
+      getPaymentById: async () => payment,
+      settlePayment: async () => { settlements += 1; return { ...payment, status: 'SUCCESS' }; },
+      recordPaymentEvent: async () => {},
+    },
+    provider: { getPaymentStatus: async () => ({ providerReference: payment.provider_reference, amount: 5000, currency: 'USD', paymentMethod: 'MTN_MOMO_RWA', transactionId: 'txn-299', status: 'SUCCESS' }) },
+  });
+  assert.equal(result.status, 'PENDING');
+  assert.equal(settlements, 0);
 });
 
 const usagePlans = [
@@ -336,6 +356,7 @@ test('customer payment information routes require the customer role and use the 
   assert.match(customerPaymentRoute, /if \(user\.role !== 'user'\).*status: 403/);
   assert.match(customerPaymentRoute, /getPaymentsByUser\(user\.id\)/);
   assert.match(customerPaymentRoute, /'PAYMENT_PROVIDER_UNAVAILABLE'/);
+  assert.doesNotMatch(customerPaymentRoute, /amount:\s*(?:input|body)\.amount/);
 });
 
 test('collector billing accepts editable contiguous tier ranges and current stored prices', async () => {
@@ -398,6 +419,17 @@ test('Collection Center customer pricing is a single server-calculated flat mont
   assert.equal(result.pricing.amount, 30000);
   assert.equal(result.pricing.estimatedMonthlyLiters, null);
   assert.equal(result.usage, null);
+
+  const repriced = await Subscriptions.getCustomerSubscription({
+    userId: 51,
+    repository: {
+      getSubscription: async () => ({ id: 9, status: 'pending' }),
+      getUser: async () => ({ id: 51, phone: '0788000000', accountType: 'COLLECTION_CENTER' }),
+      getPlanByCode: async () => ({ ...centerPlan, price: 32000 }),
+      getPaymentsByUser: async () => [],
+    },
+  });
+  assert.equal(repriced.pricing.amount, 32000);
 });
 
 test('pending payment uses the canonical usage tier and never activates a subscription', async () => {
@@ -448,6 +480,87 @@ test('pending payment uses the canonical usage tier and never activates a subscr
   assert.equal(result.payment.status, 'PENDING');
 });
 
+test('new payment initiation uses the current server plan price, never a client amount', async () => {
+  const changedPlans = usagePlans.map((item, index) => index === 0 ? { ...item, price: 6200 } : item);
+  let reserved;
+  let providerRequest;
+  let payment;
+  const repository = {
+    getUser: async () => ({ id: 42, name: 'Milk User', email: 'milk@example.com', phone: '0788000000', accountType: 'COLLECTOR' }),
+    findActivePayments: async () => [],
+    getSubscription: async () => ({ id: 7, status: 'pending', effective_status: 'pending', access_started_at: '2026-10-01T10:00:00.000Z', payment_due_at: '2026-10-15T22:00:00.000Z' }),
+    getActivePlans: async () => changedPlans,
+    getCollectorMilk: async () => [],
+    getFarmerMilkUsage: async () => ({ recordCount: 0, validLiters: 0 }),
+    getTierForVolume: async () => changedPlans[0],
+    getTierByCode: async () => changedPlans[0],
+    getNextTier: async () => changedPlans[1],
+    reservePayment: async (input) => {
+      reserved = input;
+      payment = { id: 301, user_id: 42, status: 'PENDING', provider: 'mtn_momo', provider_reference: input.providerReference, payment_method: 'MTN_MOMO_RWA', mobile_money_phone: '0788000000', amount: input.amount, currency: input.currency, plan_snapshot: input.planSnapshot };
+      return { payment, reused: false };
+    },
+    getPaymentById: async () => payment,
+    getPaymentByIdForUser: async () => payment,
+    recordPaymentEvent: async () => {},
+  };
+  const provider = {
+    assertReady() {},
+    createPaymentRequest: async (input) => { providerRequest = input; return { providerReference: input.referenceId, status: 'PENDING' }; },
+    getPaymentStatus: async ({ providerReference }) => ({ providerReference, amount: 6200, currency: 'RWF', paymentMethod: 'MTN_MOMO_RWA', status: 'PENDING' }),
+  };
+  const result = await Subscriptions.createPendingPayment({
+    userId: 42,
+    planCode: changedPlans[0].code,
+    billingPeriod: 'monthly',
+    repository,
+    provider,
+    now: new Date('2026-10-10T00:00:00.000Z'),
+  });
+
+  assert.equal(result.pricing.amount, 6200);
+  assert.equal(reserved.amount, 6200);
+  assert.equal(reserved.planSnapshot.price, 6200);
+  assert.equal(providerRequest.amount, 6200);
+});
+
+test('an existing pending payment retains its immutable quote after the configured plan price changes', async () => {
+  const existingPayment = {
+    id: 302,
+    user_id: 42,
+    status: 'PENDING',
+    provider: 'mtn_momo',
+    provider_reference: 'ref-302',
+    payment_method: 'MTN_MOMO_RWA',
+    mobile_money_phone: '0788000000',
+    amount: 5000,
+    currency: 'RWF',
+    plan_snapshot: { code: 'USAGE_0_5000_MONTHLY', price: 5000, currency: 'RWF', billingPeriod: 'monthly' },
+  };
+  let reservationCount = 0;
+  let currentPlanLookups = 0;
+  const repository = {
+    getUser: async () => ({ id: 42, phone: '0788000000', accountType: 'COLLECTOR' }),
+    findActivePayments: async () => [existingPayment],
+    getPaymentByIdForUser: async () => existingPayment,
+    getPaymentById: async () => existingPayment,
+    getActivePlans: async () => { currentPlanLookups += 1; return usagePlans.map((tier, index) => index ? tier : { ...tier, price: 6200 }); },
+    reservePayment: async () => { reservationCount += 1; throw new Error('A pending quote must be reused, not re-reserved.'); },
+    recordPaymentEvent: async () => {},
+  };
+  const provider = {
+    assertReady: () => assert.fail('A pending payment must be reconciled before a new payment is initiated.'),
+    getPaymentStatus: async ({ providerReference }) => ({ providerReference, amount: 5000, currency: 'RWF', paymentMethod: 'MTN_MOMO_RWA', status: 'PENDING' }),
+  };
+  const result = await Subscriptions.createPendingPayment({ userId: 42, repository, provider });
+
+  assert.equal(result.reused, true);
+  assert.equal(result.payment.amount, 5000);
+  assert.equal(result.payment.plan_snapshot.price, 5000);
+  assert.equal(reservationCount, 0);
+  assert.equal(currentPlanLookups, 0);
+});
+
 test('payment initiation rejects every non-monthly billing period', async () => {
   let reserved = false;
   for (const billingPeriod of ['6_months', 'yearly', 'quarterly']) {
@@ -463,7 +576,7 @@ test('payment initiation rejects every non-monthly billing period', async () => 
 
 test('documented concurrent success callbacks confirm provider status and settle once', async () => {
   const body = { reference_id: 'ref-200', transaction_id: 'txn-200', status: 'success', amount: '5000.00', payment_method: 'MTN_MOMO_RWA', payer_phone: '+250788000000' };
-  let payment = { id: 200, status: 'PENDING', provider: 'mtn_momo', provider_reference: 'ref-200', provider_transaction_id: null, payment_method: 'MTN_MOMO_RWA', mobile_money_phone: '0788000000', amount: 5000, user_id: 42 };
+  let payment = { id: 200, status: 'PENDING', provider: 'mtn_momo', provider_reference: 'ref-200', provider_transaction_id: null, payment_method: 'MTN_MOMO_RWA', mobile_money_phone: '0788000000', amount: 5000, currency: 'RWF', user_id: 42 };
   let settlements = 0;
   let emailClaims = 0;
   const confirmationRecipients = [];
@@ -620,7 +733,7 @@ test('callback pending, failed, and cancelled states follow the provider-confirm
     ['failed', 'FAILED', 'FAILED'],
     ['cancelled', 'CANCELLED', 'CANCELLED'],
   ]) {
-    let payment = { id: 210, status: 'PENDING', provider: 'mtn_momo', provider_reference: 'ref-210', payment_method: 'MTN_MOMO_RWA', mobile_money_phone: '0788000000', amount: 5000, user_id: 42 };
+    let payment = { id: 210, status: 'PENDING', provider: 'mtn_momo', provider_reference: 'ref-210', payment_method: 'MTN_MOMO_RWA', mobile_money_phone: '0788000000', amount: 5000, currency: 'RWF', user_id: 42 };
     const body = { reference_id: 'ref-210', transaction_id: 'txn-210', status: callbackStatus, amount: '5000', payment_method: 'MTN_MOMO_RWA', payer_phone: '+250788000000' };
     const result = await Subscriptions.handleProviderCallback({
       body,
@@ -945,7 +1058,7 @@ test('payment initiation stops before reservation when the account phone is miss
 
 test('provider state reconciliation handles pending, failed, and cancelled without activating subscriptions', async () => {
   for (const [status, expected] of [['pending', 'PENDING'], ['failed', 'FAILED'], ['cancelled', 'CANCELLED']]) {
-    let payment = { id: 300, user_id: 42, status: 'PENDING', provider: 'mtn_momo', provider_reference: `ref-${status}`, amount: 5000 };
+    let payment = { id: 300, user_id: 42, status: 'PENDING', provider: 'mtn_momo', provider_reference: `ref-${status}`, amount: 5000, currency: 'RWF' };
     const result = await Subscriptions.reconcilePayment({
       paymentId: payment.id,
       userId: 42,

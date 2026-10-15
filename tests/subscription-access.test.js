@@ -37,3 +37,9 @@ test('Super Admin remains outside customer subscription enforcement', async () =
     getSubscription: async () => assert.fail('Super Admin access must not query customer subscription state.'),
   }));
 });
+
+test('an audited billing exemption allows access without changing subscription payment status', async () => {
+  await assert.doesNotReject(() => requireActiveSubscription({ id: 42, role: 'user' }, {
+    getSubscription: async () => ({ status: 'expired', effective_status: 'expired', billing_exempt: true }),
+  }));
+});

@@ -16,6 +16,7 @@ const makeFixture = async () => {
     phone: '0788000000',
     nationalId: 'N-42',
     accountNumber: 'ACC-42',
+    language: 'rw',
     profilePicture: null,
     role: 'user',
     accountType: 'COLLECTOR',
@@ -37,8 +38,14 @@ const makeFixture = async () => {
         nationalId: input.nationalId,
         accountNumber: input.accountNumber,
         profilePicture: input.profilePicture,
+        language: input.language,
       });
       return { ...user };
+    },
+    updateUserLanguage: async (id, language) => {
+      if (Number(id) !== user.id) return null;
+      user.language = language;
+      return { id: user.id, language };
     },
     updateUserPassword: async (id, passwordHash) => {
       if (Number(id) !== user.id) return null;
@@ -83,6 +90,22 @@ test('account profile updates the authenticated user fields without changing acc
   assert.equal(result.user.accountType, 'COLLECTOR');
   assert.equal(result.emailChangePending, false);
   assert.equal(fixture.auditEntries[0].action, 'profile_updated');
+});
+
+test('language preference persists only supported locales and is audited', async () => {
+  const fixture = await makeFixture();
+  const result = await Accounts.updateLanguage({ userId: fixture.user.id, language: 'en', repository: fixture.repository, audit: fixture.audit });
+  assert.equal(result.language, 'en');
+  assert.equal(fixture.user.language, 'en');
+  assert.deepEqual(fixture.auditEntries[0], {
+    ownerUserId: fixture.user.id,
+    actorId: fixture.user.id,
+    entityType: 'auth',
+    entityId: fixture.user.id,
+    action: 'language_updated',
+    details: { language: 'en' },
+  });
+  await assert.rejects(() => Accounts.updateLanguage({ userId: fixture.user.id, language: 'fr', repository: fixture.repository, audit: fixture.audit }), /Language must be rw or en/);
 });
 
 test('profile phone rejects non-Rwanda mobile numbers', async () => {

@@ -307,6 +307,7 @@ test('Super Admin pricing editor manages dynamic tiers and timing policy without
   const loader = workspace.slice(workspace.indexOf("if (tab === 'config')"), workspace.indexOf("if (tab === 'settings')"));
   const save = workspace.slice(workspace.indexOf('const saveAdminCollectorPrices'), workspace.indexOf('const saveAccountSettings'));
   const editor = workspace.slice(workspace.indexOf('const renderAdminCollectorPricing'), workspace.indexOf('const renderSystemHealth'));
+  const centerPricingEditor = workspace.slice(workspace.indexOf('const renderAdminConfig'), workspace.indexOf('const renderAdminSubscriptionPolicy'));
   const pricingView = workspace.slice(workspace.indexOf("{tab === 'config' && isAdmin"), workspace.indexOf("{tab === 'system-health' && isAdmin"));
   const plansRoute = fs.readFileSync(path.join(__dirname, '..', 'app', 'api', 'admin', 'config', 'plans', 'route.js'), 'utf8');
 
@@ -325,6 +326,8 @@ test('Super Admin pricing editor manages dynamic tiers and timing policy without
   assert.match(editor, /adminAddTier/);
   assert.match(editor, /adminTierMinimum/);
   assert.match(editor, /adminTierMaximum/);
+  assert.match(editor, /price: ''/);
+  assert.doesNotMatch(editor, /price: 1|price: '1'/);
   assert.match(workspace, /MtnMoMoBrand/);
   assert.match(workspace, /admin-pricing-layout/);
   assert.match(editor, /value=\{price\}/);
@@ -337,6 +340,9 @@ test('Super Admin pricing editor manages dynamic tiers and timing policy without
   assert.match(save, /maxVolumeLiters/);
   assert.match(save, /\/api\/admin\/config\/plans/);
   assert.match(plansRoute, /user\.role !== 'super_admin'/);
+  assert.match(centerPricingEditor, /centerPricing\?\.config\?\.monthly_amount \?\? centerPricing\?\.plan\?\.price/);
+  assert.match(centerPricingEditor, /billingPeriodLabel/);
+  assert.doesNotMatch(centerPricingEditor, /30000|monthly_amount \|\|.*0/);
 });
 
 test('Super Admin System Health displays fetched database, migration, and API status', () => {

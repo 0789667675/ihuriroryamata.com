@@ -60,6 +60,66 @@ test('platform admin account suspension actions are audited and cannot bypass su
   }
 });
 
+test('Super Admin exemption actions validate reason and delegate grant/revoke to audited repository operation', async () => {
+  const calls = [];
+  const testRepository = {
+    getAccountDetails: async () => owner,
+    setSubscriptionExemption: async (input) => { calls.push(input); return { billing_exempt: input.exempt, exemption_reason: input.reason }; },
+    writeAdminAudit: async () => assert.fail('Exemption audit is committed with its repository update.'),
+  };
+  const granted = await Admin.manageAccount({ userId: accountId, actorId: 9, action: 'grant-exemption', input: { reason: 'Approved hardship' }, repository: testRepository });
+  const revoked = await Admin.manageAccount({ userId: accountId, actorId: 9, action: 'revoke-exemption', input: { reason: 'Standard billing resumes' }, repository: testRepository });
+
+  assert.deepEqual(calls.map(({ userId, actorId, exempt, reason }) => ({ userId, actorId, exempt, reason })), [
+    { userId: accountId, actorId: 9, exempt: true, reason: 'Approved hardship' },
+    { userId: accountId, actorId: 9, exempt: false, reason: 'Standard billing resumes' },
+  ]);
+  assert.equal(granted.billing_exempt, true);
+  assert.equal(revoked.billing_exempt, false);
+  await assert.rejects(() => Admin.manageAccount({ userId: accountId, actorId: 9, action: 'grant-exemption', input: { reason: 'bad' }, repository: testRepository }), /5 to 255 characters/);
+  await assert.rejects(() => Admin.manageAccount({ userId: accountId, actorId: 9, action: 'grant-exemption', input: { reason: { value: 'not a string' } }, repository: testRepository }), /5 to 255 characters/);
+});
+
+test('exemption repository updates and audits the same subscription transaction', async () => {
+  const calls = [];
+  const previous = { id: 12, user_id: accountId, billing_exempt: false, exemption_reason: null, status: 'expired' };
+  const client = {
+    query: async (text, values = []) => {
+      calls.push({ text, values });
+      if (text.includes('SELECT id FROM users')) return { rows: [{ id: accountId }] };
+      if (text.includes('SELECT * FROM user_subscriptions')) return { rows: [previous] };
+      if (text.includes('UPDATE user_subscriptions')) return { rows: [{ ...previous, billing_exempt: true, exemption_reason: 'Approved hardship' }] };
+      return { rows: [] };
+    },
+    release() {},
+  };
+  const result = await PlatformAdminRepository.setSubscriptionExemption({
+    userId: accountId,
+    actorId: 9,
+    exempt: true,
+    reason: 'Approved hardship',
+    poolProvider: () => ({ connect: async () => client }),
+  });
+  const audit = calls.find(({ text }) => text.includes('INSERT INTO audit_logs'));
+  assert.ok(calls.some(({ text }) => text === 'BEGIN'));
+  assert.ok(calls.some(({ text }) => text === 'COMMIT'));
+  assert.equal(audit.values[3], 9);
+  assert.equal(audit.values[4], accountId);
+  assert.equal(audit.values[1], 'subscription_exemption_granted');
+  assert.deepEqual(JSON.parse(audit.values[2]), {
+    previous: { billingExempt: false, reason: null },
+    current: { billingExempt: true, reason: 'Approved hardship' },
+    changeReason: 'Approved hardship',
+  });
+  assert.equal(result.billing_exempt, true);
+});
+
+test('exemption action API remains Super Admin-only', () => {
+  const route = fs.readFileSync(path.join(__dirname, '..', 'app', 'api', 'admin', 'accounts', '[userId]', '[action]', 'route.js'), 'utf8');
+  assert.match(route, /actor\.role !== 'super_admin'/);
+  assert.match(route, /Admin\.manageAccount/);
+});
+
 test('platform admin does not accept the retired trial status filter', async () => {
   const empty = repository([]);
   await assert.rejects(() => Admin.listAccounts({ status: 'trial', repository: empty }), /Invalid status/i);
