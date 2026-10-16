@@ -37,3 +37,12 @@ test('subscription emails receive the account language with Kinyarwanda as the f
   assert.match(repository, /SELECT name, email, language FROM users/);
   assert.match(repository, /language: accountRows\[0\]\.language \|\| 'rw'/);
 });
+
+test('registration sends welcome and verification email in the selected supported locale', () => {
+  const route = read('app/api/auth/register/route.js');
+  assert.match(route, /const emailLanguage = body\.language === 'en' \? 'en' : 'rw'/);
+  assert.equal((route.match(/language: emailLanguage/g) || []).length, 2);
+  assert.match(route, /sendRegistrationEmailVerification/);
+  assert.match(route, /sendWelcomeEmail/);
+  assert.doesNotMatch(route, /language: 'rw'/);
+});

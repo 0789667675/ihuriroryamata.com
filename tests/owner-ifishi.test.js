@@ -285,6 +285,8 @@ test('Owner Ifishi history query scopes owner rows and assigned farmer rows thro
   assert.match(captured.text, /mr\.is_owner_milk = TRUE/);
   assert.match(captured.text, /mr\.volume_morning/);
   assert.match(captured.text, /mr\.volume_evening/);
+  assert.match(captured.text, /COALESCE\(o\.volume_morning, o\.volume_liters, 0\) AS volume_morning/);
+  assert.match(captured.text, /COALESCE\(o\.volume_evening, 0\) AS volume_evening/);
   assert.match(captured.text, /COALESCE\(o\.status::text, 'missing'\) AS status/);
   assert.match(captured.text, /farmer_daily/);
   assert.match(captured.text, /CASE WHEN o\.status = 'cancelled' THEN 0 ELSE COALESCE\(o\.valid_volume_liters, o\.volume_liters, 0\) END AS valid_volume_liters/);
@@ -479,6 +481,11 @@ test('Owner Ifishi API derives owner scope from authentication and keeps financi
   assert.match(ownerScreen, /ownerIfishiReport\.collectorPayable/);
   assert.match(ownerScreen, /ownerIfishiReport\.collectorFarmerTransport/);
   assert.match(ownerScreen, /ownerIfishiReport\.collectorFarmerDeductions/);
+  assert.match(workspace, /loadDashboardOwnerMilk\(collectionDate\)/);
+  assert.match(workspace, /calculateMilkDifference\(dashboardOwnerMilk\.validVolumeLiters, dailySummary\.totalVolume\)/);
+  assert.match(workspace, /dashboardMilkComparison/);
+  assert.match(ownerScreen, /entry\.volumeMorning/);
+  assert.match(ownerScreen, /entry\.volumeEvening/);
   assert.match(styles, /\.owner-ifishi-desktop-list \{ display: none; \}/);
   assert.match(styles, /\.owner-ifishi-mobile-list \{ display: grid;/);
 });

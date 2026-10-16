@@ -4,6 +4,7 @@ const { getAuthenticatedUser } = require('@/lib/security/authenticate.js');
 const { requireAccountType } = require('@/lib/security/account-access.js');
 const { requireActiveSubscription } = require('@/lib/security/subscription-access.js');
 const Farmers = require('@/lib/services/farmer-service.js');
+const Notifications = require('@/lib/services/notification-service.js');
 
 export const runtime = 'nodejs';
 
@@ -46,6 +47,11 @@ export async function POST(request: Request) {
       actorId: user.id,
       input: await request.json(),
     });
+    try {
+      await Notifications.createFarmerChangedNotification({ farmer, ownerUserId: user.id, action: 'created' });
+    } catch (error) {
+      console.error('[farmers] Farmer-created notification failed.', { name: error instanceof Error ? error.name : 'UnknownError' });
+    }
     return NextResponse.json(farmer, { status: 201 });
   } catch (error) {
     return respondWithError(error, 'Failed to create farmer.');

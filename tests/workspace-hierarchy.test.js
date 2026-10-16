@@ -15,7 +15,8 @@ test('Collector Milk Entry puts the Owner and Owner Ifishi before the separate A
   const ownerIfishiView = milkEntry.indexOf('isCollector && ownerIfishiOpen ? <Modal');
   const farmerIfishiView = milkEntry.indexOf('{ifishiOpen ? <Modal');
   const entryControls = milkEntry.indexOf('className="milk-entry-controls"');
-  const aborozi = milkEntry.indexOf("'ABOROZI'");
+  const localizedFarmerHeading = milkEntry.indexOf("isCollector ? publicLanguage.t('navFarmers')");
+  const aborozi = localizedFarmerHeading >= 0 ? localizedFarmerHeading : milkEntry.indexOf("isCollector ? 'ABOROZI' : 'ACTIVE IKIGO'");
 
   assert.ok(ownerAccount >= 0);
   assert.ok(ownerIfishiAction > ownerAccount);
@@ -304,8 +305,10 @@ test('Collector Settings exposes only owned collection sites while Dairy has no 
   assert.match(centers, /centers\.filter\(\(center\) => Number\(center\.owner_user_id\) === Number\(user\?\.id\)\)/);
   assert.match(workspace, /collectorOwnedCenters\.map\(\(center\)/);
   assert.match(workspace, /collectorOwnedCenters\.find\(\(center\)/);
-  assert.doesNotMatch(workspace.slice(workspace.indexOf('const dairyTabs'), workspace.indexOf('const navigationCopy')), /id: 'centers'/);
-  assert.match(workspace.slice(workspace.indexOf('const dairyTabs'), workspace.indexOf('const navigationCopy')), /id: 'settings'/);
+  const dairyTabs = workspace.slice(workspace.indexOf('const dairyTabs'), workspace.indexOf('const navigationCopy'));
+  assert.doesNotMatch(dairyTabs, /id: 'settlements'/);
+  assert.match(dairyTabs, /id: 'settings'/);
+  assert.match(centers, /onSubmit=\{createCenter\}/);
 });
 
 test('Super Admin pricing editor manages dynamic tiers and timing policy without duplicate views', () => {
@@ -401,4 +404,31 @@ test('registration exposes Collection Center selection in production as part of 
 
 test('Super Admin Alerts tab renders the notifications it loads', () => {
   assert.match(workspace, /tab === 'notifications-admin' && isAdmin \? renderNotifications\(\) : null/);
+});
+
+test('Collector settlements owns operational reconciliation while Ukwezi retains milk accounting', () => {
+  const settlementView = workspace.slice(workspace.indexOf('const renderSettlements'), workspace.indexOf('const renderReports'));
+  const ukweziView = workspace.slice(workspace.indexOf('const renderUkwezi'), workspace.indexOf('const renderTransport'));
+  const dairyTabs = workspace.slice(workspace.indexOf('const dairyTabs'), workspace.indexOf('const navigationCopy'));
+
+  assert.match(workspace, /setSettlementReport\(await api<Report>\(`\/api\/reports\/summary\?\$\{reportParams\}`/);
+  assert.match(settlementView, /const reconciliation = settlementReport\?\.settlementAccounting/);
+  assert.match(settlementView, /const farmerRows = reconciliation\?\.farmers \|\| \[\]/);
+  assert.match(settlementView, /farmerRows\.map/);
+  assert.match(settlementView, /settlementData\?\.data \|\| \[\]/);
+  assert.match(settlementView, /settlementsCashApprovedAmount/);
+  assert.match(settlementView, /settlementsCashReceived/);
+  assert.match(settlementView, /settlementsDebtRepaid/);
+  assert.match(settlementView, /settlementsDebtOutstanding/);
+  assert.doesNotMatch(ukweziView, /settlementAccounting\.farmers|settlementsCashApprovedAmount|settlementsDebtOutstanding/);
+  assert.match(ukweziView, /ukwezi-settlement-table/);
+  assert.doesNotMatch(dairyTabs, /id: 'settlements'/);
+  assert.match(workspace, /tab === 'settlements' && isCollector \? renderSettlements\(\) : null/);
+});
+
+test('all tables share the contained responsive table pattern instead of page-specific mobile duplicates', () => {
+  assert.match(styles, /\.table-scroll, \.table-wrap \{[^}]*overflow-x: auto/);
+  assert.match(styles, /\.table-scroll > table, \.table-wrap > table \{ width: max-content; min-width: 100%; \}/);
+  assert.match(styles, /\.milk-desktop-list,[\s\S]*?\.ukwezi-settlement-table \{ display: block !important; \}/);
+  assert.match(styles, /\.milk-mobile-list,[\s\S]*?\.ukwezi-mobile-list \{ display: none !important; \}/);
 });

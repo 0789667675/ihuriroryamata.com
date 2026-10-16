@@ -1,6 +1,7 @@
 'use client';
 
-import { useEffect, useRef, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { createPortal } from 'react-dom';
 
 type ModalProps = {
   ariaLabel: string;
@@ -15,16 +16,27 @@ const focusableSelector = 'a[href], button:not([disabled]), input:not([disabled]
 export function Modal({ ariaLabel, children, className = '', dismissible = true, onClose }: ModalProps) {
   const panelRef = useRef<HTMLElement>(null);
   const onCloseRef = useRef(onClose);
+  const [mounted, setMounted] = useState(false);
   onCloseRef.current = onClose;
 
+  useEffect(() => setMounted(true), []);
+
   useEffect(() => {
+    if (!mounted) return;
+
     const previousFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
-    const previousOverflow = document.body.style.overflow;
+    const previousBodyOverflow = document.body.style.overflow;
+    const previousHtmlOverflow = document.documentElement.style.overflow;
+    const previousBodyOverflowX = document.body.style.overflowX;
+    const previousHtmlOverflowX = document.documentElement.style.overflowX;
     document.body.style.overflow = 'hidden';
+    document.body.style.overflowX = 'hidden';
+    document.documentElement.style.overflow = 'hidden';
+    document.documentElement.style.overflowX = 'hidden';
 
     const focusableElements = () => Array.from(
       panelRef.current?.querySelectorAll<HTMLElement>(focusableSelector) || []
-    ).filter((element) => element.offsetParent !== null);
+    ).filter((element) => element.offsetParent !== null && !element.hasAttribute('disabled'));
 
     const firstFocusable = focusableElements()[0];
     (firstFocusable || panelRef.current)?.focus();
@@ -53,12 +65,17 @@ export function Modal({ ariaLabel, children, className = '', dismissible = true,
     document.addEventListener('keydown', handleKeyDown);
     return () => {
       document.removeEventListener('keydown', handleKeyDown);
-      document.body.style.overflow = previousOverflow;
+      document.body.style.overflow = previousBodyOverflow;
+      document.body.style.overflowX = previousBodyOverflowX;
+      document.documentElement.style.overflow = previousHtmlOverflow;
+      document.documentElement.style.overflowX = previousHtmlOverflowX;
       previousFocus?.focus();
     };
-  }, [dismissible]);
+  }, [dismissible, mounted]);
 
-  return <div
+  if (!mounted) return null;
+
+  return createPortal(<div
     className="modal-backdrop"
     role="presentation"
     onMouseDown={(event) => {
@@ -75,5 +92,5 @@ export function Modal({ ariaLabel, children, className = '', dismissible = true,
     >
       {children}
     </section>
-  </div>;
+  </div>, document.body);
 }

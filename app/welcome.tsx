@@ -34,7 +34,7 @@ export default function WelcomePage({ copyrightYear }: { copyrightYear: number }
 
   return (
     <main className="welcome-page">
-      <header className="welcome-header">
+      <motion.header className="welcome-header" initial={reduceMotion ? false : { opacity: 0, y: -8 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: reduceMotion ? 0 : 0.32, ease: [0.2, 0, 0, 1] }}>
         <BrandLockup className="welcome-brand" imageSize={50} />
         <nav className="welcome-actions" aria-label={t('languageLabel')}>
           <div className="language-switch" role="group" aria-label={t('languageLabel')}>
@@ -44,7 +44,7 @@ export default function WelcomePage({ copyrightYear }: { copyrightYear: number }
           <Link className={`welcome-login-link${pendingHref === '/login' ? ' is-navigating' : ''}`} href="/login" aria-busy={pendingHref === '/login'} onClick={navigate('/login')}>{t('login')}</Link>
           <Link className={`button button-primary welcome-nav-cta${pendingHref === '/register' ? ' is-navigating' : ''}`} href="/register" aria-busy={pendingHref === '/register'} onClick={navigate('/register')}>{t('register')}</Link>
         </nav>
-      </header>
+      </motion.header>
 
       <section className="welcome-hero" aria-labelledby="welcome-title">
         <motion.div className="welcome-copy" initial={reveal} animate={{ opacity: 1, y: 0 }} transition={{ duration: reduceMotion ? 0 : 0.45, ease: [0.2, 0, 0, 1] }}>
@@ -62,7 +62,7 @@ export default function WelcomePage({ copyrightYear }: { copyrightYear: number }
       </section>
 
       <section className="welcome-features" aria-labelledby="welcome-features-title">
-        <h2 id="welcome-features-title">{t('welcomeSectionTitle')}</h2>
+        <motion.h2 id="welcome-features-title" initial={reduceMotion ? false : { opacity: 0, y: 8 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true, amount: 0.6 }} transition={{ duration: reduceMotion ? 0 : 0.3, ease: [0.2, 0, 0, 1] }}>{t('welcomeSectionTitle')}</motion.h2>
         <div className="welcome-feature-list">
           {features.map(({ icon: Icon, title, body }, index) => (
             <motion.article key={title} className="welcome-feature" initial={reduceMotion ? false : { opacity: 0, y: 10 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true, amount: 0.25 }} transition={{ duration: reduceMotion ? 0 : 0.32, delay: reduceMotion ? 0 : index * 0.04 }}>
@@ -74,11 +74,11 @@ export default function WelcomePage({ copyrightYear }: { copyrightYear: number }
         </div>
       </section>
 
-      <footer className="welcome-footer">
+      <motion.footer className="welcome-footer" initial={reduceMotion ? false : { opacity: 0, y: 8 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true, amount: 0.4 }} transition={{ duration: reduceMotion ? 0 : 0.32, ease: [0.2, 0, 0, 1] }}>
         <BrandLockup className="welcome-footer-brand" imageSize={36} />
         <p>{t('welcomeFooter')}</p>
         <div className="welcome-contact"><span>{t('copyright').replace('{year}', String(copyrightYear))}</span><a href="mailto:snemeyimana@gmail.com">{t('contactLabel')}: snemeyimana@gmail.com</a></div>
-      </footer>
+      </motion.footer>
     </main>
   );
 }

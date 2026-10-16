@@ -4,6 +4,7 @@ const { getAuthenticatedUser } = require('@/lib/security/authenticate.js');
 const { requireAccountType } = require('@/lib/security/account-access.js');
 const { requireActiveSubscription } = require('@/lib/security/subscription-access.js');
 const Farmers = require('@/lib/services/farmer-service.js');
+const Notifications = require('@/lib/services/notification-service.js');
 
 export const runtime = 'nodejs';
 
@@ -38,6 +39,11 @@ export async function PUT(request, { params }) {
       input: await request.json(),
     });
     if (!farmer) return NextResponse.json({ message: 'Farmer not found.' }, { status: 404 });
+    try {
+      await Notifications.createFarmerChangedNotification({ farmer, ownerUserId: user.id, action: 'updated' });
+    } catch (error) {
+      console.error('[farmers] Farmer-updated notification failed.', { code: error.code || null });
+    }
     return NextResponse.json(farmer);
   } catch (error) {
     return respondWithError(error, 'Failed to update farmer.', true);

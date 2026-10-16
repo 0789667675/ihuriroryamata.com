@@ -3,7 +3,11 @@ node_modules/
 
 # Next.js
 .next/
+.next-playwright/
+.next-build-verify/
 out/
+playwright-report/
+test-results/
 
 # Environment / secrets
 .env

@@ -33,7 +33,8 @@
     "**/*.ts",
     "**/*.tsx",
     ".next/types/**/*.ts",
-    ".next-ui-verify/types/**/*.ts"
+    ".next-ui-verify/types/**/*.ts",
+    ".next-playwright/types/**/*.ts"
   ],
   "exclude": [
     "node_modules"

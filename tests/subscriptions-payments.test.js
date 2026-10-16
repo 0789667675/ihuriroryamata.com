@@ -78,6 +78,34 @@ test('payment configuration identifies MTN Rwanda flow without exposing credenti
   }
 });
 
+test('live payment readiness requires the explicit production opt-in flag', () => {
+  const names = ['LMBTECH_APP_KEY', 'LMBTECH_SECRET_KEY', 'LMBTECH_API_KEY', 'LMBTECH_API_SECRET', 'LMBTECH_BASE_URL', 'LMBTECH_CALLBACK_URL', 'LMBTECH_ALLOW_REAL_PAYMENTS'];
+  const previous = Object.fromEntries(names.map((name) => [name, process.env[name]]));
+  try {
+    for (const name of names) delete process.env[name];
+    process.env.LMBTECH_API_KEY = 'configured-app-test';
+    process.env.LMBTECH_API_SECRET = 'configured-secret-test';
+    process.env.LMBTECH_CALLBACK_URL = 'https://milk.example.com/api/subscription/payments/callback';
+
+    const disabled = Provider.getLmbtechPublicStatus();
+    assert.equal(disabled.credentialsConfigured, true);
+    assert.equal(disabled.apiConfigured, true);
+    assert.equal(disabled.callbackConfigured, true);
+    assert.equal(disabled.realPaymentsEnabled, false);
+    assert.equal(disabled.ready, false);
+
+    process.env.LMBTECH_ALLOW_REAL_PAYMENTS = 'true';
+    const enabled = Provider.getLmbtechPublicStatus();
+    assert.equal(enabled.realPaymentsEnabled, true);
+    assert.equal(enabled.ready, true);
+  } finally {
+    for (const name of names) {
+      if (previous[name] === undefined) delete process.env[name];
+      else process.env[name] = previous[name];
+    }
+  }
+});
+
 test('payment configuration rejects localhost or non-HTTPS callback origins', () => {
   assert.equal(Provider.normalizeLmbtechCallbackUrl('http://milk.example.test/api/subscription/payments/callback'), null);
   assert.equal(Provider.normalizeLmbtechCallbackUrl('https://localhost/api/subscription/payments/callback'), null);

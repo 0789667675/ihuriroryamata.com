@@ -2,7 +2,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
-const { renderUkweziPdf, buildUkweziFilename, buildUkweziResponseHeaders, getAccountingRows } = require('../lib/services/ukwezi-pdf-service.js');
+const { renderUkweziPdf, buildUkweziFilename, buildUkweziResponseHeaders, getAccountingRows, getOutstandingSettlementRows } = require('../lib/services/ukwezi-pdf-service.js');
 
 const report = {
   rangeStart: '2026-10-01',
@@ -113,6 +113,12 @@ test('Ukwezi PDF renderer handles an empty accounting period and renders settlem
   assert.equal(pageCount, 1);
 });
 
+test('Collection Center Ukwezi PDF labels its center separately from the account holder', () => {
+  const source = fs.readFileSync(path.join(__dirname, '..', 'lib', 'services', 'ukwezi-pdf-service.js'), 'utf8');
+  assert.match(source, /const centerName = typeof query\.collectionCenter === 'string'/);
+  assert.match(source, /if \(isDairy && centerName\) doc\.text\(`\$\{text\.collectionCenter\}: \$\{centerName\}`\)/);
+});
+
 test('Ukwezi collector summary notes start at the page content margin', () => {
   const source = fs.readFileSync(path.join(__dirname, '..', 'lib', 'services', 'ukwezi-pdf-service.js'), 'utf8');
   const start = source.indexOf('text.reconciliation}:');
@@ -152,6 +158,25 @@ test('Ukwezi PDF selects server-calculated accounting rows by account type, not 
   assert.deepEqual(getAccountingRows({ report: sourceReport, isCollector: false, isDairy: true }).map((row) => row.farmerName || row.name), [
     'Collector for Dairy accounting', 'Owner settlement',
   ]);
+});
+
+test('Ukwezi outstanding-payment list omits paid farmers without removing them from the accounting ledger', () => {
+  const farmers = [
+    { farmerId: 1, farmerName: 'Fully paid', totalVolume: 10, grossAmount: 4000, netAmount: 4000, settlement: { saccoDistributionInstruction: 0, retainedUnpaidAmount: 0 } },
+    { farmerId: 2, farmerName: 'Partially paid', totalVolume: 5, grossAmount: 2000, netAmount: 2000, settlement: { saccoDistributionInstruction: 1200, retainedUnpaidAmount: 0 } },
+    { farmerId: 3, farmerName: 'Still unpaid', totalVolume: 4, grossAmount: 1600, netAmount: 1600, settlement: { saccoDistributionInstruction: 0, retainedUnpaidAmount: 1600 } },
+  ];
+  const periodReport = {
+    farmerPayments: farmers.map(({ settlement, ...farmer }) => farmer),
+    settlementAccounting: { farmers },
+  };
+
+  assert.deepEqual(getOutstandingSettlementRows(periodReport).map((farmer) => [farmer.farmerId, farmer.outstandingAmount]), [
+    [2, 1200],
+    [3, 1600],
+  ]);
+  assert.equal(getAccountingRows({ report: periodReport, isCollector: true, isDairy: false }).length, 3);
+  assert.equal(periodReport.farmerPayments[0].netAmount, 4000);
 });
 
 test('Ukwezi PDF route uses the authenticated owner and selected period context', () => {

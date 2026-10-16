@@ -247,6 +247,37 @@ test('Ukwezi half-month reconciliation separates retained, cash, SACCO, and carr
   assert.equal(secondHalf.settlementAccounting.saccoDistributionInstruction, 2000);
 });
 
+test('manual cash paid to a SACCO-eligible farmer reduces SACCO instruction without changing historical payable', async () => {
+  const activeFarmers = [
+    { farmerId: 2, farmerName: 'SACCO farmer', accountNumber: 'RW-12345', totalVolume: 5, grossAmount: 2000, totalTransport: 0, totalDeductions: 0, milkValueComplete: true, transportIsComplete: true },
+  ];
+  const dairyRepository = {
+    ...reportRepository({ accountType: 'COLLECTION_CENTER' }),
+    getTotalFarmers: async () => 1,
+    getPeriodTotals: async () => ({ totalVolume: 5, totalAmount: 2000 }),
+    getFarmerTotals: async () => activeFarmers,
+    getMilkLossRecords: async () => [],
+  };
+  const summary = await Reports.getSummary({
+    ownerUserId: 77,
+    query: { periodType: 'first-half', month: 10, year: 2026 },
+    repository: dairyRepository,
+    settlementRepository: {
+      getPeriodFinancials: async () => ({
+        settlements: [{ farmer_id: 2, payment_type: 'CASH', amount: 500, settled_amount: 500, status: 'CONFIRMED' }],
+        repayments: [],
+        debts: [],
+      }),
+    },
+  });
+
+  assert.equal(summary.settlementAccounting.expectedFarmerPayable, 2000);
+  assert.equal(summary.settlementAccounting.cashConfirmedAmount, 500);
+  assert.equal(summary.settlementAccounting.saccoDistributionInstruction, 1500);
+  assert.equal(summary.settlementAccounting.unexplainedDiscrepancy, 0);
+  assert.equal(summary.farmerPayments[0].netAmount, 2000);
+});
+
 test('missing settlement tables preserve core Ukwezi and explicitly mark settlement accounting unavailable', async () => {
   const summary = await Reports.getSummary({
     ownerUserId: 77,
@@ -443,12 +474,17 @@ test('missing historical farmer prices keep farmer and owner accounting incomple
       getFarmerValidLitersByDate: async () => new Map([['2026-06-01', 10]]),
       getFarmerValidTotalsByDate: async () => new Map([['2026-06-01', { validLiters: 10, originalLiters: 10, lostLiters: 0 }]]),
     },
+    settlementRepository: { getPeriodFinancials: async () => ({ settlements: [], repayments: [], debts: [] }) },
   });
   assert.equal(summary.ownerGeneratedGross, 36000);
   assert.equal(summary.collectorFarmerMilkValue, null);
   assert.equal(summary.collectorFarmerPayable, null);
   assert.equal(summary.collectorPayable, null);
   assert.equal(summary.collectorAccountingComplete, false);
+  assert.equal(summary.settlementAccounting.expectedFarmerPayable, null);
+  assert.equal(summary.settlementAccounting.saccoDistributionInstruction, null);
+  assert.equal(summary.settlementAccounting.retainedUnpaidAmount, null);
+  assert.equal(summary.settlementAccounting.unexplainedDiscrepancy, null);
   assert.deepEqual(summary.collectorAccountingMissingInputs, ['farmer_historical_price']);
 });
 

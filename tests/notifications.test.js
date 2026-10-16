@@ -1,10 +1,13 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const path = require('node:path');
 
 const Notifications = require('../lib/services/notification-service.js');
 const NotificationRepository = require('../lib/repositories/notificationRepository.js');
 
 const ownerUserId = 42;
+const readRoute = (routePath) => fs.readFileSync(path.join(__dirname, '..', routePath), 'utf8');
 
 const makeRepository = (overrides = {}) => ({
   upsertNotification: async (input) => ({ created: true, notification: { id: 1, ...input } }),
@@ -31,6 +34,15 @@ test('notification dedupe keys include tenant-independent event dimensions and u
   assert.equal(saved.farmerId, 7);
   assert.equal(saved.collectionCenter, 'North Site');
   assert.equal(NotificationRepository.buildDedupeKey({ type: 'missed', farmerId: 7, center: 'North', date: '2026-10-01', period: 'morning' }), 'missed|7|North|2026-10-01|morning|default');
+});
+
+test('successful farmer create and update routes emit non-blocking owner-scoped notifications', () => {
+  const createRoute = readRoute('app/api/farmers/route.ts');
+  const updateRoute = readRoute('app/api/farmers/[id]/route.js');
+  assert.match(createRoute, /await Farmers\.createFarmer[\s\S]*?createFarmerChangedNotification\(\{ farmer, ownerUserId: user\.id, action: 'created' \}\)/);
+  assert.match(updateRoute, /await Farmers\.updateFarmer[\s\S]*?createFarmerChangedNotification\(\{ farmer, ownerUserId: user\.id, action: 'updated' \}\)/);
+  assert.match(createRoute, /Farmer-created notification failed/);
+  assert.match(updateRoute, /Farmer-updated notification failed/);
 });
 
 test('notification list, unread count, and mark-read always carry authenticated owner', async () => {

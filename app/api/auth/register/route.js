@@ -11,6 +11,7 @@ export async function POST(request) {
   try {
     const body = await request.json();
     const accountType = String(body.accountType || body.account_type || 'COLLECTOR').toUpperCase();
+    const emailLanguage = body.language === 'en' ? 'en' : 'rw';
     const selectedPlanCode = body.selectedPlanCode || body.planCode || null;
     const user = await registerUser({
       repository,
@@ -25,14 +26,14 @@ export async function POST(request) {
     const verificationPromise = sendRegistrationEmailVerification({
       userId: user.id,
       baseUrl: origin,
-      language: 'rw',
+      language: emailLanguage,
       repository,
       mailer: emailService,
     }).catch((error) => ({ ok: false, error }));
     const welcomePromise = emailService.sendWelcomeEmail({
       email: user.email,
       name: user.name,
-      language: 'rw',
+      language: emailLanguage,
       loginUrl: `${origin.replace(/\/$/, '')}/login`,
     }).catch((error) => ({ ok: false, error }));
     const [verificationResult, welcomeResult] = await Promise.all([verificationPromise, welcomePromise]);

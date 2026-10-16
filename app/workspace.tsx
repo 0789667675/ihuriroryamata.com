@@ -10,12 +10,15 @@ import {
   HandCoins, History, LayoutDashboard, LogOut, Milk, Plus, ReceiptText, Search, Settings, Shield, Truck, UserRound,
   Users, UsersRound, Wallet, Warehouse, X,
 } from 'lucide-react';
+import { motion, AnimatePresence, useReducedMotion } from 'framer-motion';
 import { flushOfflineWrites, getOfflineWrites, queueOfflineWrite } from '@/lib/offline-queue';
 import { buildFarmerListQuery } from '@/lib/farmer-list-query';
 import { BrandLockup } from '@/components/brand-lockup';
 import { Modal } from '@/components/ui/modal';
 import { usePublicLanguage } from '@/hooks/use-public-language';
 import { formatDateLabel, getMonthNames } from '@/lib/i18n/date-format';
+import { resolveWorkspaceTab } from '@/lib/workspace-navigation';
+import { calculateMilkDifference, projectOwnerMilkEntry } from '@/lib/milk-reconciliation';
 
 type User = { id: number; name: string; email: string; role: string; accountType: string };
 type AccountProfile = { id: number; name: string; email: string; phone: string | null; nationalId: string | null; accountNumber: string | null; profilePicture: string | null; role: string; accountType: string; accountStatus: string; emailVerified: boolean };
@@ -27,12 +30,13 @@ type CollectorMilkEntry = { id: number; date: string; volumeLiters: number; pric
 type CollectorMilkPrice = { id: number; pricePerLiter: number; effectiveDate: string };
 type OwnerIfishiEntry = { id: number | null; date: string; volumeMorning: number; volumeEvening: number; volumeLiters: number; originalVolumeLiters: number; validVolumeLiters: number; lostVolumeLiters: number; pricePerLiter: number | null; grossAmount: number | null; assignedFarmerLiters: number; surplusLiters: number; status: string; adjustmentReason: string | null; adjustedAt: string | null };
 type OwnerIfishiHistory = { owner: { name: string }; startDate: string; endDate: string; entries: OwnerIfishiEntry[]; totals: { originalVolumeLiters: number; ownerVolumeLiters: number; lostVolumeLiters: number; ownerMilkGross: number | null; ownerMilkValueComplete: boolean; assignedFarmerLiters: number; surplusLiters: number } };
+type DashboardOwnerMilk = { status: 'loading' | 'available' | 'missing' | 'error'; date: string; volumeMorning: number; volumeEvening: number; validVolumeLiters: number };
 type MilkRecord = { id: number; farmer_id: number; owner_user_id: number; date: string; volumeMorning: number; volumeEvening: number; volume: number; originalVolumeLiters: number; validVolumeLiters: number; lostVolumeLiters: number; originalAmount: number; validAmount: number; amount: number; pricePerLiter: number; status: string; adjustmentReason: string | null; adjustedBy: number | null; adjustedAt: string | null; collectionCenter?: string | null };
 type Notice = { id: number; title: string; message: string; notification_type: string; isRead: boolean; createdAt: string };
 type ReportFarmerRow = { farmerId: number; farmerName: string; nationalId?: string | null; idNumber?: string | null; phone?: string | null; accountNumber?: string | null; totalVolume: number; originalVolume?: number; lostVolume?: number; pricePerLiter?: number; grossAmount: number; totalTransport: number | null; transportIsComplete?: boolean; totalDeductions: number; ifishiTotalDeductions?: number; ifishiNetAmount?: number | null; netAmount: number | null };
 type ReportOwnerRow = { farmerId: null; farmerName: string; name: string; isOwner: true; nationalId?: string | null; idNumber?: string | null; phone?: string | null; accountNumber?: string | null; totalVolume: number; pricePerLiter: number | null; grossAmount: number | null; totalTransport: number | null; totalDeductions: number; farmerPayable?: number; netAmount: number | null };
 type CollectorSettlementFields = { collectorFarmerMilkValue?: number | null; collectorFarmerPayable?: number | null; collectorAccountingComplete?: boolean | null; collectorAccountingMissingInputs?: string[] };
-type SettlementAccounting = { farmerGross: number | null; expectedFarmerPayable: number; saccoEligiblePayable: number; saccoDistributionInstruction: number; saccoConfirmedAmount: number; retainedUnpaidAmount: number; cashApprovedAmount: number; cashConfirmedAmount: number; debtRepaymentAmount: number; outstandingDebt: number | null; legacyUnallocatedDebtRepayments: number; debtBalancesComplete: boolean; unexplainedDiscrepancy: number; ownerGrossReconciliation: { ownerGross: number | null; farmerGross: number | null; surplus: number | null; discrepancy: number | null }; farmers: Array<ReportFarmerRow & { settlement: { saccoEligible: boolean; saccoDistributionInstruction: number; cashApprovedAmount: number; cashConfirmedAmount: number; debtRepaymentAmount: number; outstandingDebt: number | null; retainedUnpaidAmount: number; unexplainedDiscrepancy: number | null } }> };
+type SettlementAccounting = { farmerGross: number | null; expectedFarmerPayable: number | null; saccoEligiblePayable: number | null; saccoDistributionInstruction: number | null; saccoConfirmedAmount: number; retainedUnpaidAmount: number | null; cashApprovedAmount: number; cashConfirmedAmount: number; debtRepaymentAmount: number; outstandingDebt: number | null; legacyUnallocatedDebtRepayments: number; debtBalancesComplete: boolean; unexplainedDiscrepancy: number | null; ownerGrossReconciliation: { ownerGross: number | null; farmerGross: number | null; surplus: number | null; discrepancy: number | null }; farmers: Array<ReportFarmerRow & { settlement: { saccoEligible: boolean; saccoDistributionInstruction: number | null; cashApprovedAmount: number; cashConfirmedAmount: number; debtRepaymentAmount: number; outstandingDebt: number | null; retainedUnpaidAmount: number | null; unexplainedDiscrepancy: number | null } }> };
 type Report = { totalFarmers: number; totalVolume: number; totalMorning: number; totalEvening: number; totalRevenueMonth: number; ownerGeneratedGross?: number | null; ownerGeneratedVolume?: number; totalDeductionsMonth: number; totalTransportFeesMonth: number; netRevenueMonth: number; todayTotal: number; todayMorning: number; todayEvening: number; rangeStart: string; rangeEnd: string; collectorPayable: number | null; collectorGross?: number | null; collectorActualVolume?: number; collectorOriginalVolume?: number; collectorLostVolume?: number; collectorFarmersValidLiters?: number; collectorTotalFarmersPayable?: number; collectorFarmerDeductions?: number; collectorFarmerTransport?: number; collectorSurplusAmount?: number | null; collectorPayableFromBreakdown?: number | null; collectorIsReconciled?: boolean | null; collectorProfile?: { name: string } | null; collectorEntries?: Array<{ id: number; date: string; status: string; volumeLiters: number; effectiveVolumeLiters: number; farmerLostLiters: number; voidReason?: string | null; voidedBy?: number | null; voidedAt?: string | null }>; milkLossRecords?: Array<{ id: number; farmerId: number; farmerName: string; date: string; status: string; originalVolume: number; validVolume: number; lostVolume: number; reason: string | null; adjustedBy: number | null; adjustedAt: string | null }>; collectorSettlementRows?: any[]; ownerSettlementRow?: ReportOwnerRow | null; farmerPayments: ReportFarmerRow[]; settlementAccounting?: SettlementAccounting | null; settlementAccountingStatus?: 'AVAILABLE' | 'MIGRATION_REQUIRED' | null };
 type Account = { user_id: number; account_name: string; account_email: string; account_type: string; account_status: string; effective_status: string; farmer_count: number; center_count: number };
 type AdminAccountDetails = { account: { id: number; name: string; email: string; account_type: string; account_status: string; email_verified: boolean; phone: string | null; created_at: string }; subscription: { status: string; effective_status?: string; billing_exempt?: boolean; exemption_reason?: string | null; exemption_granted_at?: string | null; exemption_revoked_at?: string | null; plan_id: number | null; current_price: number | string | null; currency: string | null; tier_code: string | null; access_started_at: string | null; payment_due_at: string | null; subscription_started_at: string | null; subscription_ends_at: string | null } | null; counts: { centers: number; farmers: number; milk_records: number; deductions: number; payments: number; notifications: number } };
@@ -122,7 +126,6 @@ const dairyTabs: Array<{ id: Tab; label: string }> = [
   { id: 'milk', label: 'Milk' },
   { id: 'reports', label: 'Reports' },
   { id: 'ukwezi', label: 'Ukwezi' },
-  { id: 'settlements', label: 'Settlements' },
   { id: 'settings', label: 'Settings' },
 ];
 
@@ -314,7 +317,7 @@ export default function Workspace() {
   const [authAttempt, setAuthAttempt] = useState(0);
   const [online, setOnline] = useState(true);
   const [pendingWrites, setPendingWrites] = useState(0);
-  const [tab, setTab] = useState<Tab>('dashboard');
+  const [tab, setTabState] = useState<Tab>('dashboard');
   const [ifishiOpen, setIfishiOpen] = useState(false);
   const [ownerIfishiOpen, setOwnerIfishiOpen] = useState(false);
   const [ownerIfishiHistoryOpen, setOwnerIfishiHistoryOpen] = useState(false);
@@ -355,6 +358,8 @@ export default function Workspace() {
   const [dailyCenter, setDailyCenter] = useState<string | null>(null);
   const [dailyCenters, setDailyCenters] = useState<string[]>([]);
   const [dashboardLoading, setDashboardLoading] = useState(false);
+  const [dashboardOwnerMilk, setDashboardOwnerMilk] = useState<DashboardOwnerMilk>({ status: 'loading', date: today(), volumeMorning: 0, volumeEvening: 0, validVolumeLiters: 0 });
+  const dashboardOwnerMilkRequest = useRef(0);
   const [dailyLoading, setDailyLoading] = useState(false);
   const [dailyError, setDailyError] = useState('');
   const [unreadCount, setUnreadCount] = useState<number | null>(null);
@@ -397,12 +402,16 @@ export default function Workspace() {
   const [deductionFarmers, setDeductionFarmers] = useState<Farmer[]>([]);
 const [report, setReport] = useState<Report | null>(null);
   const [reportMonth, setReportMonth] = useState(today().slice(0, 7));
+  const [reportLoading, setReportLoading] = useState(false);
+  const [reportError, setReportError] = useState('');
   const [settlementMonth, setSettlementMonth] = useState(today().slice(0, 7));
   const [settlementHalf, setSettlementHalf] = useState<'first-half' | 'second-half'>('first-half');
   const [settlementData, setSettlementData] = useState<SettlementData | null>(null);
+  const [settlementReport, setSettlementReport] = useState<Report | null>(null);
   const [settlementDebts, setSettlementDebts] = useState<any[]>([]);
   const [settlementLoading, setSettlementLoading] = useState(false);
   const [settlementError, setSettlementError] = useState<'settlementsLoadError' | 'settlementsSchemaUnavailable' | ''>('');
+  const [settlementReportError, setSettlementReportError] = useState(false);
   const [settlementAmounts, setSettlementAmounts] = useState<Record<number, string>>({});
   const settlementRequestKeys = useRef<Record<string, string>>({});
   const [debtForm, setDebtForm] = useState({ farmerId: '', amount: '', reason: '' });
@@ -431,6 +440,13 @@ const [report, setReport] = useState<Report | null>(null);
   const [ownerIfishiError, setOwnerIfishiError] = useState('');
   const [ownerIfishiSaveError, setOwnerIfishiSaveError] = useState('');
   const [ownerIfishiSaveStatus, setOwnerIfishiSaveStatus] = useState('');
+  const [lossEventOpen, setLossEventOpen] = useState(false);
+  const [lossEventLoading, setLossEventLoading] = useState(false);
+  const [lossEventError, setLossEventError] = useState('');
+  const [lossEventStatus, setLossEventStatus] = useState('');
+  const [lossEventPeriod, setLossEventPeriod] = useState<'morning' | 'evening' | 'all'>('all');
+  const [lossEventPercentage, setLossEventPercentage] = useState('');
+  const [lossEventReason, setLossEventReason] = useState('');
   const [ukweziMonth, setUkweziMonth] = useState(today().slice(5, 7));
   const [ukweziYear, setUkweziYear] = useState(today().slice(0, 4));
   const [ukweziPeriod, setUkweziPeriod] = useState<'first-half' | 'second-half'>('first-half');
@@ -528,6 +544,16 @@ const visibleTabs = (isAdmin
   const mobilePrimaryTabs = visibleTabs.slice(0, 4);
   const mobileMoreTabs = visibleTabs.slice(4);
 
+  const setTab = (nextTab: Tab) => {
+    if (!visibleTabs.some((item) => item.id === nextTab)) return;
+    setTabState(nextTab);
+    const nextUrl = new URL(window.location.href);
+    nextUrl.searchParams.set('tab', nextTab);
+    const nextPath = `${nextUrl.pathname}${nextUrl.search}${nextUrl.hash}`;
+    const currentPath = `${window.location.pathname}${window.location.search}${window.location.hash}`;
+    if (nextPath !== currentPath) window.history.pushState({}, '', nextPath);
+  };
+
   useEffect(() => {
     if (!mobileMoreOpen) return undefined;
     const closeOnEscape = (event: KeyboardEvent) => {
@@ -546,7 +572,6 @@ const visibleTabs = (isAdmin
       .then((result) => {
         if (!active) return;
         setUser(result.user);
-        setTab('dashboard');
         sessionStorage.setItem('milk-session-user', JSON.stringify(result.user));
       })
       .catch((reason) => {
@@ -567,6 +592,25 @@ const visibleTabs = (isAdmin
       controller.abort();
     };
   }, [authAttempt]);
+
+  useEffect(() => {
+    if (!user || authLoading) return undefined;
+    const allowedTabs = new Set(visibleTabs.map((item) => item.id));
+    const fallbackTab = visibleTabs[0]?.id ?? 'dashboard';
+    const syncTabFromUrl = () => {
+      const url = new URL(window.location.href);
+      const requestedTab = url.searchParams.get('tab');
+      const safeTab = resolveWorkspaceTab(requestedTab, [...allowedTabs]) as Tab;
+      setTabState(safeTab);
+      if (requestedTab !== safeTab) {
+        url.searchParams.set('tab', safeTab);
+        window.history.replaceState({}, '', `${url.pathname}${url.search}${url.hash}`);
+      }
+    };
+    syncTabFromUrl();
+    window.addEventListener('popstate', syncTabFromUrl);
+    return () => window.removeEventListener('popstate', syncTabFromUrl);
+  }, [authLoading, user?.id]);
 
   useEffect(() => {
     if (!user) return undefined;
@@ -724,6 +768,33 @@ const visibleTabs = (isAdmin
     }
   };
 
+  const loadDashboardOwnerMilk = async (date: string) => {
+    const requestId = ++dashboardOwnerMilkRequest.current;
+    setDashboardOwnerMilk({ status: 'loading', date, volumeMorning: 0, volumeEvening: 0, validVolumeLiters: 0 });
+    const [year, month, day] = date.split('-').map(Number);
+    const params = new URLSearchParams({
+      month: String(month),
+      year: String(year),
+      periodType: day <= 15 ? 'first-half' : 'second-half',
+    });
+    try {
+      const history = await api<OwnerIfishiHistory>(`/api/ifishi/owner?${params}`, { cache: 'no-store' });
+      if (requestId !== dashboardOwnerMilkRequest.current) return;
+      const entry = projectOwnerMilkEntry(history.entries, date);
+      setDashboardOwnerMilk(entry ? {
+        status: 'available',
+        date,
+        volumeMorning: entry.volumeMorning,
+        volumeEvening: entry.volumeEvening,
+        validVolumeLiters: entry.validVolumeLiters,
+      } : { status: 'missing', date, volumeMorning: 0, volumeEvening: 0, validVolumeLiters: 0 });
+    } catch {
+      if (requestId === dashboardOwnerMilkRequest.current) {
+        setDashboardOwnerMilk({ status: 'error', date, volumeMorning: 0, volumeEvening: 0, validVolumeLiters: 0 });
+      }
+    }
+  };
+
   const loadAbacundaIfishi = async (collectorUserId: number, monthValue = abacundaIfishiMonth) => {
     const { startDate, endDate } = getMonthBounds(monthValue);
     const params = new URLSearchParams({ collectorUserId: String(collectorUserId), centerId: selectedCenter, startDate, endDate });
@@ -814,16 +885,23 @@ const visibleTabs = (isAdmin
   };
 
   const loadReport = async (periodType = 'monthly') => {
-    if (periodType === 'current-half') {
-      const params = new URLSearchParams({ periodType: 'current-half' });
+    setReportLoading(true);
+    try {
+      if (periodType === 'current-half') {
+        const params = new URLSearchParams({ periodType: 'current-half' });
+        if (selectedCenter) params.set('collectionCenter', centers.find((center) => String(center.id) === selectedCenter)?.name || '');
+        setReport(await api<Report>(`/api/reports/summary?${params}`));
+        return;
+      }
+      const [year, month] = reportMonth.split('-');
+      const params = new URLSearchParams({ periodType: 'monthly', month, year });
       if (selectedCenter) params.set('collectionCenter', centers.find((center) => String(center.id) === selectedCenter)?.name || '');
       setReport(await api<Report>(`/api/reports/summary?${params}`));
-      return;
+    } catch (reason) {
+      setReportError(reason instanceof Error ? reason.message : publicLanguage.t('reportsLoadError'));
+    } finally {
+      setReportLoading(false);
     }
-    const [year, month] = reportMonth.split('-');
-    const params = new URLSearchParams({ periodType: 'monthly', month, year });
-    if (selectedCenter) params.set('collectionCenter', centers.find((center) => String(center.id) === selectedCenter)?.name || '');
-    setReport(await api<Report>(`/api/reports/summary?${params}`));
   };
 
   const loadUkwezi = async (sortOverrides: { sortBy?: typeof ukweziSortBy; sortDirection?: typeof ukweziSortDirection } = {}) => {
@@ -837,21 +915,24 @@ const visibleTabs = (isAdmin
   const loadSettlementData = async () => {
     const { startDate, endDate } = getSettlementPeriodBounds(settlementMonth, settlementHalf);
     setSettlementLoading(true);
+    setSettlementReportError(false);
+    setSettlementError('');
+    const [year, month] = settlementMonth.split('-');
+    const reportParams = new URLSearchParams({ periodType: settlementHalf, month, year });
+    const historyParams = new URLSearchParams({ action: 'confirmations', periodStart: startDate, periodEnd: endDate });
     try {
-      if (isDairy) {
-        const params = new URLSearchParams({ action: 'summary', periodStart: startDate, periodEnd: endDate });
-        const [summary, debts] = await Promise.all([
-          api<SettlementData>(`/api/farmer-settlements?${params}`, { cache: 'no-store' }),
-          api<{ data: any[] }>('/api/farmer-settlements?action=debts', { cache: 'no-store' }),
-        ]);
-        setSettlementData(summary);
-        setSettlementDebts(debts.data);
-      } else {
-        const params = new URLSearchParams({ action: 'confirmations', periodStart: startDate, periodEnd: endDate });
-        setSettlementData(await api<SettlementData>(`/api/farmer-settlements?${params}`, { cache: 'no-store' }));
-        setSettlementDebts([]);
+      try {
+        setSettlementReport(await api<Report>(`/api/reports/summary?${reportParams}`, { cache: 'no-store' }));
+      } catch {
+        setSettlementReport(null);
+        setSettlementReportError(true);
       }
-      setSettlementError('');
+      const [history, debts] = await Promise.all([
+        api<SettlementData>(`/api/farmer-settlements?${historyParams}`, { cache: 'no-store' }),
+        api<{ data: any[] }>('/api/farmer-settlements?action=debts', { cache: 'no-store' }),
+      ]);
+      setSettlementData(history);
+      setSettlementDebts(debts.data);
     } catch (reason) {
       setSettlementData(null);
       setSettlementDebts([]);
@@ -1167,6 +1248,12 @@ const visibleTabs = (isAdmin
   }, [user, tab, selectedCenter]);
 
   useEffect(() => {
+    if (user && isCollector && tab === 'dashboard') {
+      void loadDashboardOwnerMilk(collectionDate);
+    }
+  }, [user?.id, isCollector, tab, collectionDate]);
+
+  useEffect(() => {
     if (user && tab === 'dashboard' && !isCollector && selectedCenter) {
       loadDaily().catch((reason) => setError(reason.message));
     }
@@ -1213,8 +1300,8 @@ const visibleTabs = (isAdmin
     if (user && tab === 'reports') loadReport().catch((reason) => setError(reason.message));
   }, [user, tab, reportMonth, selectedCenter]);
   useEffect(() => {
-    if (user && tab === 'settlements') void loadSettlementData();
-  }, [user, tab, settlementMonth, settlementHalf, isDairy]);
+    if (user && isCollector && tab === 'settlements') void loadSettlementData();
+  }, [user?.id, isCollector, tab, settlementMonth, settlementHalf]);
 
   const logout = async () => {
     await api('/api/auth/logout', { method: 'POST' }).catch(() => null);
@@ -1224,7 +1311,7 @@ const visibleTabs = (isAdmin
 
   if (authLoading) return <main className="boot-screen"><BrandLockup imageSize={44} /><small className="boot-company">Milk System Technologies Ltd.</small><div className="loading-status" role="status" aria-live="polite"><span className="loading-indicator" aria-hidden="true" />{publicLanguage.t('loading')}</div></main>;
   if (authError) return <main className="boot-screen boot-screen-error"><BrandLockup imageSize={44} /><small className="boot-company">Milk System Technologies Ltd.</small><section className="boot-error-panel" role="alert"><h1>Unable to start Milk System.</h1><p>Please check your connection and try again.</p><button type="button" className="button button-primary" onClick={() => { setAuthError(''); setAuthLoading(true); setAuthAttempt((attempt) => attempt + 1); }}>Retry</button></section></main>;
-  if (!user) return <Login {...publicLanguage} onLogin={(signedIn) => { sessionStorage.setItem('milk-session-user', JSON.stringify(signedIn)); setTab('dashboard'); setUser(signedIn); }} />;
+  if (!user) return <Login {...publicLanguage} onLogin={(signedIn) => { sessionStorage.setItem('milk-session-user', JSON.stringify(signedIn)); setTabState('dashboard'); setUser(signedIn); }} />;
 
   const openIfishiForFarmer = (farmerId: number | null, farmerName?: string, farmerDetails?: Farmer) => {
     if (!farmerId) return;
@@ -1457,6 +1544,29 @@ const visibleTabs = (isAdmin
       setOwnerIfishiSaveError(reason instanceof Error ? reason.message : 'Failed to save Owner Ifishi entry.');
     } finally {
       setBusy(false);
+    }
+  };
+  const saveLossEvent = async (event: React.FormEvent) => {
+    event.preventDefault();
+    setLossEventLoading(true);
+    setLossEventError('');
+    setLossEventStatus('');
+    try {
+      const result = await api<{ corrected: boolean }>(`/api/milk/loss`, json('POST', {
+        collectionCenterId: selectedCenter,
+        date: collectionDate,
+        period: lossEventPeriod,
+        lossPercentage: lossEventPercentage,
+        reason: lossEventReason,
+      }));
+      setLossEventStatus(publicLanguage.t(result.corrected ? 'lossEventCorrected' : 'lossEventSaved'));
+      setLossEventOpen(false);
+      setLossEventPercentage('');
+      setLossEventReason('');
+    } catch (reason) {
+      setLossEventError(reason instanceof Error ? reason.message : publicLanguage.t('lossEventSaveError'));
+    } finally {
+      setLossEventLoading(false);
     }
   };
   const createDeduction = async (event: React.FormEvent) => {
@@ -1870,6 +1980,13 @@ const visibleTabs = (isAdmin
           <option value="totalVolume:desc">{publicLanguage.t('milkTotal')} ↓</option>
         </select></label>
         <label><span>{publicLanguage.t('milkPageSize')}</span><select value={dailyPageSize} onChange={(event) => setDailyPageSize(Number(event.target.value))}><option value={10}>10</option><option value={25}>25</option><option value={50}>50</option><option value={100}>100</option></select></label>
+        {centers.length && (
+          <button type="button" className="button button-secondary small-button" onClick={() => {
+            setLossEventPercentage('');
+            setLossEventReason('');
+            setLossEventOpen(true);
+          }}><Plus size={15} aria-hidden="true" />{publicLanguage.t('recordLossEvent')}</button>
+        )}
       </div>
       <div className="metric-strip milk-summary"><div><span>{accountCopy('dashboardFarmers', 'dashboardAbacundaToday')}</span><b>{dailySummary.presentCount} / {dailySummary.totalFarmers}</b></div><div><span>{publicLanguage.t('dashboardCollected')}</span><b>{liters(dailySummary.totalVolume)} L</b></div><div><span>{publicLanguage.t('dashboardMorning')}</span><b>{liters(dailySummary.totalMorning)} L</b></div><div><span>{publicLanguage.t('dashboardEvening')}</span><b>{liters(dailySummary.totalEvening)} L</b></div></div>
       <div className="panel-heading"><div><span className="eyebrow">{isCollector ? 'ABOROZI' : 'ACTIVE IKIGO'}</span><h2>{publicLanguage.t('navFarmers')}</h2></div><span className="count-label">{publicLanguage.t('milkResultsCount')}: {visibleRows.length} / {dailySummary.totalFarmers}</span></div>
@@ -1979,15 +2096,15 @@ const visibleTabs = (isAdmin
             {accountingRows.length ? <div className="table-scroll owner-ifishi-accounting-table"><table><thead><tr><th>No</th><th>{publicLanguage.t('milkFarmer')}</th><th>{publicLanguage.t('accountNationalId')}</th><th>{publicLanguage.t('accountPhone')} / {publicLanguage.t('accountNumber')}</th><th>{publicLanguage.t('reportsVolume')}</th><th>{publicLanguage.t('milkPrice')} / L</th><th>{publicLanguage.t('reportsGross')}</th><th>{publicLanguage.t('reportsTransport')}</th><th>{publicLanguage.t('dashboardDeductions')}</th><th>{publicLanguage.t('reportsNet')}</th></tr></thead><tbody>{accountingRows.map((row, index) => <tr key={`${row.isOwner ? 'owner' : row.farmerId}-${index}`} className={row.isOwner ? 'owner-settlement-row' : undefined}><td>{index + 1}</td><td>{row.farmerName || row.name}</td><td>{row.nationalId || row.idNumber || '—'}</td><td>{[row.phone, row.accountNumber].filter(Boolean).join(' / ') || '—'}</td><td>{liters(row.totalVolume)} L</td><td>{row.pricePerLiter == null ? '—' : `${money(row.pricePerLiter)} RWF`}</td><td>{row.grossAmount == null ? '—' : `${money(row.grossAmount)} RWF`}</td><td>{money(row.totalTransport || 0)} RWF</td><td>{money(row.totalDeductions || 0)} RWF</td><td>{row.netAmount == null ? '—' : `${money(row.netAmount)} RWF`}</td></tr>)}</tbody><tfoot><tr className="owner-settlement-row"><td></td><td colSpan={3}><b>{publicLanguage.t('ukweziOwnerTotal')}</b></td><td>{liters(ownerIfishiReport.ownerGeneratedVolume || 0)} L</td><td>{ownerIfishiReport.ownerSettlementRow?.pricePerLiter == null ? '—' : `${money(ownerIfishiReport.ownerSettlementRow.pricePerLiter)} RWF`}</td><td>{ownerIfishiReport.ownerGeneratedGross == null ? '—' : `${money(ownerIfishiReport.ownerGeneratedGross)} RWF`}</td><td>{money(ownerIfishiReport.collectorFarmerTransport || 0)} RWF</td><td>{money(ownerIfishiReport.collectorFarmerDeductions || 0)} RWF</td><td>{ownerIfishiReport.collectorPayable == null ? '—' : `${money(ownerIfishiReport.collectorPayable)} RWF`}</td></tr></tfoot></table></div> : <div className="workspace-empty" role="status"><b>{publicLanguage.t('reportsEmptyTitle')}</b></div>}
           </> : null}
           {ownerIfishiHistory.entries.length ? <>
-            <div className="table-scroll owner-ifishi-desktop-list"><table><thead><tr><th>{publicLanguage.t('milkCollectionDate')}</th><th>{publicLanguage.t('ifishiOriginal')} · L</th><th>{publicLanguage.t('ownerIfishiOwnerMilk')} · L</th><th>{publicLanguage.t('milkPrice')} / L</th><th>{publicLanguage.t('ownerIfishiGross')}</th><th>{publicLanguage.t('ownerIfishiAssigned')} · L</th><th>{publicLanguage.t('ownerIfishiSurplus')} · L</th><th>{publicLanguage.t('ifishiLost')} · L</th><th>{publicLanguage.t('paymentStatus')}</th><th>{publicLanguage.t('ifishiReason')}</th><th /></tr></thead><tbody>{ownerIfishiHistory.entries.map((entry) => <tr key={`${entry.date}-${entry.id || 'assigned'}`}>
+            <div className="table-scroll owner-ifishi-desktop-list"><table><thead><tr><th>{publicLanguage.t('milkCollectionDate')}</th><th>{publicLanguage.t('dashboardMorning')} · L</th><th>{publicLanguage.t('dashboardEvening')} · L</th><th>{publicLanguage.t('ifishiOriginal')} · L</th><th>{publicLanguage.t('ownerIfishiOwnerMilk')} · L</th><th>{publicLanguage.t('milkPrice')} / L</th><th>{publicLanguage.t('ownerIfishiGross')}</th><th>{publicLanguage.t('ownerIfishiAssigned')} · L</th><th>{publicLanguage.t('ownerIfishiSurplus')} · L</th><th>{publicLanguage.t('ifishiLost')} · L</th><th>{publicLanguage.t('paymentStatus')}</th><th>{publicLanguage.t('ifishiReason')}</th><th /></tr></thead><tbody>{ownerIfishiHistory.entries.map((entry) => <tr key={`${entry.date}-${entry.id || 'assigned'}`}>
               <td><button type="button" className="text-button" onClick={() => openOwnerIfishiEntry(entry.date)}>{entry.date}</button></td>
-              <td>{liters(entry.originalVolumeLiters)} L</td><td>{liters(entry.validVolumeLiters)} L</td><td>{entry.pricePerLiter == null ? '—' : `${money(entry.pricePerLiter)} RWF`}</td><td>{entry.grossAmount == null ? '—' : `${money(entry.grossAmount)} RWF`}</td><td>{liters(entry.assignedFarmerLiters)} L</td><td>{liters(entry.surplusLiters)} L</td><td>{liters(entry.lostVolumeLiters)} L</td>
+              <td>{liters(entry.volumeMorning)} L</td><td>{liters(entry.volumeEvening)} L</td><td>{liters(entry.originalVolumeLiters)} L</td><td>{liters(entry.validVolumeLiters)} L</td><td>{entry.pricePerLiter == null ? '—' : `${money(entry.pricePerLiter)} RWF`}</td><td>{entry.grossAmount == null ? '—' : `${money(entry.grossAmount)} RWF`}</td><td>{liters(entry.assignedFarmerLiters)} L</td><td>{liters(entry.surplusLiters)} L</td><td>{liters(entry.lostVolumeLiters)} L</td>
               <td>{entry.status}</td><td>{entry.adjustmentReason || '—'}</td>
               <td><button type="button" className="text-button" onClick={() => openOwnerIfishiEntry(entry.date)}>{entry.id && entry.status === 'valid' ? publicLanguage.t('ownerIfishiCorrect') : entry.id ? publicLanguage.t('ownerIfishiVoidedShort') : publicLanguage.t('ownerIfishiEnter')}</button></td>
             </tr>)}</tbody></table></div>
             <div className="owner-ifishi-mobile-list">{ownerIfishiHistory.entries.map((entry) => <article className="owner-ifishi-day" key={`${entry.date}-${entry.id || 'assigned'}`}>
               <header><button type="button" className="text-button" onClick={() => openOwnerIfishiEntry(entry.date)}>{entry.date}</button><span className={`milk-entry-state ${entry.status === 'cancelled' ? 'unsaved' : 'saved'}`}>{entry.status}</span></header>
-              <dl><div><dt>{publicLanguage.t('ifishiOriginal')}</dt><dd>{liters(entry.originalVolumeLiters)} L</dd></div><div><dt>{publicLanguage.t('ownerIfishiOwnerMilk')}</dt><dd>{liters(entry.validVolumeLiters)} L</dd></div><div><dt>{publicLanguage.t('milkPrice')} / L</dt><dd>{entry.pricePerLiter == null ? '—' : `${money(entry.pricePerLiter)} RWF`}</dd></div><div><dt>{publicLanguage.t('ownerIfishiGross')}</dt><dd>{entry.grossAmount == null ? '—' : `${money(entry.grossAmount)} RWF`}</dd></div><div><dt>{publicLanguage.t('ownerIfishiAssigned')}</dt><dd>{liters(entry.assignedFarmerLiters)} L</dd></div><div><dt>{publicLanguage.t('ownerIfishiSurplus')}</dt><dd>{liters(entry.surplusLiters)} L</dd></div><div><dt>{publicLanguage.t('ifishiLost')}</dt><dd>{liters(entry.lostVolumeLiters)} L</dd></div></dl>
+              <dl><div><dt>{publicLanguage.t('dashboardMorning')}</dt><dd>{liters(entry.volumeMorning)} L</dd></div><div><dt>{publicLanguage.t('dashboardEvening')}</dt><dd>{liters(entry.volumeEvening)} L</dd></div><div><dt>{publicLanguage.t('ifishiOriginal')}</dt><dd>{liters(entry.originalVolumeLiters)} L</dd></div><div><dt>{publicLanguage.t('ownerIfishiOwnerMilk')}</dt><dd>{liters(entry.validVolumeLiters)} L</dd></div><div><dt>{publicLanguage.t('milkPrice')} / L</dt><dd>{entry.pricePerLiter == null ? '—' : `${money(entry.pricePerLiter)} RWF`}</dd></div><div><dt>{publicLanguage.t('ownerIfishiGross')}</dt><dd>{entry.grossAmount == null ? '—' : `${money(entry.grossAmount)} RWF`}</dd></div><div><dt>{publicLanguage.t('ownerIfishiAssigned')}</dt><dd>{liters(entry.assignedFarmerLiters)} L</dd></div><div><dt>{publicLanguage.t('ownerIfishiSurplus')}</dt><dd>{liters(entry.surplusLiters)} L</dd></div><div><dt>{publicLanguage.t('ifishiLost')}</dt><dd>{liters(entry.lostVolumeLiters)} L</dd></div></dl>
               {entry.adjustmentReason ? <p>{entry.adjustmentReason}</p> : null}
               <footer><button type="button" className="button button-secondary small-button" onClick={() => openOwnerIfishiEntry(entry.date)} disabled={Boolean(entry.id && entry.status !== 'valid')}>{entry.id ? publicLanguage.t('ownerIfishiCorrect') : publicLanguage.t('ownerIfishiEnter')}</button></footer>
             </article>)}</div>
@@ -2084,6 +2201,9 @@ const visibleTabs = (isAdmin
       : null;
     const centerNames = dailyCenters.length ? dailyCenters : dailyCenter ? [dailyCenter] : [];
     const centerLabel = centerNames.length ? centerNames.join(', ') : publicLanguage.t('dashboardNoCenter');
+    const milkDifference = dashboardOwnerMilk.status === 'available'
+      ? calculateMilkDifference(dashboardOwnerMilk.validVolumeLiters, dailySummary.totalVolume)
+      : null;
     const recentRows = daily.filter((row) => row.recordId && row.totalVolume > 0).slice(0, 6);
     const quickActions = [
       { id: 'milk' as Tab, label: publicLanguage.t('dashboardEnterMilk'), icon: Milk },
@@ -2099,6 +2219,16 @@ const visibleTabs = (isAdmin
           <div className="dashboard-today-heading"><div><span className="eyebrow">{publicLanguage.t('dashboardToday')}</span><h2>{dateLabel}</h2></div><CalendarDays size={20} aria-hidden="true" /></div>
           <div className="dashboard-volume"><strong>{dashboardLoading ? '…' : liters(dailySummary.totalVolume)}</strong><span>L</span></div>
           <div className="dashboard-split"><div><span>{publicLanguage.t('dashboardMorning')}</span><b>{dashboardLoading ? '…' : `${liters(dailySummary.totalMorning)} L`}</b></div><div><span>{publicLanguage.t('dashboardEvening')}</span><b>{dashboardLoading ? '…' : `${liters(dailySummary.totalEvening)} L`}</b></div></div>
+          {isCollector ? <div className="dashboard-milk-reconciliation">
+            <h3>{publicLanguage.t('dashboardMilkComparison')}</h3>
+            {dashboardOwnerMilk.status === 'loading' ? <p>{publicLanguage.t('dashboardComparisonLoading')}</p> : <>
+              <div><span>{publicLanguage.t('dashboardFarmerMilk')}</span><b>{liters(dailySummary.totalVolume)} L</b></div>
+              <div><span>{publicLanguage.t('dashboardOwnerMilk')}</span><b>{dashboardOwnerMilk.status === 'available' ? `${liters(dashboardOwnerMilk.validVolumeLiters)} L` : '—'}</b></div>
+              <div><span>{publicLanguage.t('dashboardMilkDifference')}</span><b>{milkDifference ? `${liters(Math.abs(milkDifference.difference))} L` : '—'}</b></div>
+              {dashboardOwnerMilk.status === 'available' && milkDifference ? <small>{publicLanguage.t(milkDifference.higherSide === 'owner' ? 'dashboardOwnerHigher' : milkDifference.higherSide === 'farmers' ? 'dashboardFarmersHigher' : 'dashboardMilkEqual')} · {publicLanguage.t('dashboardMorning')} {liters(dashboardOwnerMilk.volumeMorning)} L · {publicLanguage.t('dashboardEvening')} {liters(dashboardOwnerMilk.volumeEvening)} L</small> : null}
+              {dashboardOwnerMilk.status === 'missing' ? <p>{publicLanguage.t('dashboardOwnerMilkMissing')}</p> : null}
+              {dashboardOwnerMilk.status === 'error' ? <p>{publicLanguage.t('dashboardComparisonError')}</p> : null}
+            </>}</div> : null}
         </div>
         <div className="dashboard-quick panel">
           <div className="panel-heading"><div><span className="eyebrow">{publicLanguage.t('dashboardActions')}</span><h2>{publicLanguage.t('dashboardEnterMilk')}</h2></div><ArrowUpRight size={19} aria-hidden="true" /></div>
@@ -2181,10 +2311,11 @@ const visibleTabs = (isAdmin
 
   const renderSettlements = () => {
     const { startDate, endDate } = getSettlementPeriodBounds(settlementMonth, settlementHalf);
-    const confirmableRows = settlementData?.data || [];
-    const retainedRows = settlementData?.retained || [];
-    const settlementRecords = settlementData?.records || [];
-    const settlementNumber = new Intl.NumberFormat(publicLanguage.language === 'rw' ? 'rw-RW' : 'en-GB', { maximumFractionDigits: 0 });
+    const reconciliation = settlementReport?.settlementAccounting || null;
+    const farmerRows = reconciliation?.farmers || [];
+    const retainedRows = farmerRows.filter((farmer) => !farmer.settlement.saccoEligible && Number(farmer.settlement.retainedUnpaidAmount || 0) > 0);
+    const settlementRecords = settlementData?.data || [];
+    const settlementNumber = new Intl.NumberFormat(publicLanguage.language === 'rw' ? 'rw-RW' : 'en-GB', { maximumFractionDigits: 2 });
     const settlementMoney = (value: number | null | undefined) => value === null || value === undefined ? '—' : settlementNumber.format(Number(value || 0));
     const settlementDate = (value?: string) => value
       ? formatDateLabel(value, publicLanguage.language, { day: 'numeric', month: 'long', year: 'numeric' })
@@ -2248,36 +2379,83 @@ const visibleTabs = (isAdmin
       await loadSettlementData();
     };
 
+    const breakdownValues = reconciliation ? [
+      reconciliation.saccoConfirmedAmount,
+      reconciliation.cashConfirmedAmount,
+      reconciliation.debtRepaymentAmount,
+      reconciliation.saccoDistributionInstruction,
+      reconciliation.retainedUnpaidAmount,
+      reconciliation.unexplainedDiscrepancy,
+      reconciliation.expectedFarmerPayable,
+    ] : [];
+    const payableBreakdownAvailable = breakdownValues.length === 7
+      && breakdownValues.every((value) => value !== null && value !== undefined);
+    const ownerGrossCheck = reconciliation?.ownerGrossReconciliation;
+    const ownerGrossCheckAvailable = ownerGrossCheck
+      && ownerGrossCheck.ownerGross !== null && ownerGrossCheck.ownerGross !== undefined
+      && ownerGrossCheck.farmerGross !== null && ownerGrossCheck.farmerGross !== undefined
+      && ownerGrossCheck.surplus !== null && ownerGrossCheck.surplus !== undefined
+      && ownerGrossCheck.discrepancy !== null && ownerGrossCheck.discrepancy !== undefined;
+    const periodLabel = settlementReport
+      ? `${formatDateLabel(settlementReport.rangeStart, publicLanguage.language, { day: 'numeric', month: 'long', year: 'numeric' })} – ${formatDateLabel(settlementReport.rangeEnd, publicLanguage.language, { day: 'numeric', month: 'long', year: 'numeric' })}`
+      : `${startDate} – ${endDate}`;
+
     return <div className="ukwezi-view">
       <section className="panel">
         <div className="panel-heading"><div><span className="eyebrow">{publicLanguage.t('dashboardPeriod')}</span><h2>{publicLanguage.t('settlementsTitle')}</h2></div><Wallet size={20} aria-hidden="true" /></div>
         <div className="toolbar"><label>{publicLanguage.t('ukweziMonth')}<input type="month" value={settlementMonth} onChange={(event) => setSettlementMonth(event.target.value)} /></label><label>{publicLanguage.t('ukweziPeriod')}<select value={settlementHalf} onChange={(event) => setSettlementHalf(event.target.value as typeof settlementHalf)}><option value="first-half">1–15</option><option value="second-half">16–{getMonthBounds(settlementMonth).endDate.slice(-2)}</option></select></label><button type="button" className="button button-secondary" onClick={() => run(() => loadSettlementData())} disabled={busy || settlementLoading}>{publicLanguage.t('reportsRefresh')}</button></div>
         <p role="note">{publicLanguage.t('settlementsNote')}</p>
+        {settlementReportError ? <div className="workspace-empty" role="alert"><b>{publicLanguage.t('settlementsAccountingLoadError')}</b><button type="button" className="button button-secondary small-button" onClick={() => void loadSettlementData()} disabled={settlementLoading}>{publicLanguage.t('settlementsRetry')}</button></div> : null}
         {settlementError ? <div className="workspace-empty" role="alert"><b>{publicLanguage.t(settlementError)}</b><button type="button" className="button button-secondary small-button" onClick={() => void loadSettlementData()} disabled={settlementLoading}>{publicLanguage.t('settlementsRetry')}</button></div> : null}
         {settlementLoading ? <div className="workspace-empty workspace-loading" role="status"><span className="loading-indicator" />{publicLanguage.t('dashboardLoading')}</div> : null}
 
-        {isDairy ? <>
-          <div className="metric-strip"><div><span>{publicLanguage.t('settlementsRetainedFarmers')}</span><b>{settlementNumber.format(settlementData?.summary?.retainedCount ?? 0)}</b></div><div><span>{publicLanguage.t('settlementsRetainedPayable')}</span><b>{settlementMoney(settlementData?.summary?.retainedAmount)} RWF</b></div><div><span>{publicLanguage.t('settlementsAwaitingConfirmation')}</span><b>{settlementNumber.format(settlementData?.summary?.approvedCount ?? 0)}</b></div></div>
-          <div className="table-wrap"><table><thead><tr><th>{publicLanguage.t('settlementsFarmer')}</th><th>{publicLanguage.t('settlementsRetainedBalance')}</th><th>{publicLanguage.t('settlementsCashPayment')}</th><th /></tr></thead><tbody>
-            {retainedRows.map((farmer) => <tr key={farmer.farmerId}><td>{farmer.farmerName}</td><td>{farmer.netAmount === null ? publicLanguage.t('settlementsIncompleteAccounting') : `${settlementMoney(farmer.retainedAmount)} RWF`}</td><td><input aria-label={`${publicLanguage.t('settlementsCashAmount')} · ${farmer.farmerName}`} type="number" min="0.01" max={farmer.retainedAmount} step="0.01" value={settlementAmounts[farmer.farmerId] ?? String(farmer.retainedAmount)} onChange={(event) => setSettlementAmounts((current) => ({ ...current, [farmer.farmerId]: event.target.value }))} /></td><td><button type="button" className="button button-secondary" disabled={busy || farmer.netAmount === null || farmer.retainedAmount <= 0} onClick={() => runSettlement(() => approveCashPayment(farmer.farmerId, Number(settlementAmounts[farmer.farmerId] ?? farmer.retainedAmount)))}>{publicLanguage.t('settlementsApproveCash')}</button></td></tr>)}
-            {!retainedRows.length ? <tr><td colSpan={4}>{publicLanguage.t('settlementsEmptyRetained')}</td></tr> : null}
+        {settlementReport?.settlementAccountingStatus === 'MIGRATION_REQUIRED' ? <div className="workspace-empty" role="status"><b>{publicLanguage.t('ukweziReconciliationUnavailable')}</b><p>{publicLanguage.t('ukweziReconciliationUnavailableDetail')}</p></div> : null}
+        {reconciliation && settlementReport && !settlementLoading ? <>
+          <section className="settlement-reconciliation" aria-labelledby="settlement-period-heading">
+            <div className="panel-heading"><div><span className="eyebrow">{publicLanguage.t('settlementsPeriodSummary')}</span><h3 id="settlement-period-heading">{periodLabel}</h3></div></div>
+            <div className="metric-strip report-summary">
+              <div><span>{publicLanguage.t('settlementsFarmerGross')}</span><b>{settlementMoney(reconciliation.farmerGross)} RWF</b></div>
+              <div><span>{publicLanguage.t('settlementsFarmerPayable')}</span><b>{settlementMoney(reconciliation.expectedFarmerPayable)} RWF</b></div>
+              <div><span>{publicLanguage.t('settlementsSaccoInstruction')}</span><b>{settlementMoney(reconciliation.saccoDistributionInstruction)} RWF</b></div>
+              <div><span>{publicLanguage.t('settlementsCashApprovedAmount')}</span><b>{settlementMoney(reconciliation.cashApprovedAmount)} RWF</b></div>
+              <div><span>{publicLanguage.t('settlementsCashReceived')}</span><b>{settlementMoney(reconciliation.cashConfirmedAmount)} RWF</b></div>
+              <div><span>{publicLanguage.t('settlementsDebtRepaid')}</span><b>{settlementMoney(reconciliation.debtRepaymentAmount)} RWF</b></div>
+              <div><span>{publicLanguage.t('settlementsDebtOutstanding')}</span><b>{reconciliation.debtBalancesComplete ? `${settlementMoney(reconciliation.outstandingDebt)} RWF` : publicLanguage.t('settlementsIncompleteAccounting')}</b></div>
+              <div><span>{publicLanguage.t('settlementsRetainedBalance')}</span><b>{settlementMoney(reconciliation.retainedUnpaidAmount)} RWF</b></div>
+              <div><span>{publicLanguage.t('settlementsUnexplainedDifference')}</span><b>{settlementMoney(reconciliation.unexplainedDiscrepancy)} RWF</b></div>
+            </div>
+            {payableBreakdownAvailable ? <p className="muted-note">{publicLanguage.t('settlementsPayableBreakdown')}: {settlementMoney(breakdownValues[0])} + {settlementMoney(breakdownValues[1])} + {settlementMoney(breakdownValues[2])} + {settlementMoney(breakdownValues[3])} + {settlementMoney(breakdownValues[4])} + ({settlementMoney(breakdownValues[5])}) = {settlementMoney(breakdownValues[6])} RWF</p> : <p className="muted-note">{publicLanguage.t('ukweziBreakdownUnavailable')}</p>}
+            {ownerGrossCheckAvailable ? <p className="muted-note">{publicLanguage.t('settlementsOwnerGrossCheck')}: {settlementMoney(ownerGrossCheck.ownerGross)} − {settlementMoney(ownerGrossCheck.farmerGross)} − {settlementMoney(ownerGrossCheck.surplus)} = {settlementMoney(ownerGrossCheck.discrepancy)} RWF</p> : <p className="muted-note">{publicLanguage.t('settlementsOwnerGrossUnavailable')}</p>}
+            {!reconciliation.debtBalancesComplete ? <p className="form-error" role="status">{publicLanguage.t('settlementsDebtHistoryIncomplete')}</p> : null}
+          </section>
+
+          <section className="panel settlement-farmer-table"><div className="panel-heading"><div><span className="eyebrow">{publicLanguage.t('settlementsTitle')}</span><h3>{publicLanguage.t('settlementsReconciliationByFarmer')}</h3></div></div>
+            {farmerRows.length ? <div className="table-scroll"><table><thead><tr><th>{publicLanguage.t('settlementsFarmer')}</th><th>{publicLanguage.t('settlementsMilkGross')}</th><th>{publicLanguage.t('settlementsFarmerPayable')}</th><th>{publicLanguage.t('settlementsSaccoInstruction')}</th><th>{publicLanguage.t('settlementsCashApprovedAmount')}</th><th>{publicLanguage.t('settlementsCashReceived')}</th><th>{publicLanguage.t('settlementsDebtRepaid')}</th><th>{publicLanguage.t('settlementsDebtOutstanding')}</th><th>{publicLanguage.t('settlementsRetainedBalance')}</th><th>{publicLanguage.t('settlementsUnexplainedDifference')}</th></tr></thead><tbody>
+              {farmerRows.map((farmer) => <tr key={`settlement-${farmer.farmerId}`}><td>{farmer.farmerName}</td><td>{settlementMoney(farmer.grossAmount)} RWF</td><td>{settlementMoney(farmer.netAmount)} RWF</td><td>{settlementMoney(farmer.settlement.saccoDistributionInstruction)} RWF</td><td>{settlementMoney(farmer.settlement.cashApprovedAmount)} RWF</td><td>{settlementMoney(farmer.settlement.cashConfirmedAmount)} RWF</td><td>{settlementMoney(farmer.settlement.debtRepaymentAmount)} RWF</td><td>{farmer.settlement.outstandingDebt === null ? publicLanguage.t('settlementsIncompleteAccounting') : `${settlementMoney(farmer.settlement.outstandingDebt)} RWF`}</td><td>{settlementMoney(farmer.settlement.retainedUnpaidAmount)} RWF</td><td>{settlementMoney(farmer.settlement.unexplainedDiscrepancy)} RWF</td></tr>)}
+            </tbody></table></div> : <div className="workspace-empty" role="status"><b>{publicLanguage.t('settlementsNoMilkActivity')}</b></div>}
+          </section>
+        </> : null}
+
+        <section className="panel settlement-operations"><div className="panel-heading"><div><span className="eyebrow">{publicLanguage.t('settlementsPaymentHistory')}</span><h3>{publicLanguage.t('settlementsAwaitingConfirmation')}</h3></div></div>
+          <div className="table-scroll"><table><thead><tr><th>{publicLanguage.t('settlementsFarmer')}</th><th>{publicLanguage.t('settlementsApprovedPayment')}</th><th>{publicLanguage.t('settlementsPeriod')}</th><th>{publicLanguage.t('settlementsStatus')}</th><th>{publicLanguage.t('settlementsAction')}</th></tr></thead><tbody>
+            {settlementRecords.map((record) => <tr key={record.id || record.settlementId}><td>{record.farmerName || record.farmer_name || '—'}</td><td>{settlementMoney(record.amount)} RWF</td><td>{settlementDate(record.periodStart || record.period_start)} – {settlementDate(record.periodEnd || record.period_end)}</td><td>{settlementStatus(record.status)}</td><td>{record.status === 'APPROVED' ? <button type="button" className="button button-secondary" disabled={busy} onClick={() => runSettlement(() => confirmCashPayment(record))}>{publicLanguage.t('settlementsConfirmReceived')}</button> : '—'}</td></tr>)}
+            {!settlementRecords.length ? <tr><td colSpan={5}>{publicLanguage.t('settlementsEmptyRecords')}</td></tr> : null}
           </tbody></table></div>
-          <div className="table-wrap"><table><thead><tr><th>{publicLanguage.t('settlementsFarmer')}</th><th>{publicLanguage.t('settlementsCashAmount')}</th><th>{publicLanguage.t('settlementsPeriod')}</th><th>{publicLanguage.t('settlementsStatus')}</th></tr></thead><tbody>
-            {settlementRecords.map((record) => <tr key={record.id}><td>{record.farmer_name}</td><td>{settlementMoney(record.amount)} RWF</td><td>{settlementDate(record.period_start)} – {settlementDate(record.period_end)}</td><td>{settlementStatus(record.status)}</td></tr>)}
-            {!settlementRecords.length ? <tr><td colSpan={4}>{publicLanguage.t('settlementsEmptyRecords')}</td></tr> : null}
-          </tbody></table></div>
+        </section>
+
+        <section className="panel settlement-operations"><div className="panel-heading"><div><span className="eyebrow">{publicLanguage.t('settlementsRetainedBalance')}</span><h3>{publicLanguage.t('settlementsApproveCash')}</h3></div></div>
+          {retainedRows.length ? <div className="table-scroll"><table><thead><tr><th>{publicLanguage.t('settlementsFarmer')}</th><th>{publicLanguage.t('settlementsFarmerPayable')}</th><th>{publicLanguage.t('settlementsRetainedBalance')}</th><th>{publicLanguage.t('settlementsCashAmount')}</th><th>{publicLanguage.t('settlementsAction')}</th></tr></thead><tbody>
+            {retainedRows.map((farmer) => <tr key={`retained-${farmer.farmerId}`}><td>{farmer.farmerName}</td><td>{settlementMoney(farmer.netAmount)} RWF</td><td>{settlementMoney(farmer.settlement.retainedUnpaidAmount)} RWF</td><td><input aria-label={`${publicLanguage.t('settlementsCashAmount')} · ${farmer.farmerName}`} type="number" min="0.01" max={Number(farmer.settlement.retainedUnpaidAmount)} step="0.01" value={settlementAmounts[farmer.farmerId] ?? String(farmer.settlement.retainedUnpaidAmount)} onChange={(event) => setSettlementAmounts((current) => ({ ...current, [farmer.farmerId]: event.target.value }))} /></td><td><button type="button" className="button button-secondary" disabled={busy || farmer.netAmount === null || Number(farmer.settlement.retainedUnpaidAmount) <= 0} onClick={() => runSettlement(() => approveCashPayment(farmer.farmerId, Number(settlementAmounts[farmer.farmerId] ?? farmer.settlement.retainedUnpaidAmount)))}>{publicLanguage.t('settlementsApproveCash')}</button></td></tr>)}
+          </tbody></table></div> : <div className="workspace-empty" role="status"><b>{publicLanguage.t('settlementsEmptyRetained')}</b></div>}
           <form className="panel-footer settlement-debt-form" onSubmit={(event) => runSettlement(() => addFarmerDebt(event))}>
             <div className="panel-heading"><div><span className="eyebrow">{publicLanguage.t('settlementsFarmerDebt')}</span><h3>{publicLanguage.t('settlementsRecordDebt')}</h3></div></div>
             <div className="toolbar"><label>{publicLanguage.t('settlementsFarmerId')}<input type="number" min="1" required value={debtForm.farmerId} onChange={(event) => setDebtForm((current) => ({ ...current, farmerId: event.target.value }))} /></label><label>{publicLanguage.t('settlementsAmount')}<input type="number" min="0.01" step="0.01" required value={debtForm.amount} onChange={(event) => setDebtForm((current) => ({ ...current, amount: event.target.value }))} /></label><label>{publicLanguage.t('settlementsReason')}<input value={debtForm.reason} onChange={(event) => setDebtForm((current) => ({ ...current, reason: event.target.value }))} /></label><button type="submit" className="button button-primary" disabled={busy}>{publicLanguage.t('settlementsRecordDebt')}</button></div>
           </form>
-          <div className="table-wrap"><table><thead><tr><th>{publicLanguage.t('settlementsFarmer')}</th><th>{publicLanguage.t('settlementsOriginalDebt')}</th><th>{publicLanguage.t('settlementsOutstanding')}</th><th>{publicLanguage.t('settlementsRepayment')}</th><th /></tr></thead><tbody>
+          <div className="table-scroll"><table><thead><tr><th>{publicLanguage.t('settlementsFarmer')}</th><th>{publicLanguage.t('settlementsOriginalDebt')}</th><th>{publicLanguage.t('settlementsOutstanding')}</th><th>{publicLanguage.t('settlementsRepayment')}</th><th>{publicLanguage.t('settlementsAction')}</th></tr></thead><tbody>
             {settlementDebts.map((debt) => <tr key={debt.id}><td>{debt.farmer_name}</td><td>{settlementMoney(Number(debt.opening_balance))} RWF</td><td>{settlementMoney(Number(debt.remaining_balance))} RWF</td><td><input aria-label={`${publicLanguage.t('settlementsRepayment')} · ${debt.farmer_name}`} type="number" min="0.01" step="0.01" max={Number(debt.remaining_balance)} value={debtRepaymentAmounts[debt.id] || ''} onChange={(event) => setDebtRepaymentAmounts((current) => ({ ...current, [debt.id]: event.target.value }))} /></td><td><button type="button" className="button button-secondary" disabled={busy || !debtRepaymentAmounts[debt.id]} onClick={() => runSettlement(() => repayFarmerDebt(Number(debt.id)))}>{publicLanguage.t('settlementsRecordRepayment')}</button></td></tr>)}
             {!settlementDebts.length ? <tr><td colSpan={5}>{publicLanguage.t('settlementsEmptyDebts')}</td></tr> : null}
           </tbody></table></div>
-        </> : <div className="table-wrap"><table><thead><tr><th>{publicLanguage.t('settlementsFarmer')}</th><th>{publicLanguage.t('settlementsApprovedPayment')}</th><th>{publicLanguage.t('settlementsPeriod')}</th><th>{publicLanguage.t('settlementsAction')}</th></tr></thead><tbody>
-          {confirmableRows.map((record) => <tr key={record.settlementId}><td>{record.farmerName}</td><td>{settlementMoney(record.amount)} RWF</td><td>{settlementDate(record.periodStart)} – {settlementDate(record.periodEnd)}</td><td><button type="button" className="button button-secondary" disabled={busy} onClick={() => runSettlement(() => confirmCashPayment(record))}>{publicLanguage.t('settlementsConfirmReceived')}</button></td></tr>)}
-          {!confirmableRows.length ? <tr><td colSpan={4}>{publicLanguage.t('settlementsEmptyApproved')}</td></tr> : null}
-        </tbody></table></div>}
+        </section>
       </section>
     </div>;
   };
@@ -2285,18 +2463,258 @@ const visibleTabs = (isAdmin
   const renderReports = () => {
     const reportRows = report?.farmerPayments || [];
     const dairyCollectorRows = report?.collectorSettlementRows || [];
-    return <section className="panel reports-view">
-      <div className="panel-heading"><div><span className="eyebrow">{publicLanguage.t('dashboardPeriod')}</span><h2>{publicLanguage.t('navReports')}</h2></div><div className="toolbar">{centers.length ? <label>{isDairy ? 'Active Ikigo' : publicLanguage.t('dashboardCenter')}<select value={selectedCenter} onChange={(event) => setSelectedCenter(event.target.value)}>{centers.map((center) => <option key={center.id} value={String(center.id)}>{center.name}</option>)}</select></label> : null}<input type="month" aria-label={publicLanguage.t('dashboardPeriod')} value={reportMonth} onChange={(event) => setReportMonth(event.target.value)} /><button className="button button-secondary" onClick={() => run(loadReport)}>{publicLanguage.t('reportsRefresh')}</button></div></div>
-      {report ? <>
-        <div className="metric-strip report-summary"><div><span>{publicLanguage.t('reportsVolume')}</span><b>{liters(isCollector ? report.ownerGeneratedVolume ?? report.totalVolume : report.totalVolume)} L</b></div><div><span>{publicLanguage.t('reportsRevenue')}</span><b>{isCollector && report.ownerGeneratedGross == null ? publicLanguage.t('collectorPriceMissing') : `${money(isCollector ? report.ownerGeneratedGross ?? report.totalRevenueMonth : report.totalRevenueMonth)} RWF`}</b></div><div><span>{publicLanguage.t('reportsTransport')}</span><b>{money(report.totalTransportFeesMonth)} RWF</b></div><div><span>{publicLanguage.t('dashboardDeductions')}</span><b>{money(report.totalDeductionsMonth)} RWF</b></div><div><span>{publicLanguage.t('reportsNet')}</span><b>{isCollector && report.collectorPayable == null ? publicLanguage.t('collectorPriceMissing') : `${money(isCollector ? report.collectorPayable ?? 0 : report.netRevenueMonth)} RWF`}</b></div></div>
-        <div className="report-summary-panels">
-          <article className="panel compact-panel"><div className="panel-heading"><div><span className="eyebrow">{publicLanguage.t('dashboardAccounting')}</span><h3>{publicLanguage.t('navReports')}</h3></div></div><dl className="summary-grid"><div><dt>{publicLanguage.t('reportsVolume')}</dt><dd>{liters(isCollector ? report.ownerGeneratedVolume ?? report.totalVolume : report.totalVolume)} L</dd></div><div><dt>{publicLanguage.t('reportsGross')}</dt><dd>{money(isCollector ? report.ownerGeneratedGross ?? report.totalRevenueMonth : report.totalRevenueMonth)} RWF</dd></div><div><dt>{publicLanguage.t('dashboardDeductions')}</dt><dd>{money(report.totalDeductionsMonth)} RWF</dd></div><div><dt>{publicLanguage.t('reportsTransport')}</dt><dd>{money(report.totalTransportFeesMonth)} RWF</dd></div><div><dt>{publicLanguage.t('reportsNet')}</dt><dd>{money(isCollector ? report.collectorPayable ?? 0 : report.netRevenueMonth)} RWF</dd></div></dl></article>
-          {isDairy ? <article className="panel compact-panel"><div className="panel-heading"><div><span className="eyebrow">{publicLanguage.t('dashboardSummary')}</span><h3>{publicLanguage.t('navAbacunda')}</h3></div></div><dl className="summary-grid"><div><dt>{publicLanguage.t('navAbacunda')}</dt><dd>{dairyCollectorRows.length}</dd></div><div><dt>{publicLanguage.t('reportsVolume')}</dt><dd>{liters(dairyCollectorRows.reduce((sum, row) => sum + Number(row.totalVolume || 0), 0))} L</dd></div><div><dt>{publicLanguage.t('reportsGross')}</dt><dd>{money(dairyCollectorRows.reduce((sum, row) => sum + Number(row.grossAmount || 0), 0))} RWF</dd></div><div><dt>{publicLanguage.t('reportsNet')}</dt><dd>{money(dairyCollectorRows.reduce((sum, row) => sum + Number(row.netAmount || 0), 0))} RWF</dd></div></dl></article> : null}
-          {!isDairy && reportRows.length ? <article className="panel compact-panel"><div className="panel-heading"><div><span className="eyebrow">{publicLanguage.t('account')}</span><h3>{publicLanguage.t('reportSummary')}</h3></div></div><dl className="summary-grid"><div><dt>{publicLanguage.t('account')}</dt><dd>{reportRows.length}</dd></div><div><dt>{publicLanguage.t('reportsVolume')}</dt><dd>{liters(reportRows.reduce((sum, row) => sum + Number(row.totalVolume || 0), 0))} L</dd></div><div><dt>{publicLanguage.t('dashboardDeductions')}</dt><dd>{money(reportRows.reduce((sum, row) => sum + Number(row.totalDeductions || 0), 0))} RWF</dd></div><div><dt>{publicLanguage.t('reportsNet')}</dt><dd>{money(reportRows.reduce((sum, row) => sum + Number(row.netAmount || 0), 0))} RWF</dd></div></dl></article> : null}
+    const hasCollectorData = report && ((isDairy ? dairyCollectorRows.length : reportRows.length) > 0 || Number(report.totalVolume || 0) > 0 || Number(report.totalDeductionsMonth || 0) > 0 || Number(report.totalTransportFeesMonth || 0) > 0);
+    const isEmpty = report && !hasCollectorData;
+
+    const volume = isCollector ? Number(report?.ownerGeneratedVolume ?? report?.totalVolume ?? 0) : Number(report?.totalVolume ?? 0);
+    const gross = isCollector ? Number(report?.ownerGeneratedGross ?? report?.totalRevenueMonth ?? 0) : Number(report?.totalRevenueMonth ?? 0);
+    const transport = Number(report?.totalTransportFeesMonth ?? 0);
+    const deductions = Number(report?.totalDeductionsMonth ?? 0);
+    const net = isCollector ? Number(report?.collectorPayable ?? report?.netRevenueMonth ?? 0) : Number(report?.netRevenueMonth ?? 0);
+
+    const grossMissing = isCollector && report?.ownerGeneratedGross == null;
+    const netMissing = isCollector && report?.collectorPayable == null;
+
+    const showError = reportError && !report;
+    const showLoading = reportLoading && !report;
+    const showContent = report && !reportLoading;
+
+    return (
+      <motion.section
+        className="panel reports-view"
+        initial={{ opacity: 0, y: 10 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.2 }}
+      >
+        <div className="panel-heading">
+          <div>
+            <span className="eyebrow">{publicLanguage.t('dashboardPeriod')}</span>
+            <h2>{publicLanguage.t('navReports')}</h2>
+          </div>
+          <div className="toolbar">
+            {centers.length && (
+              <label>
+                {isDairy ? publicLanguage.t('activeCenter') : publicLanguage.t('dashboardCenter')}
+                <select
+                  value={selectedCenter}
+                  onChange={(event) => setSelectedCenter(event.target.value)}
+                >
+                  {centers.map((center) => (
+                    <option key={center.id} value={String(center.id)}>{center.name}</option>
+                  ))}
+                </select>
+              </label>
+            )}
+            <label>
+              {publicLanguage.t('dashboardPeriod')}
+              <input
+                type="month"
+                aria-label={publicLanguage.t('dashboardPeriod')}
+                value={reportMonth}
+                onChange={(event) => setReportMonth(event.target.value)}
+              />
+            </label>
+            <button
+              className="button button-secondary"
+              disabled={reportLoading || busy}
+              onClick={() => run(loadReport)}
+              aria-label={publicLanguage.t('reportsRefresh')}
+              aria-busy={reportLoading}
+            >
+              {reportLoading ? (
+                <>
+                  <span className="loading-indicator" aria-hidden="true" />
+                  {publicLanguage.t('refreshing')}
+                </>
+              ) : (
+                publicLanguage.t('reportsRefresh')
+              )}
+            </button>
+          </div>
         </div>
-        {(!isDairy && !reportRows.length) || (isDairy && !dairyCollectorRows.length) ? <div className="workspace-empty" role="status"><span className="workspace-empty-icon"><FileBarChart2 size={21} aria-hidden="true" /></span><b>{publicLanguage.t('reportsEmptyTitle')}</b></div> : null}
-      </> : <div className="workspace-empty workspace-loading" role="status"><span className="loading-indicator" />{publicLanguage.t('dashboardLoading')}</div>}
-    </section>;
+
+        {showError && (
+          <div className="workspace-empty" role="alert">
+            <b>{publicLanguage.t('reportsErrorTitle')}</b>
+            <p>{reportError}</p>
+            <button type="button" className="button button-secondary small-button" onClick={() => loadReport().catch(() => undefined)}>
+              {publicLanguage.t('refresh')}
+            </button>
+          </div>
+        )}
+
+        {showLoading && (
+          <div className="workspace-empty workspace-loading" role="status">
+            <span className="loading-indicator" />
+            {publicLanguage.t('dashboardLoading')}
+          </div>
+        )}
+
+        {showContent && (
+          <>
+            <div className="reports-kpi-cards">
+              <motion.div
+                className="reports-kpi-card"
+                whileHover={{ y: -2 }}
+                transition={{ duration: 0.2 }}
+              >
+                <div className="reports-kpi-icon"><Milk size={16} aria-hidden="true" /></div>
+                <span className="reports-kpi-label">{publicLanguage.t('reportsVolume')}</span>
+                <span className="reports-kpi-value">{liters(volume)} L</span>
+              </motion.div>
+              <motion.div
+                className="reports-kpi-card"
+                whileHover={{ y: -2 }}
+                transition={{ duration: 0.2 }}
+              >
+                <div className="reports-kpi-icon"><BadgeDollarSign size={16} aria-hidden="true" /></div>
+                <span className="reports-kpi-label">{publicLanguage.t('reportsRevenue')}</span>
+                <span className="reports-kpi-value">{grossMissing ? publicLanguage.t('collectorPriceMissing') : `${money(gross)} RWF`}</span>
+              </motion.div>
+              <motion.div
+                className="reports-kpi-card"
+                whileHover={{ y: -2 }}
+                transition={{ duration: 0.2 }}
+              >
+                <div className="reports-kpi-icon"><Truck size={16} aria-hidden="true" /></div>
+                <span className="reports-kpi-label">{publicLanguage.t('reportsTransport')}</span>
+                <span className="reports-kpi-value">{money(transport)} RWF</span>
+              </motion.div>
+              <motion.div
+                className="reports-kpi-card"
+                whileHover={{ y: -2 }}
+                transition={{ duration: 0.2 }}
+              >
+                <div className="reports-kpi-icon"><ReceiptText size={16} aria-hidden="true" /></div>
+                <span className="reports-kpi-label">{publicLanguage.t('dashboardDeductions')}</span>
+                <span className="reports-kpi-value">{money(deductions)} RWF</span>
+              </motion.div>
+              <motion.div
+                className="reports-kpi-card"
+                whileHover={{ y: -2 }}
+                transition={{ duration: 0.2 }}
+              >
+                <div className="reports-kpi-icon"><Wallet size={16} aria-hidden="true" /></div>
+                <span className="reports-kpi-label">{publicLanguage.t('reportsNet')}</span>
+                <span className="reports-kpi-value">{netMissing ? publicLanguage.t('collectorPriceMissing') : `${money(net)} RWF`}</span>
+              </motion.div>
+            </div>
+
+            <div className="report-summary-panels">
+              <article className="panel compact-panel">
+                <div className="panel-heading">
+                  <div>
+                    <span className="eyebrow">{publicLanguage.t('dashboardAccounting')}</span>
+                    <h3>{publicLanguage.t('navReports')}</h3>
+                  </div>
+                </div>
+                <dl className="summary-grid">
+                  <div><dt>{publicLanguage.t('reportsVolume')}</dt><dd>{liters(volume)} L</dd></div>
+                  <div><dt>{publicLanguage.t('reportsGross')}</dt><dd>{grossMissing ? publicLanguage.t('collectorPriceMissing') : `${money(gross)} RWF`}</dd></div>
+                  <div><dt>{publicLanguage.t('dashboardDeductions')}</dt><dd>{money(deductions)} RWF</dd></div>
+                  <div><dt>{publicLanguage.t('reportsTransport')}</dt><dd>{money(transport)} RWF</dd></div>
+                  <div><dt>{publicLanguage.t('reportsNet')}</dt><dd>{netMissing ? publicLanguage.t('collectorPriceMissing') : `${money(net)} RWF`}</dd></div>
+                </dl>
+              </article>
+
+              {isDairy ? (
+                <article className="panel compact-panel">
+                  <div className="panel-heading">
+                    <div>
+                      <span className="eyebrow">{publicLanguage.t('dashboardSummary')}</span>
+                      <h3>{publicLanguage.t('navAbacunda')}</h3>
+                    </div>
+                    <span className="count-label">{dairyCollectorRows.length} {publicLanguage.t('assignedCollectors')}</span>
+                  </div>
+                  {dairyCollectorRows.length > 0 ? (
+                    <div className="table-scroll reports-collector-table">
+                      <table>
+                        <thead>
+                          <tr>
+                            <th>{publicLanguage.t('navAbacunda')}</th>
+                            <th>{publicLanguage.t('reportsVolume')}</th>
+                            <th>{publicLanguage.t('reportsGross')}</th>
+                            <th>{publicLanguage.t('reportsTransport')}</th>
+                            <th>{publicLanguage.t('dashboardDeductions')}</th>
+                            <th>{publicLanguage.t('reportsNet')}</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {dairyCollectorRows.map((row) => (
+                            <tr key={String(row.collectorUserId)}>
+                              <td className="strong-cell">{row.name}</td>
+                              <td>{liters(row.totalVolume || 0)} L</td>
+                              <td>{row.grossAmount == null ? '—' : `${money(row.grossAmount)} RWF`}</td>
+                              <td>{money(row.totalTransport || 0)} RWF</td>
+                              <td>{money(row.totalDeductions || 0)} RWF</td>
+                              <td>{row.netAmount == null ? '—' : `${money(row.netAmount)} RWF`}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  ) : (
+                    <div className="workspace-empty" role="status">
+                      <span className="workspace-empty-icon"><UsersRound size={21} aria-hidden="true" /></span>
+                      <div>
+                        <b>{publicLanguage.t('reportsNoCollectorsTitle')}</b>
+                        <p>{publicLanguage.t('reportsNoCollectorsBody')}</p>
+                      </div>
+                    </div>
+                  )}
+                </article>
+              ) : (
+                reportRows.length > 0 ? (
+                  <article className="panel compact-panel">
+                    <div className="panel-heading">
+                      <div>
+                        <span className="eyebrow">{publicLanguage.t('account')}</span>
+                        <h3>{publicLanguage.t('reportSummary')}</h3>
+                      </div>
+                      <span className="count-label">{reportRows.length} {publicLanguage.t('farmersLoaded')}</span>
+                    </div>
+                    <div className="table-scroll reports-farmer-table">
+                      <table>
+                        <thead>
+                          <tr>
+                            <th>{publicLanguage.t('milkFarmer')}</th>
+                            <th>{publicLanguage.t('reportsVolume')}</th>
+                            <th>{publicLanguage.t('reportsGross')}</th>
+                            <th>{publicLanguage.t('dashboardDeductions')}</th>
+                            <th>{publicLanguage.t('reportsNet')}</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {reportRows.map((row) => (
+                            <tr key={String(row.farmerId)}>
+                              <td className="strong-cell">{row.farmerName}</td>
+                              <td>{liters(row.totalVolume || 0)} L</td>
+                              <td>{row.grossAmount == null ? '—' : `${money(row.grossAmount)} RWF`}</td>
+                              <td>{money(row.totalDeductions || 0)} RWF</td>
+                              <td>{row.netAmount == null ? '—' : `${money(row.netAmount)} RWF`}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </article>
+                ) : null
+              )}
+
+              {isEmpty && (
+                <div className="workspace-empty" role="status">
+                  <span className="workspace-empty-icon"><FileBarChart2 size={21} aria-hidden="true" /></span>
+                  <div>
+                    <b>{publicLanguage.t('reportsEmptyTitle')}</b>
+                    <p>{publicLanguage.t('reportsEmptyBody')}</p>
+                  </div>
+                </div>
+              )}
+            </div>
+          </>
+        )}
+      </motion.section>
+    );
   };
 
   const renderUkwezi = () => {
@@ -2384,36 +2802,7 @@ const visibleTabs = (isAdmin
             {isCollector ? <div><span>{publicLanguage.t('collectorFarmerPayable')}</span><b>{collectorReport?.collectorFarmerPayable == null ? '—' : `${money(collectorReport.collectorFarmerPayable)} RWF`}</b></div> : null}
             <div><span>{publicLanguage.t('ukweziPayable')}</span><b>{payable === null || payable === undefined ? '—' : `${money(payable)} RWF`}</b></div>
           </div>
-          {isCollector ? <section className="settlement-reconciliation" role="status">
-            <b>{ukweziReport.settlementAccountingStatus === 'MIGRATION_REQUIRED'
-              ? publicLanguage.t('ukweziReconciliationUnavailable')
-              : ukweziReport.collectorIsReconciled ? publicLanguage.t('ukweziReconciled') : publicLanguage.t('ukweziReconciliationPending')}</b>
-            {ukweziReport.settlementAccountingStatus === 'MIGRATION_REQUIRED'
-              ? <span>{publicLanguage.t('ukweziReconciliationUnavailableDetail')}</span>
-              : ukweziReport.collectorIsReconciled === null
-                ? <span>{missingInputMessages.length ? missingInputMessages.join(' · ') : publicLanguage.t('ukweziReconciliationPending')}</span>
-                : ukweziReport.collectorSurplusAmount == null || ukweziReport.collectorFarmerDeductions == null || ukweziReport.collectorFarmerTransport == null || ukweziReport.collectorPayableFromBreakdown == null
-                  ? <span>{publicLanguage.t('ukweziBreakdownUnavailable')}</span>
-                  : <span>{publicLanguage.t('ukweziBreakdown')}: {money(ukweziReport.collectorSurplusAmount)} + {money(ukweziReport.collectorFarmerDeductions)} + {money(ukweziReport.collectorFarmerTransport)} = {money(ukweziReport.collectorPayableFromBreakdown)} RWF</span>}
-          </section> : null}
-          {ukweziReport.settlementAccounting ? <section className="ukwezi-loss-reconciliation">
-            <div className="panel-heading"><div><span className="eyebrow">Settlement and debt</span><h3>Period payment reconciliation</h3></div></div>
-            <div className="metric-strip report-summary">
-              <div><span>Farmer gross</span><b>{money(ukweziReport.settlementAccounting.farmerGross)} RWF</b></div>
-              <div><span>Farmer payable</span><b>{money(ukweziReport.settlementAccounting.expectedFarmerPayable)} RWF</b></div>
-              <div><span>SACCO instruction</span><b>{money(ukweziReport.settlementAccounting.saccoDistributionInstruction)} RWF</b></div>
-              <div><span>Cash approved / received</span><b>{money(ukweziReport.settlementAccounting.cashApprovedAmount)} / {money(ukweziReport.settlementAccounting.cashConfirmedAmount)} RWF</b></div>
-              <div><span>Debt repaid / outstanding</span><b>{money(ukweziReport.settlementAccounting.debtRepaymentAmount)} / {ukweziReport.settlementAccounting.debtBalancesComplete ? `${money(ukweziReport.settlementAccounting.outstandingDebt)} RWF` : 'Incomplete history'}</b></div>
-              <div><span>Retained unpaid</span><b>{money(ukweziReport.settlementAccounting.retainedUnpaidAmount)} RWF</b></div>
-              <div><span>Unexplained difference</span><b>{money(ukweziReport.settlementAccounting.unexplainedDiscrepancy)} RWF</b></div>
-            </div>
-            <p className="muted-note">Owner gross check: {money(ukweziReport.settlementAccounting.ownerGrossReconciliation.ownerGross)} - {money(ukweziReport.settlementAccounting.ownerGrossReconciliation.farmerGross)} - {money(ukweziReport.settlementAccounting.ownerGrossReconciliation.surplus)} = {money(ukweziReport.settlementAccounting.ownerGrossReconciliation.discrepancy)} RWF</p>
-            {!ukweziReport.settlementAccounting.debtBalancesComplete ? <p className="form-error" role="status">Legacy debt repayments have no reliable period dates; outstanding debt is incomplete.</p> : null}
-            <div className="table-scroll"><table><thead><tr><th>Farmer</th><th>Milk gross</th><th>Payable</th><th>SACCO instruction</th><th>Cash approved</th><th>Cash received</th><th>Debt repaid</th><th>Debt outstanding</th><th>Retained unpaid</th><th>Difference</th></tr></thead><tbody>
-              {ukweziReport.settlementAccounting.farmers.map((farmer) => <tr key={`settlement-${farmer.farmerId}`}><td>{farmer.farmerName}</td><td>{money(farmer.grossAmount)} RWF</td><td>{money(farmer.netAmount)} RWF</td><td>{money(farmer.settlement.saccoDistributionInstruction)} RWF</td><td>{money(farmer.settlement.cashApprovedAmount)} RWF</td><td>{money(farmer.settlement.cashConfirmedAmount)} RWF</td><td>{money(farmer.settlement.debtRepaymentAmount)} RWF</td><td>{farmer.settlement.outstandingDebt === null ? 'Incomplete history' : `${money(farmer.settlement.outstandingDebt)} RWF`}</td><td>{money(farmer.settlement.retainedUnpaidAmount)} RWF</td><td>{farmer.settlement.unexplainedDiscrepancy === null ? '—' : `${money(farmer.settlement.unexplainedDiscrepancy)} RWF`}</td></tr>)}
-              {!ukweziReport.settlementAccounting.farmers.length ? <tr><td colSpan={10}>No farmer milk activity for this period.</td></tr> : null}
-            </tbody></table></div>
-          </section> : null}
+          {isCollector && ukweziReport.settlementAccountingStatus === 'MIGRATION_REQUIRED' ? <section className="settlement-reconciliation" role="status"><b>{publicLanguage.t('ukweziReconciliationUnavailable')}</b><span>{publicLanguage.t('ukweziReconciliationUnavailableDetail')}</span></section> : null}
           {settlementRows.length || ownerRow ? <><div className="table-scroll ukwezi-settlement-table"><table><thead><tr><th>No</th><th>{sortableUkweziHeader('name', publicLanguage.t(isDairy ? 'assignedCollectors' : 'milkFarmer'))}</th>{isDairy ? <th>{publicLanguage.t('navAbacunda')}</th> : <th>{publicLanguage.t('accountNationalId')}</th>}<th>{publicLanguage.t('accountPhone')} / {publicLanguage.t('accountNumber')}</th><th>{sortableUkweziHeader('volume', publicLanguage.t('reportsVolume'))}</th><th>{publicLanguage.t('milkPrice')} / L</th><th>{publicLanguage.t('reportsGross')}</th>{isCollector ? <th>{publicLanguage.t('reportsTransport')}</th> : null}<th>{publicLanguage.t('dashboardDeductions')}</th><th>{sortableUkweziHeader('payable', publicLanguage.t('reportsNet'))}</th></tr></thead><tbody>
             {settlementRows.map((row: any, index: number) => <tr key={`${isDairy ? 'collector' : 'farmer'}-${isDairy ? row.collectorUserId : row.farmerId}`}><td>{index + 1}</td><td>{isDairy ? row.name : row.farmerName}</td>{isDairy ? <td>{row.assignedFarmerCount}</td> : <td>{row.nationalId || row.idNumber || '—'}</td>}<td>{[row.phone, row.accountNumber].filter(Boolean).join(' / ') || '—'}</td><td>{liters(row.totalVolume)} L</td><td>{row.totalVolume > 0 ? `${money(row.pricePerLiter || 0)} RWF` : '—'}</td><td>{row.grossAmount == null ? '—' : `${money(row.grossAmount)} RWF`}</td>{isCollector ? <td>{money(row.totalTransport)} RWF</td> : null}<td>{money(row.totalDeductions)} RWF</td><td>{row.netAmount == null ? '—' : `${money(row.netAmount)} RWF`}</td></tr>)}
             {ownerRow ? <tr className="owner-settlement-row"><td>{settlementRows.length + 1}</td><td><b>{ownerRow.farmerName}</b><small className="block-muted">{publicLanguage.t('ukweziOwnerRow')}</small></td><td>{ownerRow.nationalId || ownerRow.idNumber || '—'}</td><td>{[ownerRow.phone, ownerRow.accountNumber].filter(Boolean).join(' / ') || '—'}</td><td>{liters(ownerRow.totalVolume)} L</td><td>{ownerRow.pricePerLiter == null ? '—' : `${money(ownerRow.pricePerLiter)} RWF`}</td><td>{ownerRow.grossAmount == null ? '—' : `${money(ownerRow.grossAmount)} RWF`}</td>{isCollector ? <td>{money(ownerRow.totalTransport)} RWF</td> : null}<td>{money(ownerRow.totalDeductions)} RWF</td><td>{ownerRow.netAmount == null ? '—' : `${money(ownerRow.netAmount)} RWF`}</td></tr> : null}
@@ -2849,26 +3238,53 @@ const renderNotifications = () => <section className="panel"><div className="pan
       <section className="content-area"><div className="content-heading"><div><span className="eyebrow">{isAdmin ? publicLanguage.t('platformAdmin') : 'MILK SYSTEM'}</span><h1>{activeTabLabel}</h1></div><span className="date-stamp">{formatDateLabel(new Date(), publicLanguage.language, { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' })}</span></div>
         {error ? <div className="toast toast-error" role="alert"><span>{error}</span><button onClick={() => setError('')} aria-label="Dismiss"><X size={16} /></button></div> : null}
         {notice ? <div className="toast toast-success" role="status"><span>{notice}</span><button onClick={() => setNotice('')} aria-label="Dismiss"><X size={16} /></button></div> : null}
-        {tab === 'dashboard' && isAdmin ? renderAdminDashboard() : null}
-        {tab === 'dashboard' && !isAdmin ? renderDashboard() : null}
-        {tab === 'farmers' && !isAdmin ? renderFarmers() : null}
-        {tab === 'centers' && !isAdmin ? renderCenters() : null}
-        {tab === 'milk' && !isAdmin ? renderMilk() : null}
-        {tab === 'deductions' && !isAdmin ? renderDeductions() : null}
-        {tab === 'transport' && !isAdmin && isCollector ? renderTransport() : null}
-        {tab === 'ukwezi' && !isAdmin ? renderUkwezi() : null}
-        {tab === 'settlements' && !isAdmin ? renderSettlements() : null}
-        {tab === 'reports' && !isAdmin ? renderReports() : null}
-        {tab === 'billing' && !isAdmin ? renderBilling() : null}
-        {tab === 'notifications' && !isAdmin ? <>{renderNotificationFilters()}{renderNotifications()}</> : null}
-        {tab === 'settings' ? renderAccountSettings() : null}
-        {tab === 'notifications-admin' && isAdmin ? renderNotifications() : null}
-        {tab === 'accounts' && isAdmin ? renderAdminAccounts() : null}
-        {tab === 'audit' && isAdmin ? renderAdminAudit() : null}
-        {tab === 'config' && isAdmin ? <div className="admin-pricing-layout">{renderAdminCollectorPricing()}{renderAdminConfig()}{renderAdminSubscriptionPolicy()}{renderAdminPaymentConfiguration()}{renderAdminPayments()}</div> : null}
-        {tab === 'system-health' && isAdmin ? renderSystemHealth() : null}
+        <AnimatePresence mode="wait">
+          <motion.div
+            key={tab}
+            className="workspace-tab-panel"
+            initial={{ opacity: 0, y: 8 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -8 }}
+            transition={{ duration: 0.22, ease: [0.2, 0, 0, 1] }}
+          >
+            {tab === 'dashboard' && isAdmin ? renderAdminDashboard() : null}
+            {tab === 'dashboard' && !isAdmin ? renderDashboard() : null}
+            {tab === 'farmers' && !isAdmin ? renderFarmers() : null}
+            {tab === 'centers' && !isAdmin ? renderCenters() : null}
+            {tab === 'milk' && !isAdmin ? renderMilk() : null}
+            {tab === 'deductions' && !isAdmin ? renderDeductions() : null}
+            {tab === 'transport' && !isAdmin && isCollector ? renderTransport() : null}
+            {tab === 'ukwezi' && !isAdmin ? renderUkwezi() : null}
+            {tab === 'settlements' && isCollector ? renderSettlements() : null}
+            {tab === 'reports' && !isAdmin ? renderReports() : null}
+            {tab === 'billing' && !isAdmin ? renderBilling() : null}
+            {tab === 'notifications' && !isAdmin ? <>{renderNotificationFilters()}{renderNotifications()}</> : null}
+            {tab === 'settings' ? renderAccountSettings() : null}
+            {tab === 'notifications-admin' && isAdmin ? renderNotifications() : null}
+            {tab === 'accounts' && isAdmin ? renderAdminAccounts() : null}
+            {tab === 'audit' && isAdmin ? renderAdminAudit() : null}
+            {tab === 'config' && isAdmin ? <div className="admin-pricing-layout">{renderAdminCollectorPricing()}{renderAdminConfig()}{renderAdminSubscriptionPolicy()}{renderAdminPaymentConfiguration()}{renderAdminPayments()}</div> : null}
+            {tab === 'system-health' && isAdmin ? renderSystemHealth() : null}
+          </motion.div>
+        </AnimatePresence>
         {adminAccountDetailsOpen ? renderAdminAccountDetailsModal() : null}
       </section></div>
+      {lossEventOpen && (
+        <Modal ariaLabel={publicLanguage.t('recordLossEvent')} className="loss-event-modal" onClose={() => setLossEventOpen(false)} dismissible={!lossEventLoading}>
+          <div className="panel-heading"><div><span className="eyebrow">{publicLanguage.t('recordLossEvent')}</span><h2>{publicLanguage.t('lossEventTitle')}</h2></div><button type="button" className="icon-button" onClick={() => setLossEventOpen(false)} disabled={lossEventLoading} aria-label={publicLanguage.t('cancel')}><X size={18} aria-hidden="true" /></button></div>
+          <form className="form-stack compact" onSubmit={saveLossEvent}>
+            <label>{publicLanguage.t('activeCenter')}<select value={selectedCenter} onChange={(event) => setSelectedCenter(event.target.value)} required disabled={!centers.length}><option value="">{publicLanguage.t('selectCenter')}</option>{centers.map((center) => <option key={center.id} value={String(center.id)}>{center.name}</option>)}</select></label>
+            <label>{publicLanguage.t('milkCollectionDate')}<input type="date" max={today()} value={collectionDate} onChange={(event) => setCollectionDate(event.target.value)} required /></label>
+            <label>{publicLanguage.t('lossEventPeriod')}<select value={lossEventPeriod} onChange={(event) => setLossEventPeriod(event.target.value as typeof lossEventPeriod)} required><option value="all">{publicLanguage.t('lossEventPeriodAll')}</option><option value="morning">{publicLanguage.t('dashboardMorning')} (06:30–09:00)</option><option value="evening">{publicLanguage.t('dashboardEvening')} (17:30–19:00)</option></select></label>
+            <label>{publicLanguage.t('lossEventPercentage')}<input type="number" min="0" max="100" step="0.01" value={lossEventPercentage} onChange={(event) => setLossEventPercentage(event.target.value)} required /></label>
+            <label>{publicLanguage.t('lossEventReason')}<textarea required value={lossEventReason} onChange={(event) => setLossEventReason(event.target.value)} /></label>
+            <p className="muted-note">{publicLanguage.t('lossEventNote')}</p>
+            {lossEventError ? <p className="form-error" role="alert">{lossEventError}</p> : null}
+            {lossEventStatus ? <p className="form-success" role="status">{lossEventStatus}</p> : null}
+            <div className="form-actions"><button type="button" className="button button-secondary" onClick={() => setLossEventOpen(false)} disabled={lossEventLoading}>{publicLanguage.t('cancel')}</button><button className="button button-primary" disabled={lossEventLoading || !centers.length || !lossEventPercentage || !lossEventReason}>{lossEventLoading ? publicLanguage.t('wait') : publicLanguage.t('saveLossEvent')}</button></div>
+          </form>
+        </Modal>
+      )}
       <nav className="mobile-nav" aria-label={publicLanguage.t('workspaceNavigation')}>
         {mobilePrimaryTabs.map((item) => { const Icon = item.icon; return <button type="button" key={item.id} className={tab === item.id ? 'active' : ''} aria-label={item.label} title={item.label} aria-current={tab === item.id ? 'page' : undefined} onClick={() => setTab(item.id)}><Icon size={18} aria-hidden="true" /><span>{item.label}</span></button>; })}
         {mobileMoreTabs.length ? <button type="button" className={`mobile-more-trigger${mobileMoreTabs.some((item) => item.id === tab) ? ' active' : ''}`} aria-controls="mobile-more-menu" aria-expanded={mobileMoreOpen} aria-label={publicLanguage.t('more')} onClick={() => setMobileMoreOpen((open) => !open)}><ChevronDown size={18} /><span>{publicLanguage.t('more')}</span></button> : null}
