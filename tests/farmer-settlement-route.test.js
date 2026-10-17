@@ -15,6 +15,9 @@ test('settlement GET is Collector-only and scopes history and debts through acti
   assert.match(routeSource, /f\.collector_user_id = \$1/);
   assert.match(routeSource, /const getAssignedFarmer = async/);
   assert.match(routeSource, /assignedCollectorOnly: true/);
+  assert.match(routeSource, /getCurrentAccountingPeriod\(\)/);
+  assert.match(routeSource, /searchParams\.get\('periodStart'\) \|\| currentPeriod\.startDate/);
+  assert.match(routeSource, /searchParams\.get\('periodEnd'\) \|\| currentPeriod\.endDate/);
   assert.doesNotMatch(routeSource, /requireOwner\(user\)|assertOwnerScope\(user/);
 });
 

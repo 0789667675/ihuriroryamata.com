@@ -1,4 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
+import { getCurrentAccountingPeriod } from '../../lib/utils/accounting-period.js';
 
 const collector = {
   id: 990001,
@@ -256,7 +257,7 @@ test('Collector settlements uses report accounting, while Ukwezi keeps its milk 
   await expect(reconciliationTable).toContainText('Aline Test Farmer');
   await expect(reconciliationTable).toContainText('3,500 RWF');
   await expect(reconciliationTable).toContainText('200 RWF');
-  await expect(page.getByText('Aline Test Farmer')).toHaveCount(3);
+  await expect(page.getByText('Aline Test Farmer').filter({ visible: true })).toHaveCount(4);
 
   await page.getByRole('button', { name: 'Ukwezi', exact: true }).first().click();
   await expect(page.getByRole('heading', { name: 'Ukwezi', level: 1 })).toBeVisible();
@@ -267,20 +268,63 @@ test('Collector settlements uses report accounting, while Ukwezi keeps its milk 
   await expect(page.locator('.ukwezi-settlement-table')).toContainText('Transport');
 });
 
-test('settlement and Ukwezi tables stay contained at phone, tablet, and desktop widths', async ({ page }) => {
+test('settlement tables render as phone cards and stay contained tables at tablet and desktop widths', async ({ page }) => {
   await openWorkspace(page, collector, 'tab=settlements&flow=synthetic');
-  for (const viewport of [{ width: 375, height: 812 }, { width: 768, height: 1024 }, { width: 1366, height: 768 }]) {
+  for (const viewport of [{ width: 375, height: 812 }, { width: 390, height: 844 }, { width: 768, height: 1024 }, { width: 1280, height: 800 }]) {
     await page.setViewportSize(viewport);
-    const result = await page.locator('.settlement-farmer-table .table-scroll').evaluate((element) => ({
-      pageWidth: document.documentElement.scrollWidth,
-      viewportWidth: window.innerWidth,
-      scrollOverflow: element.scrollWidth >= element.clientWidth,
-      overflowX: getComputedStyle(element).overflowX,
-    }));
-    expect(result.pageWidth).toBeLessThanOrEqual(result.viewportWidth + 1);
-    expect(result.scrollOverflow).toBe(true);
-    expect(result.overflowX).toBe('auto');
-    await expect(page.locator('.settlement-farmer-table table')).toBeVisible();
+    const pageFits = await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1);
+    expect(pageFits).toBe(true);
+    if (viewport.width <= 680) {
+      await expect(page.locator('.settlement-farmer-table .settlements-desktop-table')).toBeHidden();
+      await expect(page.locator('.settlement-farmer-table .settlements-mobile-list')).toBeVisible();
+      await expect(page.locator('.settlement-farmer-table .settlement-mobile-card').first()).toBeVisible();
+      await expect(page.locator('.settlement-operations .settlements-mobile-list').first()).toBeVisible();
+      await expect(page.locator('.settlement-operations .settlements-desktop-table').first()).toBeHidden();
+    } else {
+      await expect(page.locator('.settlement-farmer-table .settlements-desktop-table')).toBeVisible();
+      await expect(page.locator('.settlement-farmer-table .settlements-mobile-list')).toBeHidden();
+      const result = await page.locator('.settlement-farmer-table .table-scroll').evaluate((element) => ({
+        scrollOverflow: element.scrollWidth >= element.clientWidth,
+        overflowX: getComputedStyle(element).overflowX,
+      }));
+      expect(result.scrollOverflow).toBe(true);
+      expect(result.overflowX).toBe('auto');
+      await expect(page.locator('.settlement-farmer-table table')).toBeVisible();
+    }
+  }
+});
+
+test('Ukwezi defaults to the current half, keeps historical choice, and restores phone cards', async ({ page }) => {
+  await openWorkspace(page, collector, 'tab=ukwezi&flow=synthetic');
+  await expect(page.locator('.ukwezi-totals')).toBeVisible();
+  const period = getCurrentAccountingPeriod();
+  const controls = page.locator('.ukwezi-period-controls');
+  const month = controls.locator('select').nth(0);
+  const year = controls.locator('select').nth(1);
+  const half = controls.locator('select').nth(2);
+
+  await expect(half).toHaveValue(period.periodType);
+  const historicalMonth = new Date(Date.UTC(Number(period.year), Number(period.month) - 2, 1));
+  await year.selectOption(String(historicalMonth.getUTCFullYear()));
+  await month.selectOption(String(historicalMonth.getUTCMonth() + 1).padStart(2, '0'));
+  await half.selectOption('first-half');
+  await expect(half).toHaveValue('first-half');
+  await year.selectOption(period.year);
+  await month.selectOption(period.month);
+  await expect(half).toHaveValue(period.periodType);
+
+  for (const viewport of [{ width: 375, height: 812 }, { width: 390, height: 844 }, { width: 768, height: 1024 }, { width: 1280, height: 800 }]) {
+    await page.setViewportSize(viewport);
+    const pageFits = await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1);
+    expect(pageFits).toBe(true);
+    if (viewport.width <= 680) {
+      await expect(page.locator('.ukwezi-settlement-table')).toBeHidden();
+      await expect(page.locator('.ukwezi-mobile-list')).toBeVisible();
+      await expect(page.locator('.ukwezi-mobile-card').first()).toBeVisible();
+    } else {
+      await expect(page.locator('.ukwezi-settlement-table')).toBeVisible();
+      await expect(page.locator('.ukwezi-mobile-list')).toBeHidden();
+    }
   }
 });
 

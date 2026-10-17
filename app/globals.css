@@ -496,6 +496,7 @@ img, svg { max-width: 100%; }
 .subscription-payment-reference { grid-column: 1 / -1; }
 .payment-reference-cell { max-width: 250px; overflow-wrap: anywhere; word-break: break-word; }
 .deduction-mobile-list, .report-mobile-list { display: none; }
+.settlements-mobile-list { display: none; }
 .ukwezi-mobile-list { display: none; }
 .ukwezi-mobile-card { min-width: 0; padding: 12px; border: 1px solid var(--line); border-left: 3px solid var(--blue); border-radius: var(--radius-md); background: var(--surface); }
 .ukwezi-mobile-card header { display: flex; justify-content: space-between; align-items: flex-start; gap: 10px; }
@@ -516,6 +517,19 @@ img, svg { max-width: 100%; }
 .report-mobile-card dl { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px 12px; margin: 10px 0 0; padding-top: 9px; border-top: 1px solid var(--line-soft); }
 .report-mobile-card dt { color: var(--muted); font-size: 10px; }
 .report-mobile-card dd { margin: 1px 0 0; color: var(--ink); font-size: var(--text-xs); font-weight: 700; }
+.settlement-mobile-card { min-width: 0; padding: 12px; border: 1px solid var(--line); border-left: 3px solid var(--blue); border-radius: var(--radius-md); background: var(--surface); }
+.settlement-mobile-card header { display: flex; justify-content: space-between; align-items: flex-start; gap: 10px; }
+.settlement-mobile-card header b { min-width: 0; overflow-wrap: anywhere; font-size: var(--text-sm); }
+.settlement-mobile-card header strong { flex: 0 0 auto; color: var(--blue-pressed); font-size: var(--text-sm); white-space: nowrap; }
+.settlement-mobile-card dl { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px 12px; margin: 11px 0 0; }
+.settlement-mobile-card dl > div { min-width: 0; }
+.settlement-mobile-card dt { color: var(--muted); font-size: 10px; }
+.settlement-mobile-card dd { margin: 1px 0 0; color: var(--ink); font-size: var(--text-xs); font-weight: 700; overflow-wrap: anywhere; }
+.settlement-card-form { display: grid; gap: 8px; margin: 11px 0 0; padding-top: 9px; border-top: 1px solid var(--line-soft); }
+.settlement-card-form label { display: grid; gap: 4px; color: var(--muted); font-size: 10px; }
+.settlement-card-form input { width: 100%; min-height: 44px; border: 1px solid var(--field-line); border-radius: var(--radius-md); background: var(--surface); color: var(--ink); padding: 0 11px; }
+.settlement-card-form input:focus { border-color: var(--blue); box-shadow: 0 0 0 3px var(--blue-focus); }
+.settlement-card-form .button { width: 100%; }
 .admin-accounts-desktop-table { display: block; }
 .admin-accounts-mobile-list { display: none; }
 .admin-account-mobile-card { display: grid; gap: 12px; padding: 12px; border: 1px solid var(--line); border-left: 3px solid var(--blue); border-radius: var(--radius-md); background: var(--surface); }
@@ -925,7 +939,9 @@ code { max-width: 420px; display: block; overflow: hidden; text-overflow: ellips
   .admin-payment-controls label { min-width: 0; }
   .admin-payment-controls select { width: 100%; }
   .ukwezi-settlement-table { display: none; }
+  .settlements-desktop-table { display: none; }
   .ukwezi-mobile-list { display: grid; gap: 8px; }
+  .settlements-mobile-list { display: grid; gap: 8px; padding: 2px 0 4px; }
   .deduction-mobile-list, .report-mobile-list { display: grid; gap: 8px; }
   .deduction-mobile-list { padding: 10px 12px 14px; }
   .report-mobile-list { padding: 0 0 4px; }
@@ -976,9 +992,7 @@ code { max-width: 420px; display: block; overflow: hidden; text-overflow: ellips
   .modal-panel { max-height: calc(100vh - 88px - env(safe-area-inset-bottom)); max-height: calc(100dvh - 88px - env(safe-area-inset-bottom)); padding: 17px; border-radius: 8px; }
   .modal-panel-wide { width: 100%; max-height: calc(100vh - 88px - env(safe-area-inset-bottom)); max-height: calc(100dvh - 88px - env(safe-area-inset-bottom)); }
   .actions-cell { gap: 1px; }
-  .table-scroll, .table-wrap { display: block !important; max-width: 100%; overflow-x: auto !important; -webkit-overflow-scrolling: touch; }
-  .milk-desktop-list, .owner-ifishi-desktop-list, .farmers-desktop-table, .abacunda-desktop-list, .abacunda-ifishi-desktop-list, .dairy-collector-desktop-list, .deductions-desktop-table, .reports-desktop-table, .admin-accounts-desktop-table, .admin-payment-table, .subscription-payment-desktop, .ukwezi-settlement-table { display: block !important; }
-  .milk-mobile-list, .owner-ifishi-mobile-list, .farmer-mobile-list, .abacunda-mobile-list, .abacunda-ifishi-mobile-list, .dairy-collector-mobile-list, .deduction-mobile-list, .report-mobile-list, .admin-accounts-mobile-list, .admin-payment-mobile-list, .subscription-payment-mobile-list, .ukwezi-mobile-list { display: none !important; }
+  .table-scroll, .table-wrap { max-width: 100%; overflow-x: auto !important; -webkit-overflow-scrolling: touch; }
 }
 
 @media (max-width: 420px) {
@@ -1006,6 +1020,49 @@ code { max-width: 420px; display: block; overflow: hidden; text-overflow: ellips
   .account-tag { max-width: 92px; overflow: hidden; }
   .mobile-nav { padding-inline: 2px; }
   .mobile-nav button { font-size: 10px; }
+}
+
+.alert-filter-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 10px; }
+.alert-filter-chip { display: inline-flex; align-items: center; gap: 6px; min-height: 32px; padding: 5px 12px; border: 1px solid var(--line); border-radius: 999px; background: var(--surface); color: var(--text-note); font-size: var(--text-xs); font-weight: 700; cursor: pointer; }
+.alert-filter-chip:hover { border-color: var(--blue-pressed); color: var(--blue-pressed); }
+.alert-filter-chip.active { border-color: var(--blue-pressed); background: var(--blue-pale); color: var(--blue-pressed); }
+.alert-filter-count { min-width: 18px; height: 18px; display: grid; place-items: center; padding: 0 5px; border-radius: 9px; background: var(--orange); color: white; font-size: 9px; font-weight: 700; line-height: 1; }
+
+.notice-section { border-top: 1px solid var(--line-soft); }
+.notice-section-heading { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 12px 2px 4px; }
+.notice-section-heading h3 { margin: 0; font-size: var(--text-xs); letter-spacing: .08em; text-transform: uppercase; color: var(--muted); }
+.notice-section:first-of-type { border-top: 0; }
+.notice-section .notice-list { border-top: 0; }
+.notice-section .notice-row { border-top: 0; border-bottom: 1px solid var(--line-soft); }
+.notice-section .notice-row:last-child { border-bottom: 0; }
+
+.priority-badge { display: inline-flex; align-items: center; min-height: 20px; padding: 2px 8px; border-radius: 999px; font-size: 9px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; }
+.priority-high { background: #fdeaea; color: #b42318; }
+.priority-warning { background: #fdf0dc; color: #b54708; }
+.priority-info { background: var(--blue-pale); color: var(--blue-pressed); }
+.priority-success { background: #e7f6ee; color: #067647; }
+
+.notice-main { min-width: 0; display: grid; gap: 2px; }
+.notice-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.notice-meta .eyebrow { margin: 0; }
+.notice-meta-chip { display: inline-flex; align-items: center; gap: 4px; padding: 1px 8px; border: 1px solid var(--line-soft); border-radius: 999px; color: var(--muted); font-size: var(--text-xs); white-space: nowrap; }
+.notice-meta-resolved { border-color: #bfe5d2; background: #e7f6ee; color: #067647; }
+.notice-next-action { margin: 0 0 5px !important; color: var(--blue-pressed); font-size: var(--text-xs); font-weight: 700; }
+.notice-uncertainty { margin: 0 0 5px !important; color: var(--muted); font-size: var(--text-xs); font-style: italic; }
+.notice-resolution { margin: 0 0 5px !important; color: var(--muted); font-size: var(--text-xs); }
+.notice-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; align-items: center; gap: 6px; flex-shrink: 0; }
+.notice-resolved h3, .notice-resolved p { color: var(--muted); }
+.notice-resolved .priority-badge { opacity: .7; }
+.notification-panel .panel-heading button:disabled { opacity: .5; cursor: not-allowed; }
+.notification-dropdown-item .priority-badge { justify-self: start; margin-bottom: 2px; }
+
+@media (max-width: 680px) {
+  .alert-filter-chips { flex-wrap: nowrap; overflow-x: auto; -webkit-overflow-scrolling: touch; padding-bottom: 2px; }
+  .alert-filter-chip { flex: 0 0 auto; }
+  .notice-row { flex-direction: column; align-items: stretch; gap: 10px; }
+  .notice-actions { justify-content: flex-start; }
+  .notice-actions .button { flex: 1 1 auto; min-width: 0; }
+  .notice-meta-chip { white-space: normal; overflow-wrap: anywhere; }
 }
 
 @media (prefers-reduced-motion: reduce) {

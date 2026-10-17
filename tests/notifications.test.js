@@ -111,21 +111,53 @@ test('monitoring preserves new-farmer and repeated zero-volume status rules', ()
   assert.equal(repeatedlyMissed.status, 'repeatedly_missed');
 });
 
-test('evaluation creates a deduped notification for a new farmer missing morning collection', async () => {
+test('evaluation creates deduped operational alerts for a completed session with no delivery', async () => {
   const stored = [];
-  const repository = makeRepository({
+  const repository = {
+    getAlertOwnerScope: async () => ({ accountType: 'COLLECTOR', accountStatus: 'active', dairyUserId: null }),
     getCollectionCenters: async () => [{ name: 'North Site', morning_start: '06:30:00', morning_end: '09:00:00', evening_start: '17:30:00', evening_end: '19:00:00' }],
-    getCenterSnapshot: async () => ({ farmers: [{ id: 7, name: 'Aline', collectionCenter: 'North Site' }], records: [] }),
-    upsertNotification: async (input) => {
-      const duplicate = stored.some((row) => row.type === input.type && row.farmerId === input.farmerId && row.period === input.period);
-      if (duplicate) return { created: false, notification: stored[0] };
-      const notification = { id: stored.length + 1, ...input };
+    getAlertFarmers: async () => [{ id: 7, name: 'Aline', accountNumber: 'F-7', centerName: 'North Site', collectorUserId: null, collectorActive: false, createdDate: '2026-01-01' }],
+    getAlertMilkRecords: async () => [
+      { farmerId: 7, date: '2026-09-20', morning: 6, evening: 0 },
+      { farmerId: 7, date: '2026-09-29', morning: 5, evening: 4 },
+      { farmerId: 7, date: '2026-09-30', morning: 4, evening: 3 },
+    ],
+    getAlertsForEvaluation: async () => stored,
+    upsertOperationalAlert: async (input) => {
+      const existing = stored.find((row) => row.dedupe_key === input.dedupeKey);
+      if (existing) return { created: false, reopened: false, notification: existing };
+      const notification = {
+        id: stored.length + 1,
+        ...input,
+        notification_type: input.type,
+        farmer_id: input.farmerId ?? null,
+        collection_date: input.date ?? null,
+        dedupe_key: input.dedupeKey,
+        status: 'open',
+        resolved_by: null,
+      };
       stored.push(notification);
-      return { created: true, notification };
+      return { created: true, reopened: false, notification };
     },
-  });
-  const result = await Notifications.evaluateNotifications({ ownerUserId, now: new Date('2026-10-01T10:00:00'), repository });
-  assert.ok(result.notifications.some((notification) => notification.type === 'morning_missed'));
-  assert.ok(result.notifications.some((notification) => notification.type === 'farmer_morning_missed'));
-  assert.equal(result.center, null);
+    refreshOperationalAlert: async () => null,
+    resolveOperationalAlerts: async () => [],
+  };
+  const first = await Notifications.evaluateNotifications({ ownerUserId, now: new Date('2026-10-01T10:00:00Z'), repository });
+  assert.equal(first.createdCount, 3);
+  assert.ok(first.notifications.some((notification) => notification.notification_type === 'farmer_missed_delivery'));
+  assert.ok(first.notifications.some((notification) => notification.notification_type === 'missed_delivery'));
+  assert.ok(first.notifications.some((notification) => notification.notification_type === 'no_collection'));
+  const missed = first.notifications.find((notification) => notification.notification_type === 'farmer_missed_delivery');
+  assert.equal(missed.collection_date, '2026-10-01');
+  assert.equal(missed.period, 'morning');
+  assert.equal(missed.farmer_id, 7);
+  assert.equal(missed.details.titleKey, 'alertTitleMissedDeliveryFarmer');
+  assert.equal(missed.details.messageKey, 'alertMessageMissedDeliveryFarmer');
+  assert.equal(missed.details.evidence, 'no_recorded_delivery');
+
+  const second = await Notifications.evaluateNotifications({ ownerUserId, now: new Date('2026-10-01T10:00:00Z'), repository });
+  assert.equal(second.createdCount, 0);
+  assert.equal(second.refreshedCount, 0);
+  assert.equal(second.resolvedCount, 0);
+  assert.equal(stored.length, 3);
 });

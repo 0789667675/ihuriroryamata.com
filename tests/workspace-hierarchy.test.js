@@ -207,6 +207,11 @@ test('Ukwezi UI requests selected half-months and only scopes a Dairy to its act
   assert.match(loadUkwezi, /if \(isDairy && selectedCenter\)/);
   assert.match(ukwezi, /value="first-half">1–15/);
   assert.match(ukwezi, /value="second-half">16–/);
+  assert.match(workspace, /const \[ukweziPeriod, setUkweziPeriod\] = useState<AccountingHalf>\(getCurrentAccountingHalf\)/);
+  assert.match(workspace, /const \[settlementHalf, setSettlementHalf\] = useState<AccountingHalf>\(getCurrentAccountingHalf\)/);
+  assert.match(workspace, /const \[ownerIfishiPeriod, setOwnerIfishiPeriod\] = useState<AccountingHalf>\(getCurrentAccountingHalf\)/);
+  assert.match(workspace, /synchronizeCurrentAccountingHalf\(month, ukweziYear, setUkweziPeriod\)/);
+  assert.match(workspace, /synchronizeCurrentAccountingHalf\(month, year, setSettlementHalf\)/);
   assert.match(ukwezi, /new URLSearchParams\(\{ month: ukweziMonth, year: ukweziYear, periodType: ukweziPeriod \}\)/);
   assert.match(ukwezi, /ukweziPdfParams\.set\('language', publicLanguage\.language\)/);
   assert.match(ukwezi, /if \(isDairy && activeCenterName\) ukweziPdfParams\.set\('collectionCenter', activeCenterName\)/);
@@ -285,7 +290,7 @@ test('Owner Ifishi entry modal stays focused while history and accounting are ex
   assert.match(history, /owner-ifishi-summary/);
   assert.match(history, /owner-ifishi-accounting-summary/);
   assert.match(milkEntry, /ownerIfishiHistoryOpen \? renderOwnerIfishiHistory\(\)/);
-  assert.match(workspace, /setOwnerIfishiPeriod\(day <= 15 \? 'first-half' : 'second-half'\)/);
+  assert.match(workspace, /setOwnerIfishiPeriod\(getAccountingHalfForDay\(day\)\)/);
 });
 
 test('Collector Settings exposes only owned collection sites while Dairy has no Collector site management', () => {
@@ -426,9 +431,21 @@ test('Collector settlements owns operational reconciliation while Ukwezi retains
   assert.match(workspace, /tab === 'settlements' && isCollector \? renderSettlements\(\) : null/);
 });
 
-test('all tables share the contained responsive table pattern instead of page-specific mobile duplicates', () => {
+test('tables use mobile cards on phones and retain table layout outside the phone breakpoint', () => {
   assert.match(styles, /\.table-scroll, \.table-wrap \{[^}]*overflow-x: auto/);
   assert.match(styles, /\.table-scroll > table, \.table-wrap > table \{ width: max-content; min-width: 100%; \}/);
-  assert.match(styles, /\.milk-desktop-list,[\s\S]*?\.ukwezi-settlement-table \{ display: block !important; \}/);
-  assert.match(styles, /\.milk-mobile-list,[\s\S]*?\.ukwezi-mobile-list \{ display: none !important; \}/);
+  assert.doesNotMatch(styles, /\.table-scroll, \.table-wrap \{ display: block !important/);
+  assert.match(styles, /\.milk-desktop-list \{ display: none; \}/);
+  assert.match(styles, /\.milk-mobile-list \{ display: grid; gap: 8px/);
+  assert.match(styles, /\.farmers-desktop-table \{ display: none; \}/);
+  assert.match(styles, /\.farmer-mobile-list \{ display: grid; gap: 8px/);
+  assert.match(styles, /\.ukwezi-settlement-table \{ display: none; \}/);
+  assert.match(styles, /\.ukwezi-mobile-list \{ display: grid; gap: 8px; \}/);
+  assert.match(styles, /\.settlements-desktop-table \{ display: none; \}/);
+  assert.match(styles, /\.settlements-mobile-list \{ display: grid; gap: 8px/);
+  assert.match(styles, /\.settlements-mobile-list \{ display: none; \}/);
+  assert.match(styles, /\.settlement-mobile-card \{ min-width: 0;/);
+  assert.match(workspace, /table-scroll settlements-desktop-table/);
+  assert.match(workspace, /settlement-mobile-card/);
+  assert.doesNotMatch(styles, /\.milk-mobile-list,[\s\S]*?\.ukwezi-mobile-list \{ display: none !important; \}/);
 });

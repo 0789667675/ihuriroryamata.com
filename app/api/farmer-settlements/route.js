@@ -6,18 +6,9 @@ const { getFarmerTotals } = require('@/lib/repositories/reportRepository.js');
 const settlementRepository = require('@/lib/repositories/farmerSettlementRepository.js');
 const { createSettlementRecord, confirmSettlement, hasValidSaccoAccount } = require('@/lib/services/farmer-settlement-service.js');
 const { requireCollector, assertAssignedCollector, parsePositiveId, parsePositiveAmount, parsePeriod } = require('@/lib/services/farmer-settlement-access.js');
+const { getCurrentAccountingPeriod } = require('@/lib/utils/accounting-period.js');
 
 export const runtime = 'nodejs';
-
-const monthRange = () => {
-  const now = new Date();
-  const year = now.getFullYear();
-  const month = now.getMonth() + 1;
-  return {
-    start: `${year}-${String(month).padStart(2, '0')}-01`,
-    end: `${year}-${String(month).padStart(2, '0')}-${String(new Date(year, month, 0).getDate()).padStart(2, '0')}`,
-  };
-};
 
 const statusFor = (error) => error.statusCode || (error.code === 'DATABASE_NOT_CONFIGURED' || error.code === 'SESSION_SECRET_NOT_CONFIGURED' ? 503 : 500);
 const settlementErrorResponse = (error) => {
@@ -52,8 +43,8 @@ export async function GET(request) {
     const action = String(searchParams.get('action') || 'summary').toLowerCase();
 
     if (action === 'confirmations') {
-      const range = monthRange();
-      const { periodStart, periodEnd } = parsePeriod(searchParams.get('periodStart') || range.start, searchParams.get('periodEnd') || range.end);
+      const currentPeriod = getCurrentAccountingPeriod();
+      const { periodStart, periodEnd } = parsePeriod(searchParams.get('periodStart') || currentPeriod.startDate, searchParams.get('periodEnd') || currentPeriod.endDate);
       const { rows } = await query(
         `SELECT s.id AS "settlementId", s.farmer_id AS "farmerId", f.name AS "farmerName",
            s.owner_user_id AS "ownerUserId", s.amount, s.payment_method AS "paymentMethod",

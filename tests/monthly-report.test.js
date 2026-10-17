@@ -118,6 +118,15 @@ test('period resolution preserves monthly, daily, and half-month report ranges',
   assert.deepEqual(Reports.getPeriodRange({ periodType: 'yearly', year: 2026, now }), ['2026-01-01', '2026-12-31']);
 });
 
+test('current half-month uses Africa/Kigali dates while explicit historical halves remain selectable', () => {
+  assert.deepEqual(Reports.getPeriodRange({ periodType: 'current-half', now: new Date('2026-10-14T21:59:00.000Z') }), ['2026-10-01', '2026-10-15']);
+  assert.deepEqual(Reports.getPeriodRange({ periodType: 'current-half', now: new Date('2026-10-15T22:00:00.000Z') }), ['2026-10-16', '2026-10-31']);
+  assert.deepEqual(Reports.getPeriodRange({ periodType: 'current-half', now: new Date('2026-10-31T22:00:00.000Z') }), ['2026-11-01', '2026-11-15']);
+  assert.deepEqual(Reports.getPeriodRange({ periodType: 'first-half', month: 9, year: 2026, now: new Date('2026-10-15T22:00:00.000Z') }), ['2026-09-01', '2026-09-15']);
+  assert.deepEqual(Reports.getPeriodRange({ periodType: 'second-half', month: 9, year: 2026, now: new Date('2026-10-15T22:00:00.000Z') }), ['2026-09-16', '2026-09-30']);
+  assert.deepEqual(Reports.getPeriodRange({ periodType: 'first-half', month: 9, now: new Date('2026-10-15T22:00:00.000Z') }), ['2026-09-16', '2026-09-30']);
+});
+
 test('Ukwezi sort orders server-calculated accounting rows without changing values or totals', () => {
   const rows = [
     { farmerId: 2, farmerName: 'Bella', totalVolume: 25, netAmount: 8000 },
