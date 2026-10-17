@@ -123,6 +123,7 @@ const collectorTabs: Array<{ id: Tab; label: string }> = [
 const dairyTabs: Array<{ id: Tab; label: string }> = [
   { id: 'dashboard', label: 'Dashboard' },
   { id: 'farmers', label: 'Farmers' },
+  { id: 'centers', label: 'Centers' },
   { id: 'milk', label: 'Milk' },
   { id: 'reports', label: 'Reports' },
   { id: 'ukwezi', label: 'Ukwezi' },
@@ -1884,7 +1885,7 @@ const visibleTabs = (isAdmin
     const ownedCenters = centers.filter((center) => Number(center.owner_user_id) === Number(user?.id));
     return (
     <div className="screen-grid">
-      <section className="panel panel-wide"><div className="panel-heading"><div><span className="eyebrow">{publicLanguage.t('configuration')}</span><h2>{publicLanguage.t('navCenters')}</h2></div><span className="count-label">{ownedCenters.length} {publicLanguage.t('centersConfigured')}</span></div>
+      <section className="panel panel-wide"><div className="panel-heading"><div><span className="eyebrow">{publicLanguage.t('configuration')}</span><h2>{publicLanguage.t('navCenters')}</h2></div><div className="panel-heading-actions"><span className="count-label">{ownedCenters.length} {publicLanguage.t('centersConfigured')}</span><button type="button" className="button button-secondary small-button" onClick={() => setTab('settings')}>{`Account settings: ${user?.name || user?.email}`}</button></div></div>
         {ownedCenters.map((center) => { const edits = centerEdits[center.id] || {}; return <div className="center-config-row" key={center.id}><div><label>{publicLanguage.t('centerName')}<input maxLength={100} value={edits.name ?? center.name} onChange={(event) => setCenterEdits({ ...centerEdits, [center.id]: { ...edits, name: event.target.value } })} /></label><p>{money(center.pricePerLiter)} RWF/L · transport {money(center.transportRatePerLiter)} RWF/L</p></div><div className="center-edit-grid">
           <label>{publicLanguage.t('milkPrice')}<input type="number" min="1" step="0.01" value={edits.pricePerLiter ?? center.pricePerLiter} onChange={(event) => setCenterEdits({ ...centerEdits, [center.id]: { ...edits, pricePerLiter: Number(event.target.value) } })} /></label>
           <label>{publicLanguage.t('transportPerLiter')}<input type="number" min="0" step="0.01" value={edits.transportRatePerLiter ?? center.transportRatePerLiter} onChange={(event) => setCenterEdits({ ...centerEdits, [center.id]: { ...edits, transportRatePerLiter: Number(event.target.value) } })} /></label>
@@ -1896,7 +1897,7 @@ const visibleTabs = (isAdmin
         </div></div>; })}
         {!ownedCenters.length ? <div className="workspace-empty" role="status"><span className="workspace-empty-icon"><Building2 size={21} aria-hidden="true" /></span><div><b>{publicLanguage.t('centersEmptyTitle')}</b></div><button type="button" className="button button-primary small-button" onClick={() => document.getElementById('new-center-name')?.focus()}><Plus size={15} />{publicLanguage.t('centersAdd')}</button></div> : null}
       </section>
-      {user.accountType !== 'COLLECTION_CENTER' ? <section className="panel"><div className="panel-heading"><div><span className="eyebrow">{publicLanguage.t('newSite')}</span><h2>{publicLanguage.t('addCenter')}</h2></div><Building2 size={19} /></div><form className="form-stack compact" onSubmit={createCenter}>
+      {isCollector || isDairy ? <section className="panel"><div className="panel-heading"><div><span className="eyebrow">{publicLanguage.t('newSite')}</span><h2>{publicLanguage.t('addCenter')}</h2></div><Building2 size={19} /></div><form className="form-stack compact" onSubmit={createCenter}>
         <label>{publicLanguage.t('centerName')}<input id="new-center-name" required value={centerForm.name} onChange={(event) => setCenterForm({ ...centerForm, name: event.target.value })} /></label>
         <label>{publicLanguage.t('milkPrice')} / L<input type="number" min="1" step="0.01" required value={centerForm.pricePerLiter} onChange={(event) => setCenterForm({ ...centerForm, pricePerLiter: event.target.value })} /></label>
         <label>{publicLanguage.t('transportPerLiter')}<input type="number" min="0" step="0.01" value={centerForm.transportRatePerLiter} onChange={(event) => setCenterForm({ ...centerForm, transportRatePerLiter: event.target.value })} /></label>
