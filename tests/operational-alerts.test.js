@@ -426,10 +426,68 @@ test('every operational alert copy key exists in both Kinyarwanda and English', 
   }
 });
 
+test('Kinyarwanda milk loss copy describes milk loss instead of language or contamination transliterations', () => {
+  const copy = read('lib/i18n/public-copy.ts');
+  const enStart = copy.indexOf('en: {');
+  const rwBlock = copy.slice(copy.indexOf('rw: {'), enStart);
+  const value = (block) => (key) => {
+    const match = block.match(new RegExp(`\\n    ${key}: '([^']*)'`));
+    assert.ok(match, `${key} must exist in the copy block`);
+    return match[1];
+  };
+  const rw = value(rwBlock);
+  for (const key of [
+    'recordLossEvent', 'lossEventTitle', 'lossEventPeriod', 'lossEventPeriodAll', 'lossEventPercentage',
+    'lossEventReason', 'lossEventNote', 'lossEventSaved', 'lossEventCorrected', 'lossEventSaveError', 'saveLossEvent',
+  ]) {
+    assert.doesNotMatch(rw(key), /Ururimi|ururimi|Kontamineshon/, `${key} must describe milk loss, not language`);
+  }
+  assert.equal(rw('recordLossEvent'), 'Andika igihombo cy’amata');
+  assert.equal(rw('lossEventTitle'), 'Igihombo cy’amata / Amata yanduye');
+  assert.equal(rw('lossEventReason'), 'Impamvu y’igihombo');
+  assert.equal(rw('lossEventPeriodAll'), 'Ibihe byose (Igitondo na Nimugoroba)');
+  assert.equal(rw('lossEventSaveError'), 'Ntibyashobotse kwandika igihombo cy’amata. Ongera ugerageze.');
+  assert.equal(rw('saveLossEvent'), 'Andika igihombo');
+  assert.equal(rw('accountLanguage'), 'Ururimi');
+  assert.match(copy.slice(enStart), /lossEventTitle: 'Milk Loss \/ Contamination'/);
+});
+
+test('the notification inbox scopes the unread badge and mark-all-read to the active Ikigo', () => {
+  const workspace = read('app/workspace.tsx');
+  assert.match(workspace, /const notificationCenterParam = isDairy && selectedCenter/);
+  assert.match(workspace, /centers\.find\(\(center\) => String\(center\.id\) === selectedCenter\)\?\.name \|\| ''/);
+  assert.match(workspace, /\.\.\.\(notificationCenterParam \? \{ center: notificationCenterParam \} : \{\}\)/);
+  assert.match(workspace, /useEffect\(\(\) => \{\s*if \(!user \|\| !isDairy \|\| !selectedCenter\) return;\s*loadUnreadCount\(\)\.catch/);
+  assert.ok(workspace.includes("`/api/notifications/unread-count${notificationCenterQuery ? `?${notificationCenterQuery}` : ''}`"));
+  assert.ok(workspace.includes("`/api/notifications/read-all${notificationCenterQuery ? `?${notificationCenterQuery}` : ''}`"));
+});
+
+test('the notification type filter keeps every seen type and ignores stale responses', () => {
+  const workspace = read('app/workspace.tsx');
+  assert.match(workspace, /const \[notificationTypeOptions, setNotificationTypeOptions\] = useState<string\[\]>\(\[\]\)/);
+  assert.match(workspace, /const mergeNotificationTypeOptions = \(items: Notice\[\]\) => setNotificationTypeOptions/);
+  assert.match(workspace, /notificationTypeOptions\.map\(\(type\) => <option key=\{type\} value=\{type\}>/);
+  assert.doesNotMatch(workspace, /Array\.from\(new Set\(notifications\.map\(\(item\) => item\.notification_type\)\)\)/);
+  assert.match(workspace, /const requestId = \+\+notificationRequestRef\.current;/);
+  assert.match(workspace, /if \(requestId !== notificationRequestRef\.current\) return;/);
+});
+
+test('the notification dropdown closes on outside pointer down and Escape and refreshes through the latest loader', () => {
+  const workspace = read('app/workspace.tsx');
+  assert.match(workspace, /<div className="notification-menu" ref=\{notificationMenuRef\}>/);
+  assert.match(workspace, /document\.addEventListener\('pointerdown', closeOnOutsidePointerDown\)/);
+  assert.match(workspace, /document\.addEventListener\('keydown', closeOnEscape\)/);
+  assert.match(workspace, /!notificationMenuRef\.current\.contains\(target\)/);
+  assert.match(workspace, /const loadNotificationsRef = useRef\(loadNotifications\)/);
+  assert.match(workspace, /await loadNotificationsRef\.current\(\);/);
+});
+
 test('the workspace wires the alert lifecycle through the owned notification APIs', () => {
   const workspace = read('app/workspace.tsx');
   assert.match(workspace, /api<\{ data: Notice\[\] \}>\('\/api\/notifications\?limit=50'\)/);
-  assert.match(workspace, /api<\{ data: \{ unreadCount: number \} \}>\('\/api\/notifications\/unread-count'\)/);
+  assert.ok(workspace.includes('api<{ data: { unreadCount: number } }>(`/api/notifications/unread-count'));
+  assert.ok(workspace.includes("`/api/notifications/unread-count${notificationCenterQuery ? `?${notificationCenterQuery}` : ''}`"));
+  assert.ok(workspace.includes("`/api/notifications/read-all${notificationCenterQuery ? `?${notificationCenterQuery}` : ''}`"));
   assert.ok(workspace.includes('api(`/api/notifications/${notification.id}/read`'));
   assert.ok(workspace.includes('api(`/api/notifications/${resolveTarget.id}/resolve`'));
   assert.ok(workspace.includes('api(`/api/notifications/${notification.id}/reopen`'));

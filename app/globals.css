@@ -286,6 +286,12 @@ img, svg { max-width: 100%; }
 .screen-grid { display: grid; grid-template-columns: minmax(0, 1.65fr) minmax(265px, .75fr); gap: 16px; align-items: flex-start; }
 .farmers-view { grid-template-columns: minmax(0, 1fr); }
 .farmers-view > .panel-wide { grid-column: 1 / -1; }
+/* Views that stack their wide panels keep the full width free of the narrow side column. */
+.screen-grid.owner-ifishi-view, .screen-grid.deductions-view { grid-template-columns: minmax(0, 1fr); }
+.screen-grid.owner-ifishi-view > .panel-wide,
+.screen-grid.deductions-view > .panel-wide { grid-column: 1 / -1; grid-row: auto; }
+/* Consecutive wide panels always span the full grid; only a regular .panel may take the narrow side column. */
+.screen-grid > .panel-wide + .panel-wide { grid-column: 1 / -1; grid-row: auto; }
 .dashboard-view { display: grid; gap: 16px; }
 .dashboard-overview { display: grid; grid-template-columns: minmax(0, 1.35fr) minmax(290px, .85fr); gap: 16px; }
 .dashboard-today { min-width: 0; padding: 19px 22px; border: 1px solid var(--blue-line); border-radius: var(--radius-md); background: var(--blue-soft); }
@@ -429,6 +435,7 @@ img, svg { max-width: 100%; }
 .owner-ifishi-period input { width: 100%; min-width: 0; min-height: 44px; padding: 0 10px; border: 1px solid var(--field-line); border-radius: var(--radius-md); background: var(--surface); color: var(--ink); }
 .owner-ifishi-summary { margin: 0 0 14px; }
 .owner-ifishi-desktop-list { margin: 0 18px 14px; }
+.owner-ifishi-difference-side { display: block; margin-top: 1px; color: var(--muted); font-size: 10px; font-weight: 500; }
 .owner-ifishi-mobile-list { display: none; }
 .owner-ifishi-day { min-width: 0; padding: 11px; border: 1px solid var(--line); border-left: 3px solid var(--blue); border-radius: var(--radius-md); background: var(--surface); }
 .owner-ifishi-day header, .owner-ifishi-day footer { display: flex; justify-content: space-between; align-items: center; gap: 9px; }
@@ -802,6 +809,12 @@ code { max-width: 420px; display: block; overflow: hidden; text-overflow: ellips
   .screen-grid > .panel-wide { grid-column: 1; }
   .screen-grid > .panel:not(.panel-wide) { grid-column: 2; }
   .screen-grid > .panel-wide + .panel { grid-column: 2; grid-row: 1; }
+  /* A wide panel following a wide panel never inherits the side-column row. */
+  .screen-grid > .panel-wide + .panel-wide { grid-column: 1 / -1; grid-row: auto; }
+  /* Ifishi modal: the two form panels sit side by side above the full-width records table. */
+  .screen-grid.ifishi-view { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .screen-grid.ifishi-view > .panel { grid-column: auto; grid-row: auto; }
+  .screen-grid.ifishi-view > .panel-wide { grid-column: 1 / -1; grid-row: auto; }
 }
 @media (max-width: 980px) {
   .workspace-body { grid-template-columns: 64px minmax(0, 1fr); }

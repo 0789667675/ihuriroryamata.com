@@ -68,6 +68,16 @@ test('Collection Center farmer management uses owner scope without Collector ass
   }
 });
 
+test('wide panels span the full grid and never inherit the desktop side column', () => {
+  assert.match(styles, /\.screen-grid > \.panel-wide \+ \.panel-wide \{ grid-column: 1 \/ -1; grid-row: auto; \}/);
+  assert.match(styles, /\.screen-grid\.owner-ifishi-view, \.screen-grid\.deductions-view \{ grid-template-columns: minmax\(0, 1fr\); \}/);
+  const desktop = styles.slice(styles.indexOf('@media (min-width: 1100px)'), styles.indexOf('@media (max-width: 980px)'));
+  const sideColumn = desktop.indexOf('.screen-grid > .panel-wide + .panel { grid-column: 2; grid-row: 1; }');
+  const widePair = desktop.indexOf('.screen-grid > .panel-wide + .panel-wide { grid-column: 1 / -1; grid-row: auto; }');
+  assert.ok(sideColumn >= 0, 'the >=1100 block keeps the side-column placement for a regular panel');
+  assert.ok(widePair > sideColumn, 'a wide panel following a wide panel overrides the side-column placement');
+});
+
 test('Dairy navigation includes Settings and Dairy Amata is read-only Abacunda aggregation', () => {
   const dairyTabs = workspace.slice(workspace.indexOf('const dairyTabs'), workspace.indexOf('const navigationCopy'));
   const milkEntry = workspace.slice(workspace.indexOf('const renderMilk'), workspace.indexOf('const renderOwnerIfishi'));
@@ -195,7 +205,7 @@ test('notifications are restored in the header and use the existing owned notifi
   assert.match(header, /notification-dropdown/);
   assert.match(header, /unreadCount/);
   assert.match(workspace, /api<\{ data: Notice\[\] \}>\('\/api\/notifications\?limit=50'\)/);
-  assert.match(workspace, /api<\{ data: \{ unreadCount: number \} \}>\('\/api\/notifications\/unread-count'\)/);
+  assert.ok(workspace.includes('api<{ data: { unreadCount: number } }>(`/api/notifications/unread-count'));
   assert.ok(workspace.includes('api(`/api/notifications/${notification.id}/read`'));
 });
 

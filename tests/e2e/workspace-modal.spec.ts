@@ -181,7 +181,7 @@ async function mockWorkspaceApis(page: Page, user = collector, milkFixture: Milk
         originalVolumeLiters: (milkFixture.ownerMorning || 0) + (milkFixture.ownerEvening || 0),
         validVolumeLiters: milkFixture.ownerValidLiters ?? (milkFixture.ownerMorning || 0) + (milkFixture.ownerEvening || 0),
         lostVolumeLiters: 0, pricePerLiter: 400, grossAmount: 0, assignedFarmerLiters: 0,
-        surplusLiters: 0, status: 'valid', adjustmentReason: null, adjustedAt: null,
+        surplusLiters: 0, differenceLiters: 0, status: 'valid', adjustmentReason: null, adjustedAt: null,
       }] : [],
       totals: { originalVolumeLiters: 0, ownerVolumeLiters: 0, lostVolumeLiters: 0, ownerMilkGross: 0, ownerMilkValueComplete: true, assignedFarmerLiters: 0, surplusLiters: 0 },
     };
@@ -338,7 +338,7 @@ test('Collection Center can register a center under its own name, distinct from 
   await centerForm.getByRole('button').click();
   await expect(page.locator('.center-config-row input').first()).toHaveValue('Nyabihu MCC');
   await expect(page.locator('.center-config-row')).toContainText('0 RWF/L');
-  await expect(page.getByRole('button', { name: 'Account settings: Personal Account Holder' })).toBeVisible();
+  await expect(page.locator('.panel-wide .panel-heading-actions').getByRole('button', { name: 'Account settings: Personal Account Holder' })).toBeVisible();
 });
 
 test('Owner Ifishi dialog is transient and does not return after reload', async ({ page }) => {

@@ -30,7 +30,7 @@ type Page<T> = { data: T[]; nextCursor: string | null; hasMore: boolean; pageSiz
 type DailyRow = { farmerId: number; farmerName: string; phone?: string; nationalId?: string; collectionCenter?: string | null; recordId?: number; volumeMorning: number; volumeEvening: number; totalVolume: number; volumeLiters?: number; amount: number; status?: string; abacundaCount?: number; presentCount?: number };
 type CollectorMilkEntry = { id: number; date: string; volumeLiters: number; pricePerLiter: number; status: string; effectiveVolumeLiters: number };
 type CollectorMilkPrice = { id: number; pricePerLiter: number; effectiveDate: string };
-type OwnerIfishiEntry = { id: number | null; date: string; volumeMorning: number; volumeEvening: number; volumeLiters: number; originalVolumeLiters: number; validVolumeLiters: number; lostVolumeLiters: number; pricePerLiter: number | null; grossAmount: number | null; assignedFarmerLiters: number; surplusLiters: number; status: string; adjustmentReason: string | null; adjustedAt: string | null };
+type OwnerIfishiEntry = { id: number | null; date: string; volumeMorning: number; volumeEvening: number; volumeLiters: number; originalVolumeLiters: number; validVolumeLiters: number; lostVolumeLiters: number; pricePerLiter: number | null; grossAmount: number | null; assignedFarmerLiters: number; surplusLiters: number; differenceLiters: number; status: string; adjustmentReason: string | null; adjustedAt: string | null };
 type OwnerIfishiHistory = { owner: { name: string }; startDate: string; endDate: string; entries: OwnerIfishiEntry[]; totals: { originalVolumeLiters: number; ownerVolumeLiters: number; lostVolumeLiters: number; ownerMilkGross: number | null; ownerMilkValueComplete: boolean; assignedFarmerLiters: number; surplusLiters: number } };
 type DashboardOwnerMilk = { status: 'loading' | 'available' | 'missing' | 'error'; date: string; volumeMorning: number; volumeEvening: number; validVolumeLiters: number };
 type MilkRecord = { id: number; farmer_id: number; owner_user_id: number; date: string; volumeMorning: number; volumeEvening: number; volume: number; originalVolumeLiters: number; validVolumeLiters: number; lostVolumeLiters: number; originalAmount: number; validAmount: number; amount: number; pricePerLiter: number; status: string; adjustmentReason: string | null; adjustedBy: number | null; adjustedAt: string | null; collectionCenter?: string | null };
@@ -134,6 +134,7 @@ const money = (value: number | null | undefined) => value === null || value === 
   ? '—'
   : new Intl.NumberFormat('rw-RW', { maximumFractionDigits: 0 }).format(Number(value || 0));
 const liters = (value: number) => new Intl.NumberFormat('rw-RW', { maximumFractionDigits: 2 }).format(Number(value || 0));
+const signedLiters = (value: number) => `${Number(value) > 0 ? '+' : ''}${liters(value)}`;
 const isCollectorTier = (plan: SubscriptionPlan) => plan.code.startsWith('USAGE_');
 
 const notificationTypeCopy: Record<string, PublicCopyKey> = {
@@ -561,6 +562,9 @@ const [report, setReport] = useState<Report | null>(null);
   const [notificationPanelOpen, setNotificationPanelOpen] = useState(false);
   const [notificationLoading, setNotificationLoading] = useState(false);
   const [notificationError, setNotificationError] = useState('');
+  const [notificationTypeOptions, setNotificationTypeOptions] = useState<string[]>([]);
+  const notificationRequestRef = useRef(0);
+  const notificationMenuRef = useRef<HTMLDivElement | null>(null);
   const [resolveTarget, setResolveTarget] = useState<Notice | null>(null);
   const [resolveCode, setResolveCode] = useState('farmer_absent');
   const [resolveNote, setResolveNote] = useState('');
@@ -1083,10 +1087,21 @@ const visibleTabs = (isAdmin
     }
   };
 
+  const notificationCenterParam = isDairy && selectedCenter
+    ? centers.find((center) => String(center.id) === selectedCenter)?.name || ''
+    : '';
+  const notificationCenterQuery = notificationCenterParam ? `center=${encodeURIComponent(notificationCenterParam)}` : '';
+
   const loadUnreadCount = async () => {
-    const result = await api<{ data: { unreadCount: number } }>('/api/notifications/unread-count');
+    const result = await api<{ data: { unreadCount: number } }>(`/api/notifications/unread-count${notificationCenterQuery ? `?${notificationCenterQuery}` : ''}`);
     setUnreadCount(result.data.unreadCount);
   };
+
+  const mergeNotificationTypeOptions = (items: Notice[]) => setNotificationTypeOptions((current) => {
+    const next = new Set(current);
+    for (const item of items) if (item.notification_type) next.add(item.notification_type);
+    return next.size === current.length ? current : Array.from(next);
+  });
 
   const loadNotifications = async (overrides: { search?: string; status?: string; priority?: string; type?: string; state?: string; alertGroup?: string; sortBy?: typeof notificationSortBy; sortDirection?: typeof notificationSortDirection } = {}) => {
     const filters = {
@@ -1099,7 +1114,8 @@ const visibleTabs = (isAdmin
       sortBy: overrides.sortBy ?? notificationSortBy,
       sortDirection: overrides.sortDirection ?? notificationSortDirection,
     };
-    const hasCustomFilters = Boolean(filters.search || filters.status || filters.priority || filters.type || filters.alertGroup || (filters.state && filters.state !== 'all') || filters.sortBy !== 'date' || filters.sortDirection !== 'desc' || (isDairy && selectedCenter));
+    const requestId = ++notificationRequestRef.current;
+    const hasCustomFilters = Boolean(filters.search || filters.status || filters.priority || filters.type || filters.alertGroup || (filters.state && filters.state !== 'all') || filters.sortBy !== 'date' || filters.sortDirection !== 'desc' || notificationCenterParam);
     setNotificationLoading(true);
     setNotificationError('');
     try {
@@ -1114,17 +1130,23 @@ const visibleTabs = (isAdmin
             ...(filters.status ? { status: filters.status } : {}),
             ...(filters.priority ? { priority: filters.priority } : {}),
             ...(filters.type ? { type: filters.type } : {}),
-            ...(isDairy && selectedCenter ? { center: centers.find((center) => String(center.id) === selectedCenter)?.name || '' } : {}),
+            ...(notificationCenterParam ? { center: notificationCenterParam } : {}),
           })}`)
         : await api<{ data: Notice[] }>('/api/notifications?limit=50');
+      if (requestId !== notificationRequestRef.current) return;
       setNotifications(result.data);
+      mergeNotificationTypeOptions(result.data);
       await loadUnreadCount();
     } catch (reason) {
-      setNotificationError(reason instanceof Error && reason.message ? reason.message : publicLanguage.t('notificationsLoadError'));
+      if (requestId === notificationRequestRef.current) {
+        setNotificationError(reason instanceof Error && reason.message ? reason.message : publicLanguage.t('notificationsLoadError'));
+      }
     } finally {
-      setNotificationLoading(false);
+      if (requestId === notificationRequestRef.current) setNotificationLoading(false);
     }
   };
+  const loadNotificationsRef = useRef(loadNotifications);
+  useEffect(() => { loadNotificationsRef.current = loadNotifications; });
 
   const renderNotificationFilters = () => {
     const reset = () => {
@@ -1175,7 +1197,7 @@ const visibleTabs = (isAdmin
         <form className={['search', 'form'].join('-')} onSubmit={(event) => { event.preventDefault(); const search = notificationSearchQuery.trim(); setNotificationSearch(search); void loadNotifications({ search }); }}><Search size={17} aria-hidden="true" /><input aria-label={publicLanguage.t('milkSearchLabel')} placeholder={publicLanguage.t('search')} value={notificationSearchQuery} onChange={(event) => setNotificationSearchQuery(event.target.value)} /><button className="button button-secondary">{publicLanguage.t('search')}</button></form>
         <label>{publicLanguage.t('status')}<select value={notificationStatusFilter} onChange={(event) => { const status = event.target.value; setNotificationStatusFilter(status); void loadNotifications({ status }); }}><option value="">{publicLanguage.t('allStatuses')}</option><option value="unread">{publicLanguage.t('notificationsUnread')}</option><option value="read">{publicLanguage.t('notificationsRead')}</option></select></label>
         <label>{publicLanguage.t('notificationPriority')}<select value={notificationPriorityFilter} onChange={(event) => { const priority = event.target.value; setNotificationPriorityFilter(priority); void loadNotifications({ priority }); }}><option value="">{publicLanguage.t('allStatuses')}</option>{(['high', 'warning', 'info', 'success'] as const).map((priority) => <option key={priority} value={priority}>{publicLanguage.t(priorityCopy[priority])}</option>)}</select></label>
-        <label>{publicLanguage.t('notificationType')}<select value={notificationTypeFilter} onChange={(event) => { const type = event.target.value; setNotificationTypeFilter(type); void loadNotifications({ type }); }}><option value="">{publicLanguage.t('allStatuses')}</option>{Array.from(new Set(notifications.map((item) => item.notification_type))).map((type) => <option key={type} value={type}>{notificationTypeLabel(type)}</option>)}</select></label>
+        <label>{publicLanguage.t('notificationType')}<select value={notificationTypeFilter} onChange={(event) => { const type = event.target.value; setNotificationTypeFilter(type); void loadNotifications({ type }); }}><option value="">{publicLanguage.t('allStatuses')}</option>{notificationTypeOptions.map((type) => <option key={type} value={type}>{notificationTypeLabel(type)}</option>)}</select></label>
         <label>{publicLanguage.t('sort')}<select value={`${notificationSortBy}:${notificationSortDirection}`} onChange={(event) => applySort(event.target.value)}><option value="date:desc">{publicLanguage.t('when')} ↓</option><option value="date:asc">{publicLanguage.t('when')} ↑</option><option value="type:asc">{publicLanguage.t('notificationType')} ↑</option><option value="type:desc">{publicLanguage.t('notificationType')} ↓</option></select></label>
         {notificationSearch || notificationStatusFilter || notificationPriorityFilter || notificationTypeFilter || notificationStateFilter !== 'all' || notificationGroupFilter || notificationSortBy !== 'date' || notificationSortDirection !== 'desc' ? <button type="button" className="button button-secondary small-button" onClick={reset}>{publicLanguage.t('milkClearSearch')}</button> : null}
       </div>
@@ -1341,6 +1363,35 @@ const visibleTabs = (isAdmin
   }, [user]);
 
   useEffect(() => {
+    setNotificationTypeOptions([]);
+  }, [user?.id]);
+
+  // Keep the unread badge scoped to the same active Ikigo as the notifications list.
+  useEffect(() => {
+    if (!user || !isDairy || !selectedCenter) return;
+    loadUnreadCount().catch((reason) => setError(reason.message));
+  }, [selectedCenter]);
+
+  useEffect(() => {
+    if (!notificationPanelOpen) return;
+    const closeOnOutsidePointerDown = (event: PointerEvent) => {
+      const target = event.target;
+      if (notificationMenuRef.current && target instanceof Node && !notificationMenuRef.current.contains(target)) {
+        setNotificationPanelOpen(false);
+      }
+    };
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setNotificationPanelOpen(false);
+    };
+    document.addEventListener('pointerdown', closeOnOutsidePointerDown);
+    document.addEventListener('keydown', closeOnEscape);
+    return () => {
+      document.removeEventListener('pointerdown', closeOnOutsidePointerDown);
+      document.removeEventListener('keydown', closeOnEscape);
+    };
+  }, [notificationPanelOpen]);
+
+  useEffect(() => {
     const timer = window.setTimeout(() => setDebouncedDailySearch(dailySearch.trim()), 250);
     return () => window.clearTimeout(timer);
   }, [dailySearch]);
@@ -1381,6 +1432,7 @@ const visibleTabs = (isAdmin
       }).catch((reason) => setError(reason.message));
       if (tab === 'notifications-admin') api<{ success: boolean; data: Notice[] }>('/api/notifications').then((result) => {
         setNotifications(result.data);
+        mergeNotificationTypeOptions(result.data);
       }).catch((reason) => setError(reason.message));
       return;
     }
@@ -1421,7 +1473,7 @@ const visibleTabs = (isAdmin
         const result = await api<{ data?: { createdCount?: number; resolvedCount?: number; reopenedCount?: number; skipped?: boolean } }>('/api/notifications/evaluate', { method: 'POST' });
         const changes = result.data ? (result.data.createdCount || 0) + (result.data.resolvedCount || 0) + (result.data.reopenedCount || 0) : 0;
         if (!cancelled && !result.data?.skipped && changes > 0) {
-          await loadNotifications();
+          await loadNotificationsRef.current();
           if (result.data?.createdCount) setNotice(publicLanguage.t('notificationsEvaluated'));
         }
       } catch {
@@ -1933,7 +1985,7 @@ const visibleTabs = (isAdmin
   });
 
   const markAllNotificationsRead = async () => run(async () => {
-    await api('/api/notifications/read-all', { method: 'PATCH' });
+    await api(`/api/notifications/read-all${notificationCenterQuery ? `?${notificationCenterQuery}` : ''}`, { method: 'PATCH' });
     await loadNotifications();
   });
 
@@ -2308,6 +2360,7 @@ const visibleTabs = (isAdmin
       date.setMonth(date.getMonth() + offset);
       selectOwnerIfishiMonth(`${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`);
     };
+    const differenceSideLabel = (difference: number) => publicLanguage.t(difference > 0 ? 'dashboardOwnerHigher' : difference < 0 ? 'dashboardFarmersHigher' : 'dashboardMilkEqual');
 
     return <div className="screen-grid owner-ifishi-view">
       <section className="panel panel-wide owner-ifishi-context">
@@ -2347,15 +2400,15 @@ const visibleTabs = (isAdmin
             {accountingRows.length ? <div className="table-scroll owner-ifishi-accounting-table"><table><thead><tr><th>No</th><th>{publicLanguage.t('milkFarmer')}</th><th>{publicLanguage.t('accountNationalId')}</th><th>{publicLanguage.t('accountPhone')} / {publicLanguage.t('accountNumber')}</th><th>{publicLanguage.t('reportsVolume')}</th><th>{publicLanguage.t('milkPrice')} / L</th><th>{publicLanguage.t('reportsGross')}</th><th>{publicLanguage.t('reportsTransport')}</th><th>{publicLanguage.t('dashboardDeductions')}</th><th>{publicLanguage.t('reportsNet')}</th></tr></thead><tbody>{accountingRows.map((row, index) => <tr key={`${row.isOwner ? 'owner' : row.farmerId}-${index}`} className={row.isOwner ? 'owner-settlement-row' : undefined}><td>{index + 1}</td><td>{row.farmerName || row.name}</td><td>{row.nationalId || row.idNumber || '—'}</td><td>{[row.phone, row.accountNumber].filter(Boolean).join(' / ') || '—'}</td><td>{liters(row.totalVolume)} L</td><td>{row.pricePerLiter == null ? '—' : `${money(row.pricePerLiter)} RWF`}</td><td>{row.grossAmount == null ? '—' : `${money(row.grossAmount)} RWF`}</td><td>{money(row.totalTransport || 0)} RWF</td><td>{money(row.totalDeductions || 0)} RWF</td><td>{row.netAmount == null ? '—' : `${money(row.netAmount)} RWF`}</td></tr>)}</tbody><tfoot><tr className="owner-settlement-row"><td></td><td colSpan={3}><b>{publicLanguage.t('ukweziOwnerTotal')}</b></td><td>{liters(ownerIfishiReport.ownerGeneratedVolume || 0)} L</td><td>{ownerIfishiReport.ownerSettlementRow?.pricePerLiter == null ? '—' : `${money(ownerIfishiReport.ownerSettlementRow.pricePerLiter)} RWF`}</td><td>{ownerIfishiReport.ownerGeneratedGross == null ? '—' : `${money(ownerIfishiReport.ownerGeneratedGross)} RWF`}</td><td>{money(ownerIfishiReport.collectorFarmerTransport || 0)} RWF</td><td>{money(ownerIfishiReport.collectorFarmerDeductions || 0)} RWF</td><td>{ownerIfishiReport.collectorPayable == null ? '—' : `${money(ownerIfishiReport.collectorPayable)} RWF`}</td></tr></tfoot></table></div> : <div className="workspace-empty" role="status"><b>{publicLanguage.t('reportsEmptyTitle')}</b></div>}
           </> : null}
           {ownerIfishiHistory.entries.length ? <>
-            <div className="table-scroll owner-ifishi-desktop-list"><table><thead><tr><th>{publicLanguage.t('milkCollectionDate')}</th><th>{publicLanguage.t('dashboardMorning')} · L</th><th>{publicLanguage.t('dashboardEvening')} · L</th><th>{publicLanguage.t('ifishiOriginal')} · L</th><th>{publicLanguage.t('ownerIfishiOwnerMilk')} · L</th><th>{publicLanguage.t('milkPrice')} / L</th><th>{publicLanguage.t('ownerIfishiGross')}</th><th>{publicLanguage.t('ownerIfishiAssigned')} · L</th><th>{publicLanguage.t('ownerIfishiSurplus')} · L</th><th>{publicLanguage.t('ifishiLost')} · L</th><th>{publicLanguage.t('paymentStatus')}</th><th>{publicLanguage.t('ifishiReason')}</th><th /></tr></thead><tbody>{ownerIfishiHistory.entries.map((entry) => <tr key={`${entry.date}-${entry.id || 'assigned'}`}>
+            <div className="table-scroll owner-ifishi-desktop-list"><table><thead><tr><th>{publicLanguage.t('milkCollectionDate')}</th><th>{publicLanguage.t('dashboardMorning')} · L</th><th>{publicLanguage.t('dashboardEvening')} · L</th><th>{publicLanguage.t('ifishiOriginal')} · L</th><th>{publicLanguage.t('ownerIfishiOwnerMilk')} · L</th><th>{publicLanguage.t('milkPrice')} / L</th><th>{publicLanguage.t('ownerIfishiGross')}</th><th>{publicLanguage.t('ownerIfishiAssigned')} · L</th><th>{publicLanguage.t('dashboardMilkDifference')} · L</th><th>{publicLanguage.t('ownerIfishiSurplus')} · L</th><th>{publicLanguage.t('ifishiLost')} · L</th><th>{publicLanguage.t('paymentStatus')}</th><th>{publicLanguage.t('ifishiReason')}</th><th /></tr></thead><tbody>{ownerIfishiHistory.entries.map((entry) => <tr key={`${entry.date}-${entry.id || 'assigned'}`}>
               <td><button type="button" className="text-button" onClick={() => openOwnerIfishiEntry(entry.date)}>{entry.date}</button></td>
-              <td>{liters(entry.volumeMorning)} L</td><td>{liters(entry.volumeEvening)} L</td><td>{liters(entry.originalVolumeLiters)} L</td><td>{liters(entry.validVolumeLiters)} L</td><td>{entry.pricePerLiter == null ? '—' : `${money(entry.pricePerLiter)} RWF`}</td><td>{entry.grossAmount == null ? '—' : `${money(entry.grossAmount)} RWF`}</td><td>{liters(entry.assignedFarmerLiters)} L</td><td>{liters(entry.surplusLiters)} L</td><td>{liters(entry.lostVolumeLiters)} L</td>
+              <td>{liters(entry.volumeMorning)} L</td><td>{liters(entry.volumeEvening)} L</td><td>{liters(entry.originalVolumeLiters)} L</td><td>{liters(entry.validVolumeLiters)} L</td><td>{entry.pricePerLiter == null ? '—' : `${money(entry.pricePerLiter)} RWF`}</td><td>{entry.grossAmount == null ? '—' : `${money(entry.grossAmount)} RWF`}</td><td>{liters(entry.assignedFarmerLiters)} L</td><td><b>{signedLiters(entry.differenceLiters)} L</b><small className="owner-ifishi-difference-side">{differenceSideLabel(entry.differenceLiters)}</small></td><td>{liters(entry.surplusLiters)} L</td><td>{liters(entry.lostVolumeLiters)} L</td>
               <td>{entry.status}</td><td>{entry.adjustmentReason || '—'}</td>
               <td><button type="button" className="text-button" onClick={() => openOwnerIfishiEntry(entry.date)}>{entry.id && entry.status === 'valid' ? publicLanguage.t('ownerIfishiCorrect') : entry.id ? publicLanguage.t('ownerIfishiVoidedShort') : publicLanguage.t('ownerIfishiEnter')}</button></td>
             </tr>)}</tbody></table></div>
             <div className="owner-ifishi-mobile-list">{ownerIfishiHistory.entries.map((entry) => <article className="owner-ifishi-day" key={`${entry.date}-${entry.id || 'assigned'}`}>
               <header><button type="button" className="text-button" onClick={() => openOwnerIfishiEntry(entry.date)}>{entry.date}</button><span className={`milk-entry-state ${entry.status === 'cancelled' ? 'unsaved' : 'saved'}`}>{entry.status}</span></header>
-              <dl><div><dt>{publicLanguage.t('dashboardMorning')}</dt><dd>{liters(entry.volumeMorning)} L</dd></div><div><dt>{publicLanguage.t('dashboardEvening')}</dt><dd>{liters(entry.volumeEvening)} L</dd></div><div><dt>{publicLanguage.t('ifishiOriginal')}</dt><dd>{liters(entry.originalVolumeLiters)} L</dd></div><div><dt>{publicLanguage.t('ownerIfishiOwnerMilk')}</dt><dd>{liters(entry.validVolumeLiters)} L</dd></div><div><dt>{publicLanguage.t('milkPrice')} / L</dt><dd>{entry.pricePerLiter == null ? '—' : `${money(entry.pricePerLiter)} RWF`}</dd></div><div><dt>{publicLanguage.t('ownerIfishiGross')}</dt><dd>{entry.grossAmount == null ? '—' : `${money(entry.grossAmount)} RWF`}</dd></div><div><dt>{publicLanguage.t('ownerIfishiAssigned')}</dt><dd>{liters(entry.assignedFarmerLiters)} L</dd></div><div><dt>{publicLanguage.t('ownerIfishiSurplus')}</dt><dd>{liters(entry.surplusLiters)} L</dd></div><div><dt>{publicLanguage.t('ifishiLost')}</dt><dd>{liters(entry.lostVolumeLiters)} L</dd></div></dl>
+              <dl><div><dt>{publicLanguage.t('dashboardMorning')}</dt><dd>{liters(entry.volumeMorning)} L</dd></div><div><dt>{publicLanguage.t('dashboardEvening')}</dt><dd>{liters(entry.volumeEvening)} L</dd></div><div><dt>{publicLanguage.t('ifishiOriginal')}</dt><dd>{liters(entry.originalVolumeLiters)} L</dd></div><div><dt>{publicLanguage.t('ownerIfishiOwnerMilk')}</dt><dd>{liters(entry.validVolumeLiters)} L</dd></div><div><dt>{publicLanguage.t('milkPrice')} / L</dt><dd>{entry.pricePerLiter == null ? '—' : `${money(entry.pricePerLiter)} RWF`}</dd></div><div><dt>{publicLanguage.t('ownerIfishiGross')}</dt><dd>{entry.grossAmount == null ? '—' : `${money(entry.grossAmount)} RWF`}</dd></div><div><dt>{publicLanguage.t('ownerIfishiAssigned')}</dt><dd>{liters(entry.assignedFarmerLiters)} L</dd></div><div><dt>{publicLanguage.t('dashboardMilkDifference')}</dt><dd>{signedLiters(entry.differenceLiters)} L · {differenceSideLabel(entry.differenceLiters)}</dd></div><div><dt>{publicLanguage.t('ownerIfishiSurplus')}</dt><dd>{liters(entry.surplusLiters)} L</dd></div><div><dt>{publicLanguage.t('ifishiLost')}</dt><dd>{liters(entry.lostVolumeLiters)} L</dd></div></dl>
               {entry.adjustmentReason ? <p>{entry.adjustmentReason}</p> : null}
               <footer><button type="button" className="button button-secondary small-button" onClick={() => openOwnerIfishiEntry(entry.date)} disabled={Boolean(entry.id && entry.status !== 'valid')}>{entry.id ? publicLanguage.t('ownerIfishiCorrect') : publicLanguage.t('ownerIfishiEnter')}</button></footer>
             </article>)}</div>
@@ -2475,7 +2528,7 @@ const visibleTabs = (isAdmin
             {dashboardOwnerMilk.status === 'loading' ? <p>{publicLanguage.t('dashboardComparisonLoading')}</p> : <>
               <div><span>{publicLanguage.t('dashboardFarmerMilk')}</span><b>{liters(dailySummary.totalVolume)} L</b></div>
               <div><span>{publicLanguage.t('dashboardOwnerMilk')}</span><b>{dashboardOwnerMilk.status === 'available' ? `${liters(dashboardOwnerMilk.validVolumeLiters)} L` : '—'}</b></div>
-              <div><span>{publicLanguage.t('dashboardMilkDifference')}</span><b>{milkDifference ? `${liters(Math.abs(milkDifference.difference))} L` : '—'}</b></div>
+              <div><span>{publicLanguage.t('dashboardMilkDifference')}</span><b>{milkDifference ? `${signedLiters(milkDifference.difference)} L` : '—'}</b></div>
               {dashboardOwnerMilk.status === 'available' && milkDifference ? <small>{publicLanguage.t(milkDifference.higherSide === 'owner' ? 'dashboardOwnerHigher' : milkDifference.higherSide === 'farmers' ? 'dashboardFarmersHigher' : 'dashboardMilkEqual')} · {publicLanguage.t('dashboardMorning')} {liters(dashboardOwnerMilk.volumeMorning)} L · {publicLanguage.t('dashboardEvening')} {liters(dashboardOwnerMilk.volumeEvening)} L</small> : null}
               {dashboardOwnerMilk.status === 'missing' ? <p>{publicLanguage.t('dashboardOwnerMilkMissing')}</p> : null}
               {dashboardOwnerMilk.status === 'error' ? <p>{publicLanguage.t('dashboardComparisonError')}</p> : null}
@@ -3541,7 +3594,7 @@ const visibleTabs = (isAdmin
 
   return (
     <main className="workspace-shell">
-      <header className="topbar"><BrandLockup className="topbar-brand" imageSize={34} /><div className="topbar-right"><span className={`account-tag${online ? '' : ' offline-tag'}`}><span className={`status-dot${online ? '' : ' offline-dot'}`} />{online ? isAdmin ? publicLanguage.t('platformAdmin') : user.accountType.replace('_', ' ') : `Offline · ${pendingWrites} queued`}</span><div className="notification-menu"><button type="button" className="icon-button notification-trigger" aria-label={`${publicLanguage.t('navAlerts')}: ${unreadCount ?? 0}`} aria-expanded={notificationPanelOpen} onClick={toggleNotificationPanel}><Bell size={19} aria-hidden="true" />{unreadCount ? <span className="notification-badge">{unreadCount > 99 ? '99+' : unreadCount}</span> : null}</button>{notificationPanelOpen ? <section className="notification-dropdown" aria-label={publicLanguage.t('navAlerts')}><div className="notification-dropdown-heading"><b>{publicLanguage.t('navAlerts')}</b><button type="button" className="text-button" onClick={() => void markAllNotificationsRead()}>{publicLanguage.t('markAllRead')}</button></div><div className="notification-dropdown-list">{notificationError ? <p className="notification-dropdown-empty" role="alert">{notificationError}</p> : null}{notifications.filter((item) => item.status !== 'resolved').slice(0, 8).map((item) => { const priority = priorityCopy[String(item.priority || '')] ? String(item.priority) : 'info'; return <article className={`notification-dropdown-item${item.isRead ? '' : ' unread'}`} key={item.id}><span className={`priority-badge priority-${priority}`}>{publicLanguage.t(priorityCopy[priority])}</span><b>{notificationTitle(item)}</b><p>{notificationMessage(item)}</p><small>{formatDateLabel(item.createdAt, publicLanguage.language, { day: 'numeric', month: 'long', year: 'numeric', time: 'short' })}</small>{isOperationalAlert(item) ? <button type="button" className="text-button" onClick={() => { setNotificationPanelOpen(false); openResolveDialog(item); }}>{publicLanguage.t('alertResolve')}</button> : !item.isRead ? <button type="button" className="text-button" onClick={() => markRead(item)}>{publicLanguage.t('markRead')}</button> : null}</article>; })}{!notifications.length ? <p className="notification-dropdown-empty">{publicLanguage.t('notificationsEmptyTitle')}</p> : null}</div><button type="button" className="notification-dropdown-all" onClick={() => { setNotificationPanelOpen(false); setTab(isAdmin ? 'notifications-admin' : 'notifications'); }}>{publicLanguage.t('alertsOpenInbox')} <ArrowRight size={15} aria-hidden="true" /></button></section> : null}</div><button type="button" className="user-name user-settings-shortcut" onClick={() => setTab('settings')} title={publicLanguage.t('accountSettings')} aria-label={`${publicLanguage.t('accountSettings')}: ${user.name || user.email}`}><UserRound size={16} aria-hidden="true" /><span>{user.name || user.email}</span></button><button className="icon-button" onClick={logout} aria-label={publicLanguage.t('signOut')} title={publicLanguage.t('signOut')}><LogOut size={18} /></button></div></header>
+      <header className="topbar"><BrandLockup className="topbar-brand" imageSize={34} /><div className="topbar-right"><span className={`account-tag${online ? '' : ' offline-tag'}`}><span className={`status-dot${online ? '' : ' offline-dot'}`} />{online ? isAdmin ? publicLanguage.t('platformAdmin') : user.accountType.replace('_', ' ') : `Offline · ${pendingWrites} queued`}</span><div className="notification-menu" ref={notificationMenuRef}><button type="button" className="icon-button notification-trigger" aria-label={`${publicLanguage.t('navAlerts')}: ${unreadCount ?? 0}`} aria-expanded={notificationPanelOpen} onClick={toggleNotificationPanel}><Bell size={19} aria-hidden="true" />{unreadCount ? <span className="notification-badge">{unreadCount > 99 ? '99+' : unreadCount}</span> : null}</button>{notificationPanelOpen ? <section className="notification-dropdown" aria-label={publicLanguage.t('navAlerts')}><div className="notification-dropdown-heading"><b>{publicLanguage.t('navAlerts')}</b><button type="button" className="text-button" onClick={() => void markAllNotificationsRead()}>{publicLanguage.t('markAllRead')}</button></div><div className="notification-dropdown-list">{notificationError ? <p className="notification-dropdown-empty" role="alert">{notificationError}</p> : null}{notifications.filter((item) => item.status !== 'resolved').slice(0, 8).map((item) => { const priority = priorityCopy[String(item.priority || '')] ? String(item.priority) : 'info'; return <article className={`notification-dropdown-item${item.isRead ? '' : ' unread'}`} key={item.id}><span className={`priority-badge priority-${priority}`}>{publicLanguage.t(priorityCopy[priority])}</span><b>{notificationTitle(item)}</b><p>{notificationMessage(item)}</p><small>{formatDateLabel(item.createdAt, publicLanguage.language, { day: 'numeric', month: 'long', year: 'numeric', time: 'short' })}</small>{isOperationalAlert(item) ? <button type="button" className="text-button" onClick={() => { setNotificationPanelOpen(false); openResolveDialog(item); }}>{publicLanguage.t('alertResolve')}</button> : !item.isRead ? <button type="button" className="text-button" onClick={() => markRead(item)}>{publicLanguage.t('markRead')}</button> : null}</article>; })}{!notifications.length ? <p className="notification-dropdown-empty">{publicLanguage.t('notificationsEmptyTitle')}</p> : null}</div><button type="button" className="notification-dropdown-all" onClick={() => { setNotificationPanelOpen(false); setTab(isAdmin ? 'notifications-admin' : 'notifications'); }}>{publicLanguage.t('alertsOpenInbox')} <ArrowRight size={15} aria-hidden="true" /></button></section> : null}</div><button type="button" className="user-name user-settings-shortcut" onClick={() => setTab('settings')} title={publicLanguage.t('accountSettings')} aria-label={`${publicLanguage.t('accountSettings')}: ${user.name || user.email}`}><UserRound size={16} aria-hidden="true" /><span>{user.name || user.email}</span></button><button className="icon-button" onClick={logout} aria-label={publicLanguage.t('signOut')} title={publicLanguage.t('signOut')}><LogOut size={18} /></button></div></header>
       <div className="workspace-body"><aside className="sidebar"><div className="sidebar-label">{publicLanguage.t('workspace')}</div><nav aria-label={publicLanguage.t('workspaceNavigation')}>{activeTabs.map((item) => { const Icon = item.icon; return <button className={`nav-item${tab === item.id ? ' active' : ''}`} key={item.id} aria-label={item.label} title={item.label} aria-current={tab === item.id ? 'page' : undefined} onClick={() => setTab(item.id)}><Icon size={18} strokeWidth={1.8} /><span>{item.label}</span>{tab === item.id ? <span className="nav-mark" /> : null}</button>; })}</nav><div className="sidebar-foot"><Activity size={15} aria-hidden="true" /><span>{publicLanguage.t('systemOnline')}</span></div></aside>
       <section className="content-area"><div className="content-heading"><div><span className="eyebrow">{isAdmin ? publicLanguage.t('platformAdmin') : 'MILK SYSTEM'}</span><h1>{activeTabLabel}</h1></div><span className="date-stamp">{formatDateLabel(new Date(), publicLanguage.language, { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' })}</span></div>
         {error ? <div className="toast toast-error" role="alert"><span>{error}</span><button onClick={() => setError('')} aria-label="Dismiss"><X size={16} /></button></div> : null}

@@ -81,11 +81,13 @@ test('Owner Ifishi history includes owner milk, assigned volume, valid surplus, 
   assert.equal(history.entries[0].volumeLiters, 100);
   assert.equal(history.entries[0].assignedFarmerLiters, 70);
   assert.equal(history.entries[0].surplusLiters, 30);
+  assert.equal(history.entries[0].differenceLiters, 30);
   assert.equal(history.entries[1].status, 'cancelled');
   assert.equal(history.entries[1].validVolumeLiters, 0);
   assert.equal(history.entries[0].pricePerLiter, 400);
   assert.equal(history.entries[0].grossAmount, 40000);
   assert.equal(history.entries[2].surplusLiters, 0);
+  assert.equal(history.entries[2].differenceLiters, -45);
   assert.deepEqual(history.totals, { originalVolumeLiters: 180, ownerVolumeLiters: 100, lostVolumeLiters: 80, ownerMilkGross: 40000, assignedFarmerLiters: 115, surplusLiters: 30, ownerMilkValueComplete: true });
 });
 
@@ -466,6 +468,10 @@ test('Owner Ifishi API derives owner scope from authentication and keeps financi
   assert.match(correctionRoute, /actorId: user\.id/);
   assert.match(correctionRoute, /volumeMorning: input\.volumeMorning/);
   assert.match(correctionRoute, /volumeEvening: input\.volumeEvening/);
+  assert.match(route, /user\?\.role === 'user' && user\.accountType === 'COLLECTOR'/);
+  assert.match(correctionRoute, /user\.role !== 'user' \|\| user\.accountType !== 'COLLECTOR'/);
+  assert.match(workspace, /const isCollector = !!user && user\.role !== 'super_admin' && user\.accountType === 'COLLECTOR'/);
+  assert.match(workspace, /\{isCollector && ownerIfishiHistoryOpen \? renderOwnerIfishiHistory\(\) : null\}/);
   const ownerScreen = workspace.slice(workspace.indexOf('const renderOwnerIfishi'), workspace.indexOf('const renderIfishi ='));
   assert.match(ownerScreen, /ownerIfishiLoading/);
   assert.match(ownerScreen, /ownerIfishiError/);
@@ -486,6 +492,11 @@ test('Owner Ifishi API derives owner scope from authentication and keeps financi
   assert.match(workspace, /dashboardMilkComparison/);
   assert.match(ownerScreen, /entry\.volumeMorning/);
   assert.match(ownerScreen, /entry\.volumeEvening/);
+  assert.match(ownerScreen, /entry\.differenceLiters/);
+  assert.equal((ownerScreen.match(/signedLiters\(entry\.differenceLiters\)/g) || []).length, 2);
+  assert.doesNotMatch(ownerScreen, /Math\.abs\(entry\.differenceLiters\)/);
+  assert.match(workspace, /signedLiters\(milkDifference\.difference\)/);
+  assert.match(workspace, /dashboardMilkDifference/);
   assert.match(styles, /\.owner-ifishi-desktop-list \{ display: none; \}/);
   assert.match(styles, /\.owner-ifishi-mobile-list \{ display: grid;/);
 });
