@@ -79,7 +79,7 @@ type ReportFarmerRow = { farmerId: number; farmerName: string; nationalId?: stri
 type ReportOwnerRow = { farmerId: null; farmerName: string; name: string; isOwner: true; nationalId?: string | null; idNumber?: string | null; phone?: string | null; accountNumber?: string | null; totalVolume: number; pricePerLiter: number | null; grossAmount: number | null; totalTransport: number | null; totalDeductions: number; farmerPayable?: number; netAmount: number | null };
 type CollectorSettlementFields = { collectorFarmerMilkValue?: number | null; collectorFarmerPayable?: number | null; collectorAccountingComplete?: boolean | null; collectorAccountingMissingInputs?: string[] };
 type SettlementAccounting = { farmerGross: number | null; expectedFarmerPayable: number | null; saccoEligiblePayable: number | null; saccoDistributionInstruction: number | null; saccoConfirmedAmount: number; retainedUnpaidAmount: number | null; cashApprovedAmount: number; cashConfirmedAmount: number; debtRepaymentAmount: number; outstandingDebt: number | null; legacyUnallocatedDebtRepayments: number; debtBalancesComplete: boolean; unexplainedDiscrepancy: number | null; ownerGrossReconciliation: { ownerGross: number | null; farmerGross: number | null; surplus: number | null; discrepancy: number | null }; farmers: Array<ReportFarmerRow & { settlement: { saccoEligible: boolean; saccoDistributionInstruction: number | null; cashApprovedAmount: number; cashConfirmedAmount: number; debtRepaymentAmount: number; outstandingDebt: number | null; retainedUnpaidAmount: number | null; unexplainedDiscrepancy: number | null } }> };
-type Report = { totalFarmers: number; totalVolume: number; totalMorning: number; totalEvening: number; totalRevenueMonth: number; ownerGeneratedGross?: number | null; ownerGeneratedVolume?: number; totalDeductionsMonth: number; totalTransportFeesMonth: number; netRevenueMonth: number; todayTotal: number; todayMorning: number; todayEvening: number; rangeStart: string; rangeEnd: string; collectorPayable: number | null; collectorGross?: number | null; collectorActualVolume?: number; collectorOriginalVolume?: number; collectorLostVolume?: number; collectorFarmersValidLiters?: number; collectorTotalFarmersPayable?: number; collectorFarmerDeductions?: number; collectorFarmerTransport?: number; collectorSurplusAmount?: number | null; collectorPayableFromBreakdown?: number | null; collectorIsReconciled?: boolean | null; collectorProfile?: { name: string } | null; collectorEntries?: Array<{ id: number; date: string; status: string; volumeLiters: number; effectiveVolumeLiters: number; farmerLostLiters: number; voidReason?: string | null; voidedBy?: number | null; voidedAt?: string | null }>; milkLossRecords?: Array<{ id: number; farmerId: number; farmerName: string; date: string; status: string; originalVolume: number; validVolume: number; lostVolume: number; reason: string | null; adjustedBy: number | null; adjustedAt: string | null }>; collectorSettlementRows?: any[]; ownerSettlementRow?: ReportOwnerRow | null; farmerPayments: ReportFarmerRow[]; settlementAccounting?: SettlementAccounting | null; settlementAccountingStatus?: 'AVAILABLE' | 'MIGRATION_REQUIRED' | null };
+type Report = { totalFarmers: number; totalVolume: number; totalMorning: number; totalEvening: number; totalRevenueMonth: number; ownerGeneratedGross?: number | null; ownerGeneratedVolume?: number; totalDeductionsMonth: number; totalTransportFeesMonth: number; netRevenueMonth: number; pricePerLiter?: number | null; collectorAccountingComplete?: boolean | null; collectorAccountingMissingInputs?: string[]; todayTotal: number; todayMorning: number; todayEvening: number; rangeStart: string; rangeEnd: string; collectorPayable: number | null; collectorGross?: number | null; collectorActualVolume?: number; collectorOriginalVolume?: number; collectorLostVolume?: number; collectorFarmersValidLiters?: number; collectorTotalFarmersPayable?: number; collectorFarmerDeductions?: number; collectorFarmerTransport?: number; collectorSurplusAmount?: number | null; collectorPayableFromBreakdown?: number | null; collectorIsReconciled?: boolean | null; collectorProfile?: { name: string } | null; collectorEntries?: Array<{ id: number; date: string; status: string; volumeLiters: number; effectiveVolumeLiters: number; farmerLostLiters: number; voidReason?: string | null; voidedBy?: number | null; voidedAt?: string | null }>; milkLossRecords?: Array<{ id: number; farmerId: number; farmerName: string; date: string; status: string; originalVolume: number; validVolume: number; lostVolume: number; reason: string | null; adjustedBy: number | null; adjustedAt: string | null }>; collectorSettlementRows?: any[]; ownerSettlementRow?: ReportOwnerRow | null; farmerPayments: ReportFarmerRow[]; settlementAccounting?: SettlementAccounting | null; settlementAccountingStatus?: 'AVAILABLE' | 'MIGRATION_REQUIRED' | null };
 type Account = { user_id: number; account_name: string; account_email: string; account_type: string; account_status: string; effective_status: string; farmer_count: number; center_count: number };
 type AdminAccountDetails = { account: { id: number; name: string; email: string; account_type: string; account_status: string; email_verified: boolean; phone: string | null; created_at: string }; subscription: { status: string; effective_status?: string; billing_exempt?: boolean; exemption_reason?: string | null; exemption_granted_at?: string | null; exemption_revoked_at?: string | null; plan_id: number | null; current_price: number | string | null; currency: string | null; tier_code: string | null; access_started_at: string | null; payment_due_at: string | null; subscription_started_at: string | null; subscription_ends_at: string | null } | null; counts: { centers: number; farmers: number; milk_records: number; deductions: number; payments: number; notifications: number } };
 type AdminPaymentSummary = { successfulCount: number; successfulAmount: number; pendingCount: number; failedCount: number; cancelledCount: number; expiredCount: number };
@@ -134,6 +134,7 @@ const money = (value: number | null | undefined) => value === null || value === 
   ? '—'
   : new Intl.NumberFormat('rw-RW', { maximumFractionDigits: 0 }).format(Number(value || 0));
 const liters = (value: number) => new Intl.NumberFormat('rw-RW', { maximumFractionDigits: 2 }).format(Number(value || 0));
+const unitMoney = (value: number) => new Intl.NumberFormat('rw-RW', { maximumFractionDigits: 2 }).format(Number(value || 0));
 const signedLiters = (value: number) => `${Number(value) > 0 ? '+' : ''}${liters(value)}`;
 const isCollectorTier = (plan: SubscriptionPlan) => plan.code.startsWith('USAGE_');
 
@@ -145,6 +146,13 @@ const notificationTypeCopy: Record<string, PublicCopyKey> = {
   farmer_missing_collector: 'alertTypeFarmerMissingCollector',
   no_collection: 'alertTypeNoCollection',
   low_collection: 'alertTypeLowCollection',
+  farmer_milk_spike: 'alertTypeFarmerMilkSpike',
+  collection_milk_spike: 'alertTypeCollectionMilkSpike',
+  owner_farmer_difference_drop: 'alertTypeOwnerFarmerDifferenceDrop',
+  farmer_milk_missing: 'alertTypeFarmerMilkMissing',
+  no_farmer_milk_recorded: 'alertTypeNoFarmerMilk',
+  owner_milk_missing: 'alertTypeOwnerMilkMissing',
+  subscription_expiring: 'alertTypeSubscriptionExpiring',
   morning_missed: 'alertTypeMorningMissed',
   evening_missed: 'alertTypeEveningMissed',
   farmer_morning_missed: 'alertTypeFarmerMorningMissed',
@@ -156,6 +164,8 @@ const notificationTypeCopy: Record<string, PublicCopyKey> = {
 const operationalNotificationTypes = new Set([
   'missed_delivery', 'farmer_missed_delivery', 'low_delivery',
   'farmer_missing_center', 'farmer_missing_collector', 'no_collection', 'low_collection',
+  'farmer_milk_spike', 'collection_milk_spike', 'owner_farmer_difference_drop',
+  'farmer_milk_missing', 'no_farmer_milk_recorded', 'owner_milk_missing',
   'morning_missed', 'evening_missed', 'farmer_morning_missed', 'farmer_evening_missed', 'repeatedly_missed',
 ]);
 const resolutionCodeCopy: Record<string, PublicCopyKey> = {
@@ -248,7 +258,7 @@ const subscriptionStatusCopy = {
 
 type PublicLanguageState = ReturnType<typeof usePublicLanguage>;
 
-function Login({ onLogin, language, setLanguage, t }: { onLogin: (user: User) => void } & PublicLanguageState) {
+function Login({ onLogin, language, setLanguage, t }: { onLogin: (user: User, notice?: string) => void } & PublicLanguageState) {
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const forgotPassword = pathname === '/forgot-password';
@@ -324,13 +334,24 @@ function Login({ onLogin, language, setLanguage, t }: { onLogin: (user: User) =>
     event.preventDefault();
     setBusy(true);
     setError('');
+    let signInNotice: string | undefined;
     try {
       if (registering) {
-        await api('/api/auth/register', json('POST', { name, email, password, accountType, language }));
+        const registration = await api<{ verificationEmailSent?: boolean; welcomeEmailSent?: boolean }>(
+          '/api/auth/register',
+          json('POST', { name, email, password, accountType, language })
+        );
+        if (registration.verificationEmailSent === false) {
+          signInNotice = t('registrationVerificationEmailFailed');
+        } else if (registration.welcomeEmailSent === false) {
+          signInNotice = t('registrationWelcomeEmailFailed');
+        } else if (registration.verificationEmailSent === true) {
+          signInNotice = t('registrationEmailSent');
+        }
       }
       const result = await api<{ user: User }>('/api/auth/login', json('POST', { email, password }));
       await api('/api/auth/profile', json('PATCH', { language })).catch(() => undefined);
-      onLogin(result.user);
+      onLogin(result.user, signInNotice);
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : 'Unable to sign in.');
     } finally {
@@ -989,6 +1010,7 @@ const visibleTabs = (isAdmin
 
   const loadReport = async (periodType = 'monthly') => {
     setReportLoading(true);
+    setReportError('');
     try {
       if (periodType === 'current-half') {
         const params = new URLSearchParams({ periodType: 'current-half' });
@@ -1167,6 +1189,7 @@ const visibleTabs = (isAdmin
       { id: 'action', label: 'alertFilterAction', state: 'action', group: '' },
       { id: 'missed', label: 'alertFilterMissed', state: 'all', group: 'missed' },
       { id: 'low', label: 'alertFilterLow', state: 'all', group: 'low' },
+      { id: 'anomaly', label: 'alertFilterAnomaly', state: 'all', group: 'anomaly' },
       { id: 'quality', label: 'alertFilterQuality', state: 'all', group: 'quality' },
       { id: 'resolved', label: 'alertFilterResolved', state: 'resolved', group: '' },
     ];
@@ -1548,7 +1571,7 @@ const visibleTabs = (isAdmin
 
   if (authLoading) return <main className="boot-screen"><BrandLockup imageSize={44} /><small className="boot-company">Milk System Technologies Ltd.</small><div className="loading-status" role="status" aria-live="polite"><span className="loading-indicator" aria-hidden="true" />{publicLanguage.t('loading')}</div></main>;
   if (authError) return <main className="boot-screen boot-screen-error"><BrandLockup imageSize={44} /><small className="boot-company">Milk System Technologies Ltd.</small><section className="boot-error-panel" role="alert"><h1>Unable to start Milk System.</h1><p>Please check your connection and try again.</p><button type="button" className="button button-primary" onClick={() => { setAuthError(''); setAuthLoading(true); setAuthAttempt((attempt) => attempt + 1); }}>Retry</button></section></main>;
-  if (!user) return <Login {...publicLanguage} onLogin={(signedIn) => { sessionStorage.setItem('milk-session-user', JSON.stringify(signedIn)); setTabState('dashboard'); setUser(signedIn); }} />;
+  if (!user) return <Login {...publicLanguage} onLogin={(signedIn, signInNotice) => { sessionStorage.setItem('milk-session-user', JSON.stringify(signedIn)); setTabState('dashboard'); setUser(signedIn); if (signInNotice) setNotice(signInNotice); }} />;
 
   const openIfishiForFarmer = (farmerId: number | null, farmerName?: string, farmerDetails?: Farmer) => {
     if (!farmerId) return;
@@ -1979,15 +2002,50 @@ const visibleTabs = (isAdmin
     reader.readAsDataURL(file);
   };
 
-  const markRead = async (notification: Notice) => run(async () => {
-    await api(`/api/notifications/${notification.id}/read`, { method: 'PATCH' });
-    await loadNotifications();
-  });
+  const markRead = async (notification: Notice) => {
+    if (notification.isRead) return;
+    const previousUnread = unreadCount;
+    setNotifications((current) => current.map((item) => item.id === notification.id ? { ...item, isRead: true } : item));
+    setUnreadCount((current) => Math.max(0, Number(current ?? 0) - 1));
+    let failure: string | null = null;
+    try {
+      await api(`/api/notifications/${notification.id}/read`, { method: 'PATCH' });
+    } catch (reason) {
+      failure = reason instanceof Error && reason.message ? reason.message : publicLanguage.t('notificationsLoadError');
+      setNotifications((current) => current.map((item) => item.id === notification.id ? { ...item, isRead: notification.isRead } : item));
+      if (previousUnread !== null) setUnreadCount(previousUnread);
+    }
+    try {
+      await loadNotifications();
+    } catch { /* keep the optimistic state; a failed write was already reverted above */ }
+    if (failure) setNotificationError(failure);
+  };
 
-  const markAllNotificationsRead = async () => run(async () => {
-    await api(`/api/notifications/read-all${notificationCenterQuery ? `?${notificationCenterQuery}` : ''}`, { method: 'PATCH' });
-    await loadNotifications();
-  });
+  const markAllNotificationsRead = async () => {
+    if (!notifications.some((item) => !item.isRead)) return;
+    const previousNotifications = notifications;
+    const previousUnread = unreadCount;
+    setNotifications((current) => current.map((item) => item.isRead ? item : { ...item, isRead: true }));
+    setUnreadCount(0);
+    let failure: string | null = null;
+    try {
+      await api(`/api/notifications/read-all${notificationCenterQuery ? `?${notificationCenterQuery}` : ''}`, { method: 'PATCH' });
+    } catch (reason) {
+      failure = reason instanceof Error && reason.message ? reason.message : publicLanguage.t('notificationsLoadError');
+      setNotifications(previousNotifications);
+      if (previousUnread !== null) setUnreadCount(previousUnread);
+    }
+    try {
+      await loadNotifications();
+    } catch { /* keep the optimistic state; a failed write was already reverted above */ }
+    if (failure) setNotificationError(failure);
+  };
+
+  const reviewNotification = (notification: Notice) => {
+    void markRead(notification);
+    setNotificationPanelOpen(false);
+    setTab(isAdmin ? 'notifications-admin' : 'notifications');
+  };
 
   const toggleNotificationPanel = () => {
     const open = !notificationPanelOpen;
@@ -1996,6 +2054,7 @@ const visibleTabs = (isAdmin
   };
 
   const openResolveDialog = (notification: Notice) => {
+    void markRead(notification);
     setResolveTarget(notification);
     setResolveCode('farmer_absent');
     setResolveNote('');
@@ -2770,20 +2829,69 @@ const visibleTabs = (isAdmin
     const reportRows = report?.farmerPayments || [];
     const dairyCollectorRows = report?.collectorSettlementRows || [];
     const hasCollectorData = report && ((isDairy ? dairyCollectorRows.length : reportRows.length) > 0 || Number(report.totalVolume || 0) > 0 || Number(report.totalDeductionsMonth || 0) > 0 || Number(report.totalTransportFeesMonth || 0) > 0);
-    const isEmpty = report && !hasCollectorData;
+    const isEmpty = !!report && !hasCollectorData;
 
     const volume = isCollector ? Number(report?.ownerGeneratedVolume ?? report?.totalVolume ?? 0) : Number(report?.totalVolume ?? 0);
-    const gross = isCollector ? Number(report?.ownerGeneratedGross ?? report?.totalRevenueMonth ?? 0) : Number(report?.totalRevenueMonth ?? 0);
-    const transport = Number(report?.totalTransportFeesMonth ?? 0);
+    // An explicit null means the server could not establish that value; only fall
+    // back when the field is absent (older API responses), never to a stale zero.
+    const definedOr = (value: unknown, fallback: unknown) => value !== undefined ? value : fallback;
+    const grossValue = isCollector
+      ? definedOr(report?.ownerGeneratedGross, definedOr(report?.collectorGross, report?.totalRevenueMonth ?? null))
+      : report?.totalRevenueMonth ?? null;
+    const transportValue = report?.totalTransportFeesMonth ?? null;
     const deductions = Number(report?.totalDeductionsMonth ?? 0);
-    const net = isCollector ? Number(report?.collectorPayable ?? report?.netRevenueMonth ?? 0) : Number(report?.netRevenueMonth ?? 0);
+    const netValue = isCollector
+      ? definedOr(report?.collectorPayable, report?.netRevenueMonth ?? null)
+      : report?.netRevenueMonth ?? null;
+    const missingInputs: string[] = isCollector ? report?.collectorAccountingMissingInputs || [] : [];
+    const accountingIncomplete = isCollector && (report?.collectorAccountingComplete === false || missingInputs.length > 0);
+    const grossMissing = grossValue == null || missingInputs.includes('owner_historical_price');
+    const netMissing = netValue == null || accountingIncomplete;
+    const transportMissing = (isCollector && transportValue == null) || missingInputs.includes('farmer_transport_snapshot');
+    const gross = Number(grossValue || 0);
+    const transport = Number(transportValue || 0);
+    const net = Number(netValue || 0);
+    const appliedPrice = volume > 0 && !grossMissing ? gross / volume : (report?.pricePerLiter ?? null);
+    const priceSourceKey: PublicCopyKey = isCollector
+      ? 'reportsPriceSourceCollector'
+      : report?.pricePerLiter != null
+        ? 'reportsPriceSourceCenter'
+        : 'reportsPriceSourceRecorded';
 
-    const grossMissing = isCollector && report?.ownerGeneratedGross == null;
-    const netMissing = isCollector && report?.collectorPayable == null;
+    const missingCandidates: Array<string | null> = [
+      ...missingInputs.map((input) => input === 'owner_historical_price'
+        ? publicLanguage.t('collectorPriceMissing')
+        : input === 'farmer_historical_price'
+          ? publicLanguage.t('farmerPriceMissing')
+          : input === 'farmer_transport_snapshot'
+            ? publicLanguage.t('transportHistoryUnavailable')
+            : null),
+      grossMissing && isCollector && !missingInputs.includes('owner_historical_price') ? publicLanguage.t('reportsPriceUnavailable') : null,
+      transportMissing && !missingInputs.includes('farmer_transport_snapshot') ? publicLanguage.t('transportHistoryUnavailable') : null,
+      netMissing && !grossMissing && !transportMissing ? publicLanguage.t('reportsIncomplete') : null,
+    ];
+    const missingMessages = Array.from(new Set(missingCandidates.filter((message): message is string => Boolean(message))));
+    const needsReview = grossMissing || netMissing || transportMissing || (isCollector && report?.collectorAccountingComplete === false);
+    const periodLabel = report?.rangeStart && report?.rangeEnd
+      ? `${formatDateLabel(report.rangeStart, publicLanguage.language, { day: 'numeric', month: 'long', year: 'numeric' })} – ${formatDateLabel(report.rangeEnd, publicLanguage.language, { day: 'numeric', month: 'long', year: 'numeric' })}`
+      : '';
+    const rowPrice = (row: any) => {
+      if (row?.pricePerLiter != null && Number(row.pricePerLiter) > 0) return Number(row.pricePerLiter);
+      return Number(row?.totalVolume || 0) > 0 && row?.grossAmount != null ? Number(row.grossAmount) / Number(row.totalVolume) : null;
+    };
+    const rows = isDairy ? dairyCollectorRows : reportRows;
 
     const showError = reportError && !report;
     const showLoading = reportLoading && !report;
-    const showContent = report && !reportLoading;
+    const showContent = !!report;
+
+    const summaryRows = [
+      { key: 'volume', label: publicLanguage.t('reportsVolume'), value: `${liters(volume)} L`, missing: false },
+      { key: 'gross', label: publicLanguage.t('reportsGross'), value: grossMissing ? publicLanguage.t('reportsIncomplete') : `${money(gross)} RWF`, missing: grossMissing },
+      { key: 'deductions', label: publicLanguage.t('dashboardDeductions'), value: `${money(deductions)} RWF`, missing: false },
+      { key: 'transport', label: publicLanguage.t('reportsTransport'), value: transportMissing ? publicLanguage.t('reportsIncomplete') : `${money(transport)} RWF`, missing: transportMissing },
+      { key: 'net', label: publicLanguage.t('reportsNet'), value: netMissing ? publicLanguage.t('reportsIncomplete') : `${money(net)} RWF`, missing: netMissing },
+    ];
 
     return (
       <motion.section
@@ -2791,13 +2899,14 @@ const visibleTabs = (isAdmin
         initial={{ opacity: 0, y: 10 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.2 }}
+        aria-busy={reportLoading}
       >
-        <div className="panel-heading">
+        <div className="panel-heading reports-heading">
           <div>
             <span className="eyebrow">{publicLanguage.t('dashboardPeriod')}</span>
             <h2>{publicLanguage.t('navReports')}</h2>
           </div>
-          <div className="toolbar">
+          <div className="toolbar reports-toolbar">
             {centers.length && (
               <label>
                 {isDairy ? publicLanguage.t('activeCenter') : publicLanguage.t('dashboardCenter')}
@@ -2821,6 +2930,7 @@ const visibleTabs = (isAdmin
               />
             </label>
             <button
+              type="button"
               className="button button-secondary"
               disabled={reportLoading || busy}
               onClick={() => run(loadReport)}
@@ -2858,165 +2968,190 @@ const visibleTabs = (isAdmin
 
         {showContent && (
           <>
-            <div className="reports-kpi-cards">
-              <motion.div
-                className="reports-kpi-card"
-                whileHover={{ y: -2 }}
-                transition={{ duration: 0.2 }}
-              >
-                <div className="reports-kpi-icon"><Milk size={16} aria-hidden="true" /></div>
-                <span className="reports-kpi-label">{publicLanguage.t('reportsVolume')}</span>
-                <span className="reports-kpi-value">{liters(volume)} L</span>
-              </motion.div>
-              <motion.div
-                className="reports-kpi-card"
-                whileHover={{ y: -2 }}
-                transition={{ duration: 0.2 }}
-              >
-                <div className="reports-kpi-icon"><BadgeDollarSign size={16} aria-hidden="true" /></div>
-                <span className="reports-kpi-label">{publicLanguage.t('reportsRevenue')}</span>
-                <span className="reports-kpi-value">{grossMissing ? publicLanguage.t('collectorPriceMissing') : `${money(gross)} RWF`}</span>
-              </motion.div>
-              <motion.div
-                className="reports-kpi-card"
-                whileHover={{ y: -2 }}
-                transition={{ duration: 0.2 }}
-              >
-                <div className="reports-kpi-icon"><Truck size={16} aria-hidden="true" /></div>
-                <span className="reports-kpi-label">{publicLanguage.t('reportsTransport')}</span>
-                <span className="reports-kpi-value">{money(transport)} RWF</span>
-              </motion.div>
-              <motion.div
-                className="reports-kpi-card"
-                whileHover={{ y: -2 }}
-                transition={{ duration: 0.2 }}
-              >
-                <div className="reports-kpi-icon"><ReceiptText size={16} aria-hidden="true" /></div>
-                <span className="reports-kpi-label">{publicLanguage.t('dashboardDeductions')}</span>
-                <span className="reports-kpi-value">{money(deductions)} RWF</span>
-              </motion.div>
-              <motion.div
-                className="reports-kpi-card"
-                whileHover={{ y: -2 }}
-                transition={{ duration: 0.2 }}
-              >
-                <div className="reports-kpi-icon"><Wallet size={16} aria-hidden="true" /></div>
-                <span className="reports-kpi-label">{publicLanguage.t('reportsNet')}</span>
-                <span className="reports-kpi-value">{netMissing ? publicLanguage.t('collectorPriceMissing') : `${money(net)} RWF`}</span>
-              </motion.div>
-            </div>
+            {reportError ? (
+              <div className="reports-inline-error" role="alert">
+                <span>{reportError}</span>
+                <button type="button" className="text-button" onClick={() => loadReport().catch(() => undefined)}>{publicLanguage.t('refresh')}</button>
+              </div>
+            ) : null}
 
-            <div className="report-summary-panels">
-              <article className="panel compact-panel">
-                <div className="panel-heading">
-                  <div>
-                    <span className="eyebrow">{publicLanguage.t('dashboardAccounting')}</span>
-                    <h3>{publicLanguage.t('navReports')}</h3>
-                  </div>
+            {isEmpty ? (
+              <div className="reports-empty-state" role="status">
+                <span className="reports-empty-icon"><FileBarChart2 size={24} aria-hidden="true" /></span>
+                <div>
+                  <b>{publicLanguage.t('reportsEmptyTitle')}</b>
+                  <p>{publicLanguage.t('reportsEmptyBody')}</p>
                 </div>
-                <dl className="summary-grid">
-                  <div><dt>{publicLanguage.t('reportsVolume')}</dt><dd>{liters(volume)} L</dd></div>
-                  <div><dt>{publicLanguage.t('reportsGross')}</dt><dd>{grossMissing ? publicLanguage.t('collectorPriceMissing') : `${money(gross)} RWF`}</dd></div>
-                  <div><dt>{publicLanguage.t('dashboardDeductions')}</dt><dd>{money(deductions)} RWF</dd></div>
-                  <div><dt>{publicLanguage.t('reportsTransport')}</dt><dd>{money(transport)} RWF</dd></div>
-                  <div><dt>{publicLanguage.t('reportsNet')}</dt><dd>{netMissing ? publicLanguage.t('collectorPriceMissing') : `${money(net)} RWF`}</dd></div>
-                </dl>
-              </article>
-
-              {isDairy ? (
-                <article className="panel compact-panel">
-                  <div className="panel-heading">
+                <button type="button" className="button button-primary" onClick={() => setTab('milk')}>{publicLanguage.t('reportsRecordMilk')}</button>
+              </div>
+            ) : (
+              <>
+                <div className="reports-overview">
+                  <div className="reports-period">
+                    <span className="reports-period-icon"><CalendarDays size={18} aria-hidden="true" /></span>
                     <div>
-                      <span className="eyebrow">{publicLanguage.t('dashboardSummary')}</span>
-                      <h3>{publicLanguage.t('navAbacunda')}</h3>
+                      <span>{publicLanguage.t('reportsPeriod')}</span>
+                      <b>{periodLabel}</b>
                     </div>
-                    <span className="count-label">{dairyCollectorRows.length} {publicLanguage.t('assignedCollectors')}</span>
                   </div>
-                  {dairyCollectorRows.length > 0 ? (
-                    <div className="table-scroll reports-collector-table">
-                      <table>
-                        <thead>
-                          <tr>
-                            <th>{publicLanguage.t('navAbacunda')}</th>
-                            <th>{publicLanguage.t('reportsVolume')}</th>
-                            <th>{publicLanguage.t('reportsGross')}</th>
-                            <th>{publicLanguage.t('reportsTransport')}</th>
-                            <th>{publicLanguage.t('dashboardDeductions')}</th>
-                            <th>{publicLanguage.t('reportsNet')}</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {dairyCollectorRows.map((row) => (
-                            <tr key={String(row.collectorUserId)}>
-                              <td className="strong-cell">{row.name}</td>
-                              <td>{liters(row.totalVolume || 0)} L</td>
-                              <td>{row.grossAmount == null ? '—' : `${money(row.grossAmount)} RWF`}</td>
-                              <td>{money(row.totalTransport || 0)} RWF</td>
-                              <td>{money(row.totalDeductions || 0)} RWF</td>
-                              <td>{row.netAmount == null ? '—' : `${money(row.netAmount)} RWF`}</td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
+                  <dl className="reports-overview-facts">
+                    <div><dt>{publicLanguage.t('navFarmers')}</dt><dd>{Number(report?.totalFarmers || 0)}</dd></div>
+                    <div><dt>{publicLanguage.t('reportsAppliedPrice')}</dt><dd>{appliedPrice == null ? '—' : `${unitMoney(appliedPrice)} RWF`}</dd></div>
+                  </dl>
+                  <span className={`reports-status-badge ${needsReview ? 'is-review' : 'is-complete'}`}>
+                    {needsReview ? <Settings size={14} aria-hidden="true" /> : <Check size={14} aria-hidden="true" />}
+                    {publicLanguage.t(needsReview ? 'reportsStatusReview' : 'reportsStatusComplete')}
+                  </span>
+                </div>
+
+                {needsReview ? (
+                  <div className="reports-callout" role="status">
+                    <span className="reports-callout-icon"><Settings size={19} aria-hidden="true" /></span>
+                    <div>
+                      <b>{publicLanguage.t('reportsConfigurationTitle')}</b>
+                      <p>{publicLanguage.t('reportsConfigurationBody')}</p>
+                      {missingMessages.length ? <ul className="reports-missing-list">{missingMessages.map((message) => <li key={message}>{message}</li>)}</ul> : null}
                     </div>
-                  ) : (
-                    <div className="workspace-empty" role="status">
-                      <span className="workspace-empty-icon"><UsersRound size={21} aria-hidden="true" /></span>
+                    <button type="button" className="button button-secondary small-button" onClick={() => setTab('settings')}>{publicLanguage.t('reportsOpenSettings')}</button>
+                  </div>
+                ) : null}
+
+                <div className="reports-kpi-cards">
+                  <motion.div className="reports-kpi-card" whileHover={{ y: -2 }} transition={{ duration: 0.2 }}>
+                    <div className="reports-kpi-icon"><Milk size={16} aria-hidden="true" /></div>
+                    <span className="reports-kpi-label">{publicLanguage.t('reportsVolume')}</span>
+                    <span className="reports-kpi-value">{liters(volume)} L</span>
+                  </motion.div>
+                  <motion.div className="reports-kpi-card" whileHover={{ y: -2 }} transition={{ duration: 0.2 }}>
+                    <div className="reports-kpi-icon"><BadgeDollarSign size={16} aria-hidden="true" /></div>
+                    <span className="reports-kpi-label">{publicLanguage.t('reportsRevenue')}</span>
+                    <span className={`reports-kpi-value${grossMissing ? ' is-missing' : ''}`}>{grossMissing ? publicLanguage.t('reportsIncomplete') : `${money(gross)} RWF`}</span>
+                  </motion.div>
+                  <motion.div className="reports-kpi-card" whileHover={{ y: -2 }} transition={{ duration: 0.2 }}>
+                    <div className="reports-kpi-icon"><Truck size={16} aria-hidden="true" /></div>
+                    <span className="reports-kpi-label">{publicLanguage.t('reportsTransport')}</span>
+                    <span className={`reports-kpi-value${transportMissing ? ' is-missing' : ''}`}>{transportMissing ? publicLanguage.t('reportsIncomplete') : `${money(transport)} RWF`}</span>
+                  </motion.div>
+                  <motion.div className="reports-kpi-card" whileHover={{ y: -2 }} transition={{ duration: 0.2 }}>
+                    <div className="reports-kpi-icon"><ReceiptText size={16} aria-hidden="true" /></div>
+                    <span className="reports-kpi-label">{publicLanguage.t('dashboardDeductions')}</span>
+                    <span className="reports-kpi-value">{money(deductions)} RWF</span>
+                  </motion.div>
+                  <motion.div className="reports-kpi-card" whileHover={{ y: -2 }} transition={{ duration: 0.2 }}>
+                    <div className="reports-kpi-icon"><Wallet size={16} aria-hidden="true" /></div>
+                    <span className="reports-kpi-label">{publicLanguage.t('reportsNet')}</span>
+                    <span className={`reports-kpi-value${netMissing ? ' is-missing' : ''}`}>{netMissing ? publicLanguage.t('reportsIncomplete') : `${money(net)} RWF`}</span>
+                  </motion.div>
+                </div>
+
+                <div className="reports-lower">
+                  <article className="reports-accounting">
+                    <div className="reports-section-heading">
                       <div>
-                        <b>{publicLanguage.t('reportsNoCollectorsTitle')}</b>
-                        <p>{publicLanguage.t('reportsNoCollectorsBody')}</p>
+                        <span className="eyebrow">{publicLanguage.t('dashboardAccounting')}</span>
+                        <h3>{publicLanguage.t('reportsOverview')}</h3>
                       </div>
+                      <ChartNoAxesCombined size={19} aria-hidden="true" />
                     </div>
-                  )}
-                </article>
-              ) : (
-                reportRows.length > 0 ? (
-                  <article className="panel compact-panel">
-                    <div className="panel-heading">
+                    <dl className="reports-summary">
+                      {summaryRows.map((row) => (
+                        <div key={row.key} className={row.key === 'net' ? 'reports-summary-net' : undefined}>
+                          <dt>{row.label}</dt>
+                          <dd className={row.missing ? 'is-missing' : undefined}>{row.value}</dd>
+                        </div>
+                      ))}
+                    </dl>
+                    <div className="reports-price-source">
                       <div>
-                        <span className="eyebrow">{publicLanguage.t('account')}</span>
-                        <h3>{publicLanguage.t('reportSummary')}</h3>
+                        <span>{publicLanguage.t('reportsAppliedPrice')}</span>
+                        <b>{appliedPrice == null ? publicLanguage.t('reportsPriceUnavailable') : `${unitMoney(appliedPrice)} RWF / L`}</b>
                       </div>
-                      <span className="count-label">{reportRows.length} {publicLanguage.t('farmersLoaded')}</span>
-                    </div>
-                    <div className="table-scroll reports-farmer-table">
-                      <table>
-                        <thead>
-                          <tr>
-                            <th>{publicLanguage.t('milkFarmer')}</th>
-                            <th>{publicLanguage.t('reportsVolume')}</th>
-                            <th>{publicLanguage.t('reportsGross')}</th>
-                            <th>{publicLanguage.t('dashboardDeductions')}</th>
-                            <th>{publicLanguage.t('reportsNet')}</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {reportRows.map((row) => (
-                            <tr key={String(row.farmerId)}>
-                              <td className="strong-cell">{row.farmerName}</td>
-                              <td>{liters(row.totalVolume || 0)} L</td>
-                              <td>{row.grossAmount == null ? '—' : `${money(row.grossAmount)} RWF`}</td>
-                              <td>{money(row.totalDeductions || 0)} RWF</td>
-                              <td>{row.netAmount == null ? '—' : `${money(row.netAmount)} RWF`}</td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
+                      <p>{publicLanguage.t(priceSourceKey)}</p>
+                      {appliedPrice != null ? <small>{publicLanguage.t('reportsWeightedPriceNote')}</small> : null}
                     </div>
                   </article>
-                ) : null
-              )}
 
-              {isEmpty && (
-                <div className="workspace-empty" role="status">
-                  <span className="workspace-empty-icon"><FileBarChart2 size={21} aria-hidden="true" /></span>
-                  <div>
-                    <b>{publicLanguage.t('reportsEmptyTitle')}</b>
-                    <p>{publicLanguage.t('reportsEmptyBody')}</p>
-                  </div>
+                  <article className="reports-breakdown">
+                    <div className="reports-section-heading">
+                      <div>
+                        <span className="eyebrow">{publicLanguage.t('dashboardSummary')}</span>
+                        <h3>{publicLanguage.t(isDairy ? 'reportsCollectorBreakdown' : 'reportsFarmerBreakdown')}</h3>
+                      </div>
+                      <span className="count-label">{rows.length} {publicLanguage.t('farmersLoaded')}</span>
+                    </div>
+
+                    {rows.length > 0 ? (
+                      <>
+                        <div className="table-scroll reports-desktop-table">
+                          <table>
+                            <thead>
+                              <tr>
+                                <th>{publicLanguage.t(isDairy ? 'navAbacunda' : 'milkFarmer')}</th>
+                                <th>{publicLanguage.t('reportsVolume')}</th>
+                                <th>{publicLanguage.t('reportsAppliedPrice')}</th>
+                                <th>{publicLanguage.t('reportsGross')}</th>
+                                <th>{publicLanguage.t('reportsTransport')}</th>
+                                <th>{publicLanguage.t('dashboardDeductions')}</th>
+                                <th>{publicLanguage.t('reportsNet')}</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {rows.map((row: any) => {
+                                const price = rowPrice(row);
+                                return (
+                                  <tr key={String(isDairy ? row.collectorUserId : row.farmerId)}>
+                                    <td className="strong-cell">{isDairy ? row.name : row.farmerName}</td>
+                                    <td>{liters(Number(row.totalVolume || 0))} L</td>
+                                    <td>{price == null ? '—' : `${unitMoney(price)} RWF`}</td>
+                                    <td>{row.grossAmount == null ? '—' : `${money(row.grossAmount)} RWF`}</td>
+                                    <td>{row.totalTransport == null ? '—' : `${money(row.totalTransport)} RWF`}</td>
+                                    <td>{money(row.totalDeductions || 0)} RWF</td>
+                                    <td className={row.netAmount == null ? 'is-missing' : undefined}>{row.netAmount == null ? '—' : `${money(row.netAmount)} RWF`}</td>
+                                  </tr>
+                                );
+                              })}
+                            </tbody>
+                          </table>
+                        </div>
+
+                        <div className="report-mobile-list">
+                          {rows.map((row: any) => {
+                            const price = rowPrice(row);
+                            return (
+                              <article className="report-mobile-card" key={`report-mobile-${isDairy ? row.collectorUserId : row.farmerId}`}>
+                                <header>
+                                  <div>
+                                    <b>{isDairy ? row.name : row.farmerName}</b>
+                                    {isDairy ? <small>{publicLanguage.t('navAbacunda')}</small> : null}
+                                  </div>
+                                  <strong>{row.netAmount == null ? '—' : `${money(row.netAmount)} RWF`}</strong>
+                                </header>
+                                <dl>
+                                  <div><dt>{publicLanguage.t('reportsVolume')}</dt><dd>{liters(Number(row.totalVolume || 0))} L</dd></div>
+                                  <div><dt>{publicLanguage.t('reportsAppliedPrice')}</dt><dd>{price == null ? '—' : `${unitMoney(price)} RWF`}</dd></div>
+                                  <div><dt>{publicLanguage.t('reportsGross')}</dt><dd>{row.grossAmount == null ? '—' : `${money(row.grossAmount)} RWF`}</dd></div>
+                                  <div><dt>{publicLanguage.t('reportsTransport')}</dt><dd>{row.totalTransport == null ? '—' : `${money(row.totalTransport)} RWF`}</dd></div>
+                                  <div><dt>{publicLanguage.t('dashboardDeductions')}</dt><dd>{money(row.totalDeductions || 0)} RWF</dd></div>
+                                  <div><dt>{publicLanguage.t('reportsNet')}</dt><dd>{row.netAmount == null ? '—' : `${money(row.netAmount)} RWF`}</dd></div>
+                                </dl>
+                              </article>
+                            );
+                          })}
+                        </div>
+                      </>
+                    ) : (
+                      <div className="workspace-empty reports-no-rows" role="status">
+                        <span className="workspace-empty-icon"><UsersRound size={20} aria-hidden="true" /></span>
+                        <div>
+                          <b>{publicLanguage.t('reportsNoRows')}</b>
+                          <p>{publicLanguage.t(isDairy ? 'reportsNoCollectorsBody' : 'reportsEmptyBody')}</p>
+                        </div>
+                      </div>
+                    )}
+                  </article>
                 </div>
-              )}
-            </div>
+              </>
+            )}
           </>
         )}
       </motion.section>
@@ -3594,7 +3729,53 @@ const visibleTabs = (isAdmin
 
   return (
     <main className="workspace-shell">
-      <header className="topbar"><BrandLockup className="topbar-brand" imageSize={34} /><div className="topbar-right"><span className={`account-tag${online ? '' : ' offline-tag'}`}><span className={`status-dot${online ? '' : ' offline-dot'}`} />{online ? isAdmin ? publicLanguage.t('platformAdmin') : user.accountType.replace('_', ' ') : `Offline · ${pendingWrites} queued`}</span><div className="notification-menu" ref={notificationMenuRef}><button type="button" className="icon-button notification-trigger" aria-label={`${publicLanguage.t('navAlerts')}: ${unreadCount ?? 0}`} aria-expanded={notificationPanelOpen} onClick={toggleNotificationPanel}><Bell size={19} aria-hidden="true" />{unreadCount ? <span className="notification-badge">{unreadCount > 99 ? '99+' : unreadCount}</span> : null}</button>{notificationPanelOpen ? <section className="notification-dropdown" aria-label={publicLanguage.t('navAlerts')}><div className="notification-dropdown-heading"><b>{publicLanguage.t('navAlerts')}</b><button type="button" className="text-button" onClick={() => void markAllNotificationsRead()}>{publicLanguage.t('markAllRead')}</button></div><div className="notification-dropdown-list">{notificationError ? <p className="notification-dropdown-empty" role="alert">{notificationError}</p> : null}{notifications.filter((item) => item.status !== 'resolved').slice(0, 8).map((item) => { const priority = priorityCopy[String(item.priority || '')] ? String(item.priority) : 'info'; return <article className={`notification-dropdown-item${item.isRead ? '' : ' unread'}`} key={item.id}><span className={`priority-badge priority-${priority}`}>{publicLanguage.t(priorityCopy[priority])}</span><b>{notificationTitle(item)}</b><p>{notificationMessage(item)}</p><small>{formatDateLabel(item.createdAt, publicLanguage.language, { day: 'numeric', month: 'long', year: 'numeric', time: 'short' })}</small>{isOperationalAlert(item) ? <button type="button" className="text-button" onClick={() => { setNotificationPanelOpen(false); openResolveDialog(item); }}>{publicLanguage.t('alertResolve')}</button> : !item.isRead ? <button type="button" className="text-button" onClick={() => markRead(item)}>{publicLanguage.t('markRead')}</button> : null}</article>; })}{!notifications.length ? <p className="notification-dropdown-empty">{publicLanguage.t('notificationsEmptyTitle')}</p> : null}</div><button type="button" className="notification-dropdown-all" onClick={() => { setNotificationPanelOpen(false); setTab(isAdmin ? 'notifications-admin' : 'notifications'); }}>{publicLanguage.t('alertsOpenInbox')} <ArrowRight size={15} aria-hidden="true" /></button></section> : null}</div><button type="button" className="user-name user-settings-shortcut" onClick={() => setTab('settings')} title={publicLanguage.t('accountSettings')} aria-label={`${publicLanguage.t('accountSettings')}: ${user.name || user.email}`}><UserRound size={16} aria-hidden="true" /><span>{user.name || user.email}</span></button><button className="icon-button" onClick={logout} aria-label={publicLanguage.t('signOut')} title={publicLanguage.t('signOut')}><LogOut size={18} /></button></div></header>
+      <header className="topbar">
+        <BrandLockup className="topbar-brand" imageSize={34} />
+        <div className="topbar-right">
+          <span className={`account-tag${online ? '' : ' offline-tag'}`}><span className={`status-dot${online ? '' : ' offline-dot'}`} />{online ? isAdmin ? publicLanguage.t('platformAdmin') : user.accountType.replace('_', ' ') : `Offline · ${pendingWrites} queued`}</span>
+          <div className="notification-menu" ref={notificationMenuRef}>
+            <button type="button" className="icon-button notification-trigger" aria-label={`${publicLanguage.t('navAlerts')}: ${unreadCount ?? 0}`} aria-expanded={notificationPanelOpen} onClick={toggleNotificationPanel}>
+              <Bell size={19} aria-hidden="true" />
+              {unreadCount ? <span className="notification-badge">{unreadCount > 99 ? '99+' : unreadCount}</span> : null}
+            </button>
+            {notificationPanelOpen ? (
+              <section className="notification-dropdown" aria-label={publicLanguage.t('navAlerts')}>
+                <div className="notification-dropdown-heading">
+                  <b>{publicLanguage.t('navAlerts')}</b>
+                  <button type="button" className="text-button" disabled={notificationLoading || !notifications.some((item) => !item.isRead)} onClick={() => void markAllNotificationsRead()}>{publicLanguage.t('markAllRead')}</button>
+                </div>
+                <div className="notification-dropdown-list">
+                  {notificationError ? <p className="notification-dropdown-empty" role="alert">{notificationError}</p> : null}
+                  {notifications.filter((item) => item.status !== 'resolved').slice(0, 8).map((item) => {
+                    const priority = priorityCopy[String(item.priority || '')] ? String(item.priority) : 'info';
+                    return (
+                      <article className={`notification-dropdown-item${item.isRead ? '' : ' unread'}`} key={item.id}>
+                        <span className={`priority-badge priority-${priority}`}>{publicLanguage.t(priorityCopy[priority])}</span>
+                        <button type="button" className="notification-dropdown-review" onClick={() => reviewNotification(item)}>
+                          <b>{notificationTitle(item)}</b>
+                          <p>{notificationMessage(item)}</p>
+                        </button>
+                        <small>{formatDateLabel(item.createdAt, publicLanguage.language, { day: 'numeric', month: 'long', year: 'numeric', time: 'short' })}</small>
+                        <div className="notification-dropdown-actions">
+                          {isOperationalAlert(item) ? <button type="button" className="text-button" onClick={() => { setNotificationPanelOpen(false); openResolveDialog(item); }}>{publicLanguage.t('alertResolve')}</button> : null}
+                          {!item.isRead ? <button type="button" className="text-button" onClick={() => void markRead(item)}>{publicLanguage.t('markRead')}</button> : null}
+                        </div>
+                      </article>
+                    );
+                  })}
+                  {!notifications.length ? <p className="notification-dropdown-empty">{publicLanguage.t('notificationsEmptyTitle')}</p> : null}
+                </div>
+                <button type="button" className="notification-dropdown-all" onClick={() => { setNotificationPanelOpen(false); setTab(isAdmin ? 'notifications-admin' : 'notifications'); }}>{publicLanguage.t('alertsOpenInbox')} <ArrowRight size={15} aria-hidden="true" /></button>
+              </section>
+            ) : null}
+          </div>
+          <button type="button" className="user-name user-settings-shortcut" onClick={() => setTab('settings')} title={publicLanguage.t('accountSettings')} aria-label={`${publicLanguage.t('accountSettings')}: ${user.name || user.email}`}>
+            <UserRound size={16} aria-hidden="true" />
+            <span>{user.name || user.email}</span>
+          </button>
+          <button className="icon-button" onClick={logout} aria-label={publicLanguage.t('signOut')} title={publicLanguage.t('signOut')}><LogOut size={18} /></button>
+        </div>
+      </header>
       <div className="workspace-body"><aside className="sidebar"><div className="sidebar-label">{publicLanguage.t('workspace')}</div><nav aria-label={publicLanguage.t('workspaceNavigation')}>{activeTabs.map((item) => { const Icon = item.icon; return <button className={`nav-item${tab === item.id ? ' active' : ''}`} key={item.id} aria-label={item.label} title={item.label} aria-current={tab === item.id ? 'page' : undefined} onClick={() => setTab(item.id)}><Icon size={18} strokeWidth={1.8} /><span>{item.label}</span>{tab === item.id ? <span className="nav-mark" /> : null}</button>; })}</nav><div className="sidebar-foot"><Activity size={15} aria-hidden="true" /><span>{publicLanguage.t('systemOnline')}</span></div></aside>
       <section className="content-area"><div className="content-heading"><div><span className="eyebrow">{isAdmin ? publicLanguage.t('platformAdmin') : 'MILK SYSTEM'}</span><h1>{activeTabLabel}</h1></div><span className="date-stamp">{formatDateLabel(new Date(), publicLanguage.language, { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' })}</span></div>
         {error ? <div className="toast toast-error" role="alert"><span>{error}</span><button onClick={() => setError('')} aria-label="Dismiss"><X size={16} /></button></div> : null}

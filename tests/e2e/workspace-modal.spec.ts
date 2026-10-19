@@ -75,7 +75,7 @@ type MilkFixture = {
   includeOwnerEntry?: boolean;
 };
 
-async function mockWorkspaceApis(page: Page, user = collector, milkFixture: MilkFixture = {}) {
+async function mockWorkspaceApis(page: Page, user = collector, milkFixture: MilkFixture = {}, reportOverride: Record<string, unknown> | null = null) {
   const centers: Record<string, unknown>[] = [];
   await page.unrouteAll({ behavior: 'wait' });
   page.on('pageerror', (error) => console.error('Browser runtime error:', error.stack || error.message));
@@ -125,7 +125,7 @@ async function mockWorkspaceApis(page: Page, user = collector, milkFixture: Milk
     else if (url.pathname === '/api/notifications/unread-count') body = { data: { unreadCount: 0 } };
     else if (url.pathname === '/api/notifications') body = { data: [] };
     else if (url.pathname === '/api/subscription') body = { account: { phone: null }, subscription: null, payments: [] };
-    else if (url.pathname === '/api/reports/summary') body = {
+    else if (url.pathname === '/api/reports/summary') body = reportOverride || {
       totalFarmers: 0, totalVolume: 0, totalMorning: 0, totalEvening: 0,
       totalRevenueMonth: 0, totalDeductionsMonth: 0, totalTransportFeesMonth: 0,
       netRevenueMonth: 0, todayTotal: 0, todayMorning: 0, todayEvening: 0,
@@ -190,8 +190,8 @@ async function mockWorkspaceApis(page: Page, user = collector, milkFixture: Milk
   });
 }
 
-async function openWorkspace(page: Page, user = collector, query = 'tab=dashboard&flow=synthetic', milkFixture: MilkFixture = {}) {
-  await mockWorkspaceApis(page, user, milkFixture);
+async function openWorkspace(page: Page, user = collector, query = 'tab=dashboard&flow=synthetic', milkFixture: MilkFixture = {}, reportOverride: Record<string, unknown> | null = null) {
+  await mockWorkspaceApis(page, user, milkFixture, reportOverride);
   await page.goto(`/login?${query}`, { waitUntil: 'domcontentloaded' });
   await expect(page.getByRole('navigation', { name: 'Workspace navigation' })).toBeVisible();
 }
@@ -292,6 +292,61 @@ test('settlement tables render as phone cards and stay contained tables at table
       await expect(page.locator('.settlement-farmer-table table')).toBeVisible();
     }
   }
+});
+
+test('Raporo uses authoritative accounting values and stays contained at desktop, tablet, and phone widths', async ({ page }) => {
+  await openWorkspace(page, collector, 'tab=reports&flow=synthetic');
+  await expect(page.getByRole('heading', { name: 'Reports', level: 1 })).toBeVisible();
+  await expect(page.locator('.reports-kpi-card')).toHaveCount(5);
+  await expect(page.locator('.reports-status-badge')).toContainText('Complete');
+  await expect(page.locator('.reports-price-source')).toContainText('Applied price per liter');
+  await expect(page.locator('.reports-price-source')).toContainText('466.67 RWF / L');
+  await expect(page.locator('.reports-price-source')).toContainText('collector price recorded on each milk date');
+  await expect(page.locator('.reports-summary')).toContainText('7,000 RWF');
+  await expect(page.locator('.reports-summary')).toContainText('4,500 RWF');
+
+  for (const viewport of [{ width: 375, height: 812 }, { width: 390, height: 844 }, { width: 768, height: 1024 }, { width: 1280, height: 800 }]) {
+    await page.setViewportSize(viewport);
+    const pageFits = await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1);
+    expect(pageFits).toBe(true);
+    if (viewport.width <= 680) {
+      await expect(page.locator('.reports-desktop-table')).toBeHidden();
+      await expect(page.locator('.report-mobile-list')).toBeVisible();
+      await expect(page.locator('.report-mobile-card').first()).toContainText('Aline Test Farmer');
+      await expect(page.locator('.report-mobile-card').first()).toContainText('4,500 RWF');
+    } else {
+      await expect(page.locator('.reports-desktop-table')).toBeVisible();
+      await expect(page.locator('.report-mobile-list')).toBeHidden();
+      await expect(page.locator('.reports-desktop-table')).toContainText('Aline Test Farmer');
+    }
+  }
+});
+
+test('Raporo marks missing pricing and transport as needing review instead of zero', async ({ page }) => {
+  const missingReport = {
+    totalFarmers: 0, totalVolume: 15, totalMorning: 0, totalEvening: 0,
+    totalRevenueMonth: 0, totalDeductionsMonth: 0, totalTransportFeesMonth: null,
+    netRevenueMonth: 0, todayTotal: 0, todayMorning: 0, todayEvening: 0,
+    rangeStart: '2026-10-01', rangeEnd: '2026-10-15',
+    collectorPayable: null, ownerGeneratedVolume: 15, ownerGeneratedGross: null,
+    collectorFarmerMilkValue: null, collectorFarmerPayable: null, collectorFarmerTransport: null,
+    farmerPayments: [],
+    collectorAccountingComplete: false,
+    collectorAccountingMissingInputs: ['owner_historical_price', 'farmer_transport_snapshot'],
+  };
+  await openWorkspace(page, collector, 'tab=reports&flow=synthetic', {}, missingReport);
+  await expect(page.getByRole('heading', { name: 'Reports', level: 1 })).toBeVisible();
+  await expect(page.locator('.reports-status-badge')).toContainText('Needs review');
+  await expect(page.locator('.reports-callout')).toContainText('Some accounting data is missing');
+  await expect(page.locator('.reports-callout')).toContainText('Set the Collector price effective on or before this period');
+  await expect(page.locator('.reports-callout')).toContainText('Historical transport could not be established');
+  await expect(page.locator('.reports-price-source')).toContainText('No complete price is available for this period.');
+  await expect(page.locator('.reports-kpi-card').first()).toContainText('15 L');
+  await expect(page.locator('.reports-kpi-card').nth(1)).toContainText('Needs review');
+  await expect(page.locator('.reports-kpi-card').nth(2)).toContainText('Needs review');
+  await expect(page.locator('.reports-kpi-card').nth(4)).toContainText('Needs review');
+  const pageFits = await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1);
+  expect(pageFits).toBe(true);
 });
 
 test('Ukwezi defaults to the current half, keeps historical choice, and restores phone cards', async ({ page }) => {

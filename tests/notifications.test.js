@@ -94,6 +94,16 @@ test('notification service validates sort keys, directions, and read/unread filt
   await assert.rejects(() => Notifications.getNotifications({ ownerUserId, status: 'archived', repository }), /invalid notification status/i);
 });
 
+test('the notifications cron route requires the shared cron secret and the repository export', () => {
+  const route = readRoute('app/api/cron/notifications/route.js');
+  assert.match(route, /CRON_SECRET/);
+  assert.match(route, /timingSafeEqual/);
+  assert.match(route, /if \(!secret \|\| !supplied\.startsWith\('Bearer '\)\) return false;/);
+  assert.match(route, /const \{ repository: UserRepository \} = require\('@\/lib\/repositories\/userRepository\.js'\)/);
+  assert.match(route, /Notifications\.evaluateOperationalAlerts\(\{/);
+  assert.match(route, /ownerUserId: user\.id/);
+});
+
 test('monitoring preserves new-farmer and repeated zero-volume status rules', () => {
   const farmer = { id: 2, name: 'Aline' };
   const periods = { morning: { start: '06:30', end: '09:00' }, evening: { start: '17:30', end: '19:00' } };

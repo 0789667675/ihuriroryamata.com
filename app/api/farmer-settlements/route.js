@@ -118,7 +118,7 @@ export async function POST(request) {
       if (!idempotencyKey || idempotencyKey.length > 120) throw Object.assign(new Error('A requestKey of 1 to 120 characters is required.'), { statusCode: 400 });
       const farmer = await getAssignedFarmer(Number(user.id), farmerId);
       if (!farmer) return NextResponse.json({ ok: false, message: 'Farmer not found for your active assignment.' }, { status: 404 });
-      if (hasValidSaccoAccount(farmer)) return NextResponse.json({ ok: false, message: 'Cash approval is only available for retained farmers without a valid SACCO account.' }, { status: 409 });
+      if (hasValidSaccoAccount(farmer)) return NextResponse.json({ ok: false, message: 'Cash approval is only available for retained farmers without a valid payment account.' }, { status: 409 });
       const ownerUserId = Number(farmer.ownerUserId);
       const payableRows = await getFarmerTotals({ ownerUserId, farmerId, collectorUserId: user.id, assignedCollectorOnly: true, rangeStart: periodStart, rangeEnd: periodEnd });
       const payable = Number(payableRows[0]?.netAmount);
