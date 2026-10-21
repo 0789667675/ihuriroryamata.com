@@ -144,6 +144,44 @@ test('Ukwezi PDF signals settlement accounting migration gaps without dropping c
   assert.ok(pdf.length > 1000);
 });
 
+test('Ukwezi PDF renderer keeps producing a valid PDF when the brand logo asset is missing', async () => {
+  // Reproduces the production failure: doc.image(public/brand-logo.png) threw
+  // ENOENT when the brand asset was not deployed, which surfaced as a 500 with
+  // "PDF ntiyashoboye gukorwa ... kode <requestId>". The renderer must degrade
+  // gracefully (text-only header) instead of failing the whole PDF request.
+  const logoPath = path.join(process.cwd(), 'public', 'brand-logo.png');
+  const bakPath = path.join(process.cwd(), 'public', 'brand-logo.pdf-test.bak');
+
+  // Clean slate: drop any stale backup from a prior interrupted run, then require
+  // the brand asset to be present before we simulate its absence.
+  if (fs.existsSync(bakPath)) fs.rmSync(bakPath);
+  assert.ok(fs.existsSync(logoPath), 'brand-logo.png must exist before the test');
+
+  try {
+    // Simulate a deployment in which the brand asset was not published.
+    fs.renameSync(logoPath, bakPath);
+
+    const pdf = await renderUkweziPdf({
+      report,
+      user: { id: 73, name: 'Missing Logo', email: 'missing-logo@example.invalid', accountType: 'COLLECTOR' },
+      query: { month: '10', year: '2026', periodType: 'first-half' },
+      generatedAt: new Date('2026-10-08T09:30:00.000Z'),
+    });
+
+    assert.equal(pdf.subarray(0, 5).toString('ascii'), '%PDF-');
+    assert.ok(pdf.length > 1000, 'expected a non-empty PDF even without the brand logo');
+  } finally {
+    // Restore the brand asset regardless of test outcome.
+    if (fs.existsSync(bakPath) && !fs.existsSync(logoPath)) {
+      fs.renameSync(bakPath, logoPath);
+    } else if (fs.existsSync(bakPath)) {
+      // Logo already present; drop the stale backup.
+      fs.rmSync(bakPath);
+    }
+    assert.ok(fs.existsSync(logoPath), 'brand-logo.png must exist after the test');
+  }
+});
+
 test('Ukwezi PDF selects server-calculated accounting rows by account type, not performance-report rows', () => {
   const sourceReport = {
     farmerPayments: [{ farmerId: 5, farmerName: 'Farmer for Collector accounting', totalVolume: 12, grossAmount: 4800, totalDeductions: 400, totalTransport: 200, netAmount: 4200 }],
