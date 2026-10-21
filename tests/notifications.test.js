@@ -21,6 +21,17 @@ const makeRepository = (overrides = {}) => ({
   ...overrides,
 });
 
+test('mark-read UI coalesces duplicate clicks and refreshes the persisted unread count', () => {
+  const workspace = fs.readFileSync(path.join(__dirname, '..', 'app', 'workspace.tsx'), 'utf8');
+  const markRead = workspace.slice(workspace.indexOf('const markRead = async'), workspace.indexOf('const markAllNotificationsRead'));
+  assert.match(markRead, /notificationReadRequestsRef\.current\.has\(notification\.id\)/);
+  assert.match(markRead, /notificationReadRequestsRef\.current\.add\(notification\.id\)/);
+  assert.match(markRead, /notificationReadRequestsRef\.current\.delete\(notification\.id\)/);
+  assert.match(markRead, /await loadNotifications\(\)/);
+  assert.match(markRead, /setUnreadCount\(\(current\) => Math\.max\(0, Number\(current \?\? 0\) - 1\)\)/);
+  assert.match(markRead, /setUnreadCount\(\(current\) => Math\.max\(0, Number\(current \?\? 0\) \+ 1\)\)/);
+});
+
 test('notification dedupe keys include tenant-independent event dimensions and upserts are owner scoped', async () => {
   let saved;
   const result = await Notifications.createFarmerChangedNotification({
@@ -60,6 +71,43 @@ test('notification list, unread count, and mark-read always carry authenticated 
   assert.ok(calls.every((call) => call.ownerUserId === ownerUserId));
   assert.equal(calls[0].center, 'North');
   await assert.rejects(() => Notifications.getNotifications({ ownerUserId, limit: 101, repository }), /between 1 and 100/i);
+});
+
+test('notification read writes persist the row, stay idempotent, and reject a different owner', async () => {
+  const rows = [
+    { id: 1, owner_user_id: 42, collection_center: 'North Site', is_read: false, notification_type: 'milk_missing', title: 'Missing milk', message: 'No milk', priority: 'warning', dedupe_key: 'one', created_at: '2026-10-01T00:00:00Z' },
+    { id: 2, owner_user_id: 42, collection_center: 'North Site', is_read: false, notification_type: 'milk_missing', title: 'Missing milk', message: 'No milk', priority: 'warning', dedupe_key: 'two', created_at: '2026-10-01T00:00:01Z' },
+    { id: 3, owner_user_id: 99, collection_center: 'Other Site', is_read: false, notification_type: 'milk_missing', title: 'Other owner', message: 'No milk', priority: 'warning', dedupe_key: 'three', created_at: '2026-10-01T00:00:02Z' },
+  ];
+  const runQuery = async (text, values) => {
+    if (text.startsWith('UPDATE notifications SET is_read = TRUE, updated_at = NOW() WHERE id = $1 AND owner_user_id = $2 RETURNING')) {
+      const row = rows.find((candidate) => candidate.id === Number(values[0]) && candidate.owner_user_id === Number(values[1]));
+      if (!row) return { rows: [] };
+      row.is_read = true;
+      return { rows: [{ ...row }] };
+    }
+    if (text.startsWith('SELECT COUNT(*)::integer AS total')) {
+      const matching = rows.filter((row) => row.owner_user_id === Number(values[0]) && !row.is_read && (!values[1] || row.collection_center === values[1]));
+      return { rows: [{ total: matching.length }] };
+    }
+    throw new Error(`Unexpected SQL in test: ${text}`);
+  };
+
+  assert.equal(await NotificationRepository.getUnreadCount({ ownerUserId: 42, center: 'North Site', runQuery }), 2);
+  const first = await NotificationRepository.markNotificationRead({ id: 1, ownerUserId: 42, runQuery });
+  assert.equal(first.isRead, true);
+  assert.equal(rows.find((row) => row.id === 1).is_read, true);
+  assert.equal(rows.find((row) => row.id === 2).is_read, false);
+  assert.equal(rows.find((row) => row.id === 3).is_read, false);
+
+  const repeated = await NotificationRepository.markNotificationRead({ id: 1, ownerUserId: 42, runQuery });
+  assert.equal(repeated.isRead, true);
+  assert.equal(rows.filter((row) => row.id === 1).length, 1);
+  assert.equal(await NotificationRepository.getUnreadCount({ ownerUserId: 42, center: 'North Site', runQuery }), 1);
+
+  const crossOwner = await NotificationRepository.markNotificationRead({ id: 3, ownerUserId: 42, runQuery });
+  assert.equal(crossOwner, null);
+  assert.equal(rows.find((row) => row.id === 3).is_read, false);
 });
 
 test('notification query combines real status/type/priority/text filters with date or type ordering', async () => {

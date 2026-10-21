@@ -612,7 +612,7 @@ test('the workspace wires the alert lifecycle through the owned notification API
   assert.ok(workspace.includes('api<{ data: { unreadCount: number } }>(`/api/notifications/unread-count'));
   assert.ok(workspace.includes("`/api/notifications/unread-count${notificationCenterQuery ? `?${notificationCenterQuery}` : ''}`"));
   assert.ok(workspace.includes("`/api/notifications/read-all${notificationCenterQuery ? `?${notificationCenterQuery}` : ''}`"));
-  assert.ok(workspace.includes('api(`/api/notifications/${notification.id}/read`'));
+  assert.match(workspace, /api<\{ data\?: Notice \}>\(`\/api\/notifications\/\$\{notification\.id\}\/read`/);
   assert.ok(workspace.includes('api(`/api/notifications/${resolveTarget.id}/resolve`'));
   assert.ok(workspace.includes('api(`/api/notifications/${notification.id}/reopen`'));
   assert.match(workspace, /'\/api\/notifications\/evaluate', \{ method: 'POST' \}/);
@@ -847,13 +847,16 @@ test('subscription reminder persistence stays idempotent and preserves read stat
 test('notification read actions update immediately, persist through reload, and revert failed writes', () => {
   const workspace = read('app/workspace.tsx');
   const markRead = workspace.slice(workspace.indexOf('const markRead ='), workspace.indexOf('const markAllNotificationsRead'));
+  const guard = markRead.indexOf('notificationReadRequestsRef.current.has(notification.id)');
   const optimistic = markRead.indexOf('isRead: true');
-  const request = markRead.indexOf('await api(`/api/notifications/${notification.id}/read`');
+  const request = markRead.indexOf('await api<{ data?: Notice }>(`/api/notifications/${notification.id}/read`');
   const revert = markRead.indexOf('isRead: notification.isRead');
-  assert.ok(optimistic >= 0 && request > optimistic, 'mark-read should update before the request');
+  assert.ok(guard >= 0 && optimistic > guard, 'mark-read should ignore duplicate in-flight clicks');
+  assert.ok(request > optimistic, 'mark-read should update before the request');
   assert.ok(revert > request, 'a failed mark-read should restore the previous state');
   assert.match(markRead, /setUnreadCount\(\(current\) => Math\.max\(0, Number\(current \?\? 0\) - 1\)\)/);
-  assert.match(markRead, /if \(previousUnread !== null\) setUnreadCount\(previousUnread\)/);
+  assert.match(markRead, /setUnreadCount\(\(current\) => Math\.max\(0, Number\(current \?\? 0\) \+ 1\)\)/);
+  assert.match(markRead, /notificationReadRequestsRef\.current\.delete\(notification\.id\)/);
   assert.match(markRead, /await loadNotifications\(\)/);
 
   const markAll = workspace.slice(workspace.indexOf('const markAllNotificationsRead ='), workspace.indexOf('const reviewNotification ='));

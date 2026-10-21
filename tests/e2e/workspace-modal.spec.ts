@@ -1,5 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
-import { getCurrentAccountingPeriod } from '../../lib/utils/accounting-period.js';
+import { getAccountingDate, getCurrentAccountingPeriod } from '../../lib/utils/accounting-period.js';
 
 const collector = {
   id: 990001,
@@ -66,6 +66,14 @@ const settlementReport = {
 
 const browserTestBaseURL = process.env.PLAYWRIGHT_BASE_URL || 'http://127.0.0.1:3100';
 
+type FarmerFixture = {
+  id: number;
+  name: string;
+  collectionCenter?: string;
+  phone?: string;
+  nationalId?: string;
+};
+
 type MilkFixture = {
   farmerMorning?: number;
   farmerEvening?: number;
@@ -73,6 +81,7 @@ type MilkFixture = {
   ownerEvening?: number;
   ownerValidLiters?: number;
   includeOwnerEntry?: boolean;
+  farmers?: FarmerFixture[];
 };
 
 async function mockWorkspaceApis(page: Page, user = collector, milkFixture: MilkFixture = {}, reportOverride: Record<string, unknown> | null = null) {
@@ -121,7 +130,23 @@ async function mockWorkspaceApis(page: Page, user = collector, milkFixture: Milk
         body = center;
       } else body = centers;
     }
-    else if (url.pathname === '/api/farmers') body = { data: [], nextCursor: null, hasMore: false, pageSize: 50 };
+    else if (url.pathname === '/api/farmers') {
+      const search = (url.searchParams.get('search') || '').trim().toLowerCase();
+      const farmers = (milkFixture.farmers || [])
+        .filter((farmer) => !search || farmer.name.toLowerCase().includes(search))
+        .map((farmer) => ({
+          id: farmer.id,
+          name: farmer.name,
+          location: null,
+          phone: farmer.phone || null,
+          nationalId: farmer.nationalId || null,
+          accountNumber: null,
+          collectionCenter: farmer.collectionCenter || 'North Site',
+          cowType: null,
+          collectorUserId: user.id,
+        }));
+      body = { data: farmers, nextCursor: null, hasMore: false, pageSize: 50 };
+    }
     else if (url.pathname === '/api/notifications/unread-count') body = { data: { unreadCount: 0 } };
     else if (url.pathname === '/api/notifications') body = { data: [] };
     else if (url.pathname === '/api/subscription') body = { account: { phone: null }, subscription: null, payments: [] };
@@ -154,20 +179,39 @@ async function mockWorkspaceApis(page: Page, user = collector, milkFixture: Milk
       else if (action === 'debts') body = { ok: true, data: [] };
       else body = { ok: false, message: 'Unsupported settlement query.' };
     }
-    else if (url.pathname === '/api/milk/daily') body = {
-      farmers: [],
-      summary: {
-        totalFarmers: milkFixture.farmerMorning || milkFixture.farmerEvening ? 1 : 0,
-        presentCount: milkFixture.farmerMorning || milkFixture.farmerEvening ? 1 : 0,
-        totalMorning: milkFixture.farmerMorning || 0,
-        totalEvening: milkFixture.farmerEvening || 0,
-        totalVolume: (milkFixture.farmerMorning || 0) + (milkFixture.farmerEvening || 0),
-        totalAmount: 0, pricePerLiter: 0, transportRate: 0,
-      },
-      farmerPagination: { nextCursor: null, hasMore: false },
-      centers: [],
-      collectorMilk: [],
-    };
+    else if (url.pathname === '/api/milk') body = { data: [], nextCursor: null, hasMore: false, pageSize: 50 };
+    else if (url.pathname === '/api/milk/daily') {
+      const fixtureFarmers = milkFixture.farmers || [];
+      const farmers = fixtureFarmers.map((farmer, index) => ({
+        farmerId: farmer.id,
+        farmerName: farmer.name,
+        phone: farmer.phone || null,
+        nationalId: farmer.nationalId || null,
+        collectionCenter: farmer.collectionCenter || 'North Site',
+        recordId: 994000 + index,
+        volumeMorning: index === 0 ? milkFixture.farmerMorning || 0 : 0,
+        volumeEvening: index === 0 ? milkFixture.farmerEvening || 0 : 0,
+        totalVolume: index === 0 ? (milkFixture.farmerMorning || 0) + (milkFixture.farmerEvening || 0) : 0,
+        amount: 0,
+        status: 'valid',
+      }));
+      const totalMorning = farmers.length ? farmers.reduce((sum, farmer) => sum + farmer.volumeMorning, 0) : milkFixture.farmerMorning || 0;
+      const totalEvening = farmers.length ? farmers.reduce((sum, farmer) => sum + farmer.volumeEvening, 0) : milkFixture.farmerEvening || 0;
+      body = {
+        farmers,
+        summary: {
+          totalFarmers: farmers.length || (milkFixture.farmerMorning || milkFixture.farmerEvening ? 1 : 0),
+          presentCount: farmers.length || (milkFixture.farmerMorning || milkFixture.farmerEvening ? 1 : 0),
+          totalMorning,
+          totalEvening,
+          totalVolume: totalMorning + totalEvening,
+          totalAmount: 0, pricePerLiter: 0, transportRate: 0,
+        },
+        farmerPagination: { nextCursor: null, hasMore: false },
+        centers: [],
+        collectorMilk: [],
+      };
+    }
     else if (url.pathname === '/api/ifishi/owner') body = {
       owner: { name: user.name },
       startDate: '2026-10-16',
@@ -396,6 +440,51 @@ test('Collection Center can register a center under its own name, distinct from 
   await expect(page.locator('.panel-wide .panel-heading-actions').getByRole('button', { name: 'Account settings: Personal Account Holder' })).toBeVisible();
 });
 
+test('Ifishi search results are directly selectable and stay contained on phone widths', async ({ page }) => {
+  await openWorkspace(page, collector, 'tab=milk&flow=synthetic', {
+    farmerMorning: 10,
+    farmerEvening: 8,
+    farmers: [
+      { id: 994101, name: 'Jean Claude', collectionCenter: 'North Site', nationalId: '119988001', phone: '0788000001' },
+      { id: 994102, name: 'Jean Bosco', collectionCenter: 'South Site', nationalId: '119988002', phone: '0788000002' },
+      { id: 994103, name: 'Aline Test', collectionCenter: 'North Site', nationalId: '119988003', phone: '0788000003' },
+    ],
+  });
+  await page.getByRole('button', { name: 'Ifishi', exact: true }).first().click();
+  const dialog = page.getByRole('dialog', { name: 'Ifishi' });
+  await expect(dialog).toBeVisible();
+
+  const search = dialog.getByRole('combobox', { name: 'Find a farmer' });
+  await search.fill('Jean');
+  const results = dialog.getByRole('listbox', { name: 'Search results' });
+  await expect(results).toBeVisible();
+  await expect(results.getByRole('option')).toHaveCount(2);
+  await expect(results.getByRole('option', { name: /Jean Claude/ })).toBeVisible();
+  await expect(results.getByRole('option', { name: /Jean Bosco/ })).toBeVisible();
+  await expect(results.getByText('Aline Test')).toHaveCount(0);
+
+  await results.getByRole('option', { name: /Jean Bosco/ }).click();
+  const selected = dialog.locator('.ifishi-selected-person');
+  await expect(selected).toContainText('Selected farmer');
+  await expect(selected).toContainText('Jean Bosco');
+  await expect(selected).toContainText('South Site');
+  await expect(selected).toContainText('ID 119988002');
+  await expect(dialog.getByRole('spinbutton').first()).toBeVisible();
+
+  await page.setViewportSize({ width: 375, height: 812 });
+  await search.focus();
+  await expect(results).toBeVisible();
+  await results.scrollIntoViewIfNeeded();
+  const pageFits = await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1);
+  expect(pageFits).toBe(true);
+  const dialogBox = await dialog.boundingBox();
+  const resultsBox = await results.boundingBox();
+  expect(dialogBox).not.toBeNull();
+  expect(resultsBox).not.toBeNull();
+  expect(resultsBox!.x).toBeGreaterThanOrEqual(dialogBox!.x);
+  expect(resultsBox!.x + resultsBox!.width).toBeLessThanOrEqual(dialogBox!.x + dialogBox!.width + 1);
+});
+
 test('Owner Ifishi dialog is transient and does not return after reload', async ({ page }) => {
   await openWorkspace(page, collector, 'tab=milk&flow=synthetic');
   await page.getByRole('button', { name: 'Owner Ifishi', exact: true }).first().click();
@@ -440,6 +529,33 @@ const modalViewports = [
   { width: 844, height: 390 },
   { width: 568, height: 320 },
 ];
+
+test.describe('dashboard date consistency in the Kigali timezone', () => {
+  test.use({ timezoneId: 'Africa/Kigali' });
+
+  test('dashboard label, header label, and daily query all use the same Kigali date', async ({ page }) => {
+    const before = getAccountingDate();
+    const dailyRequest = page.waitForRequest((request) => request.method() === 'GET' && new URL(request.url()).pathname === '/api/milk/daily');
+    await openWorkspace(page, collector, 'tab=dashboard&flow=synthetic', { farmerMorning: 7, farmerEvening: 5 });
+    const request = await dailyRequest;
+    const requestDate = new URL(request.url()).searchParams.get('date');
+    const after = getAccountingDate();
+
+    expect(requestDate).not.toBeNull();
+    expect([before, after]).toContain(requestDate!);
+    await expect(page.locator('.dashboard-today h2')).toHaveText(dateLabelFor(requestDate!));
+    await expect(page.locator('.date-stamp')).toHaveText(dateLabelFor(requestDate!));
+    await expect(page.locator('.dashboard-volume strong')).toHaveText('12');
+  });
+});
+
+function dateLabelFor(dateOnly: string) {
+  const [year, month, day] = dateOnly.split('-').map(Number);
+  const date = new Date(Date.UTC(year, month - 1, day, 12));
+  const weekday = new Intl.DateTimeFormat('en-GB', { timeZone: 'Africa/Kigali', weekday: 'long' }).format(date);
+  const monthName = new Intl.DateTimeFormat('en-GB', { timeZone: 'Africa/Kigali', month: 'long' }).format(date);
+  return `${weekday} ${day} ${monthName} ${year}`;
+}
 
 for (const viewport of modalViewports) {
   test(`Owner Ifishi dialog fits ${viewport.width}x${viewport.height}`, async ({ page }) => {

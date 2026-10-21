@@ -531,8 +531,14 @@ const [report, setReport] = useState<Report | null>(null);
   const [debtRepaymentAmounts, setDebtRepaymentAmounts] = useState<Record<number, string>>({});
   const [ifishiMonth, setIfishiMonth] = useState(today().slice(0, 7));
   const [ifishiFarmerSearch, setIfishiFarmerSearch] = useState('');
+  const [debouncedIfishiFarmerSearch, setDebouncedIfishiFarmerSearch] = useState('');
   const [ifishiFarmers, setIfishiFarmers] = useState<Farmer[]>([]);
+  const [ifishiSelectedFarmer, setIfishiSelectedFarmer] = useState<Farmer | null>(null);
   const [ifishiFarmerId, setIfishiFarmerId] = useState('');
+  const [ifishiResultsOpen, setIfishiResultsOpen] = useState(false);
+  const [ifishiActiveResultIndex, setIfishiActiveResultIndex] = useState(-1);
+  const [ifishiFarmersLoading, setIfishiFarmersLoading] = useState(false);
+  const ifishiFarmerRequestRef = useRef(0);
   const [ifishiDate, setIfishiDate] = useState(today());
   const [ifishiRecordSession, setIfishiRecordSession] = useState<'all' | 'morning' | 'evening'>('all');
   const [ifishiRecordSortBy, setIfishiRecordSortBy] = useState<'date' | 'volume' | 'amount'>('date');
@@ -585,6 +591,7 @@ const [report, setReport] = useState<Report | null>(null);
   const [notificationError, setNotificationError] = useState('');
   const [notificationTypeOptions, setNotificationTypeOptions] = useState<string[]>([]);
   const notificationRequestRef = useRef(0);
+  const notificationReadRequestsRef = useRef<Set<number>>(new Set());
   const notificationMenuRef = useRef<HTMLDivElement | null>(null);
   const [resolveTarget, setResolveTarget] = useState<Notice | null>(null);
   const [resolveCode, setResolveCode] = useState('farmer_absent');
@@ -847,6 +854,7 @@ const visibleTabs = (isAdmin
   };
 
   const loadIfishiFarmers = async (search = '') => {
+    const requestId = ++ifishiFarmerRequestRef.current;
     const params = new URLSearchParams({ limit: '50' });
     if (search.trim()) params.set('search', search.trim());
     if (user?.accountType === 'COLLECTOR') params.set('collectorUserId', String(user.id));
@@ -854,9 +862,16 @@ const visibleTabs = (isAdmin
       const centerName = centers.find((center) => String(center.id) === selectedCenter)?.name;
       if (centerName) params.set('center', centerName);
     }
-    const result = await api<Page<Farmer>>(`/api/farmers?${params}`, { cache: 'no-store' });
-    setIfishiFarmers(result.data.length ? result.data : ifishiFarmers.filter((farmer) => String(farmer.id) === ifishiFarmerId));
-    if (!ifishiFarmerId && result.data.length) setIfishiFarmerId(String(result.data[0].id));
+    setIfishiFarmersLoading(true);
+    try {
+      const result = await api<Page<Farmer>>(`/api/farmers?${params}`, { cache: 'no-store' });
+      if (requestId !== ifishiFarmerRequestRef.current) return;
+      // Search results are the selectable options. Do not silently choose the first match.
+      setIfishiFarmers(result.data);
+      setIfishiActiveResultIndex((current) => current >= 0 && current < result.data.length ? current : -1);
+    } finally {
+      if (requestId === ifishiFarmerRequestRef.current) setIfishiFarmersLoading(false);
+    }
   };
 
   const loadIfishiRecords = async () => {
@@ -1526,8 +1541,12 @@ const visibleTabs = (isAdmin
     if (user && tab === 'milk' && (!isDairy || selectedCenter)) loadDaily().catch((reason) => setError(reason.message));
   }, [user, tab, isDairy, selectedCenter, collectionDate, ...dailyFilterState, dailySortBy, dailySortDirection]);
   useEffect(() => {
-    if (user && tab === 'milk' && ifishiOpen) loadIfishiFarmers(ifishiFarmerSearch).catch((reason) => setError(reason.message));
-  }, [user, tab, ifishiOpen, ifishiFarmerSearch, selectedCenter]);
+    const timer = window.setTimeout(() => setDebouncedIfishiFarmerSearch(ifishiFarmerSearch.trim()), 200);
+    return () => window.clearTimeout(timer);
+  }, [ifishiFarmerSearch]);
+  useEffect(() => {
+    if (user && tab === 'milk' && ifishiOpen) loadIfishiFarmers(debouncedIfishiFarmerSearch).catch((reason) => setError(reason.message));
+  }, [user, tab, ifishiOpen, debouncedIfishiFarmerSearch, selectedCenter]);
   useEffect(() => {
     if (!user || tab !== 'milk' || !ifishiOpen) return;
     const { startDate, endDate } = getMonthBounds(ifishiMonth);
@@ -1578,6 +1597,8 @@ const visibleTabs = (isAdmin
     setTab('milk');
     setOwnerIfishiOpen(false);
     setIfishiOpen(true);
+    setIfishiResultsOpen(false);
+    setIfishiActiveResultIndex(-1);
     setIfishiFarmerId(String(farmerId));
     setIfishiDate(today());
     if (farmerName) {
@@ -1598,6 +1619,7 @@ const visibleTabs = (isAdmin
           collectorUserId: isCollector ? user?.id : null,
         };
       setIfishiFarmers([selectedFarmer]);
+      setIfishiSelectedFarmer(selectedFarmer);
     }
   };
 
@@ -2003,21 +2025,27 @@ const visibleTabs = (isAdmin
   };
 
   const markRead = async (notification: Notice) => {
-    if (notification.isRead) return;
-    const previousUnread = unreadCount;
+    if (notification.isRead || notificationReadRequestsRef.current.has(notification.id)) return;
+    notificationReadRequestsRef.current.add(notification.id);
     setNotifications((current) => current.map((item) => item.id === notification.id ? { ...item, isRead: true } : item));
     setUnreadCount((current) => Math.max(0, Number(current ?? 0) - 1));
     let failure: string | null = null;
     try {
-      await api(`/api/notifications/${notification.id}/read`, { method: 'PATCH' });
+      const result = await api<{ data?: Notice }>(`/api/notifications/${notification.id}/read`, { method: 'PATCH' });
+      const savedNotification = result.data;
+      if (savedNotification) {
+        setNotifications((current) => current.map((item) => item.id === notification.id ? { ...item, ...savedNotification, isRead: true } : item));
+      }
     } catch (reason) {
       failure = reason instanceof Error && reason.message ? reason.message : publicLanguage.t('notificationsLoadError');
       setNotifications((current) => current.map((item) => item.id === notification.id ? { ...item, isRead: notification.isRead } : item));
-      if (previousUnread !== null) setUnreadCount(previousUnread);
+      setUnreadCount((current) => Math.max(0, Number(current ?? 0) + 1));
+    } finally {
+      try {
+        await loadNotifications();
+      } catch { /* keep the optimistic state; a failed write was already reverted above */ }
+      notificationReadRequestsRef.current.delete(notification.id);
     }
-    try {
-      await loadNotifications();
-    } catch { /* keep the optimistic state; a failed write was already reverted above */ }
     if (failure) setNotificationError(failure);
   };
 
@@ -2415,9 +2443,9 @@ const visibleTabs = (isAdmin
       }] : []),
     ];
     const moveMonth = (offset: number) => {
-      const date = new Date(`${ifishiMonth}-01T00:00:00`);
-      date.setMonth(date.getMonth() + offset);
-      selectOwnerIfishiMonth(`${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`);
+      const date = new Date(`${ifishiMonth}-01T00:00:00Z`);
+      date.setUTCMonth(date.getUTCMonth() + offset);
+      selectOwnerIfishiMonth(`${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, '0')}`);
     };
     const differenceSideLabel = (difference: number) => publicLanguage.t(difference > 0 ? 'dashboardOwnerHigher' : difference < 0 ? 'dashboardFarmersHigher' : 'dashboardMilkEqual');
 
@@ -2479,8 +2507,46 @@ const visibleTabs = (isAdmin
 
   const renderIfishi = () => {
     const { startDate, endDate } = getMonthBounds(ifishiMonth);
-    const selectedFarmer = ifishiFarmers.find((farmer) => String(farmer.id) === ifishiFarmerId);
+    const selectedFarmer = (ifishiSelectedFarmer && String(ifishiSelectedFarmer.id) === ifishiFarmerId)
+      ? ifishiSelectedFarmer
+      : ifishiFarmers.find((farmer) => String(farmer.id) === ifishiFarmerId)
+        || (farmers?.data || []).find((farmer) => String(farmer.id) === ifishiFarmerId);
     const selectedCenterName = centers.find((center) => String(center.id) === selectedCenter)?.name || 'Active Ikigo';
+    const chooseIfishiFarmer = (farmer: Farmer, index = -1) => {
+      setIfishiFarmerId(String(farmer.id));
+      setIfishiSelectedFarmer(farmer);
+      setIfishiFarmerSearch(farmer.name);
+      setIfishiActiveResultIndex(index);
+      setIfishiResultsOpen(false);
+      setIfishiSaveError('');
+    };
+    const handleIfishiSearchKeyDown = (event: React.KeyboardEvent<HTMLInputElement>) => {
+      if (event.key === 'Escape') {
+        setIfishiResultsOpen(false);
+        setIfishiActiveResultIndex(-1);
+        return;
+      }
+      if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+        event.preventDefault();
+        setIfishiResultsOpen(true);
+        if (!ifishiFarmers.length) return;
+        setIfishiActiveResultIndex((current) => {
+          if (event.key === 'ArrowDown') return current < 0 ? 0 : (current + 1) % ifishiFarmers.length;
+          return current <= 0 ? ifishiFarmers.length - 1 : current - 1;
+        });
+        return;
+      }
+      if (event.key === 'Enter' && ifishiResultsOpen && ifishiActiveResultIndex >= 0) {
+        const farmer = ifishiFarmers[ifishiActiveResultIndex];
+        if (farmer) {
+          event.preventDefault();
+          chooseIfishiFarmer(farmer, ifishiActiveResultIndex);
+        }
+      }
+    };
+    const selectedFarmerDetail = selectedFarmer
+      ? [selectedFarmer.collectionCenter, selectedFarmer.nationalId ? `ID ${selectedFarmer.nationalId}` : null, selectedFarmer.phone].filter(Boolean).join(' · ')
+      : '';
     const monthlyRows = ifishiRecords.filter((record) => String(record.date).slice(0, 10) >= startDate && String(record.date).slice(0, 10) <= endDate
       && (ifishiRecordSession === 'all' || (ifishiRecordSession === 'morning' ? Number(record.volumeMorning) > 0 : Number(record.volumeEvening) > 0)));
     const totalMorning = monthlyRows.reduce((sum, record) => sum + Number(record.volumeMorning || 0), 0);
@@ -2493,8 +2559,54 @@ const visibleTabs = (isAdmin
         <div className="panel-heading"><div><span className="eyebrow">{publicLanguage.t('milkCollectionWindow')}</span><h2>{publicLanguage.t('navIfishi')}</h2></div><button type="button" className="icon-button" onClick={() => setIfishiOpen(false)} disabled={busy} aria-label={publicLanguage.t('cancel')}><X size={18} aria-hidden="true" /></button></div>
         <div className="form-stack compact">
           <label>{publicLanguage.t('ifishiMonth')}<input type="month" value={ifishiMonth} onChange={(event) => setIfishiMonth(event.target.value)} /></label>
-          <label>{accountCopy('milkFarmerSearch', 'milkAbacundaSearch')}<input type="search" value={ifishiFarmerSearch} onChange={(event) => setIfishiFarmerSearch(event.target.value)} /></label>
-          <label>{accountCopy('milkFarmer', 'milkAbacunda')}<select required value={ifishiFarmerId} onChange={(event) => setIfishiFarmerId(event.target.value)}><option value="">{accountCopy('deductionsFarmer', 'milkAbacunda')}</option>{ifishiFarmers.map((farmer) => <option key={farmer.id} value={String(farmer.id)}>{farmer.name} · {farmer.collectionCenter || farmer.location || '—'}</option>)}</select></label>
+          <div className="ifishi-search-field">
+            <label htmlFor="ifishi-farmer-search">{accountCopy('milkFarmerSearch', 'milkAbacundaSearch')}</label>
+            <div className="ifishi-combobox">
+              <Search size={16} aria-hidden="true" />
+              <input
+                id="ifishi-farmer-search"
+                type="search"
+                role="combobox"
+                autoComplete="off"
+                aria-autocomplete="list"
+                aria-expanded={ifishiResultsOpen}
+                aria-controls="ifishi-farmer-results"
+                aria-activedescendant={ifishiResultsOpen && ifishiActiveResultIndex >= 0 && ifishiFarmers[ifishiActiveResultIndex] ? `ifishi-farmer-option-${ifishiFarmers[ifishiActiveResultIndex].id}` : undefined}
+                placeholder={accountCopy('milkFarmerSearch', 'milkAbacundaSearch')}
+                value={ifishiFarmerSearch}
+                onFocus={() => setIfishiResultsOpen(true)}
+                onChange={(event) => {
+                  const value = event.target.value;
+                  setIfishiFarmerSearch(value);
+                  // Editing the query deselects the old farmer so milk cannot be
+                  // saved against a person who no longer matches the search.
+                  if (value !== selectedFarmer?.name) {
+                    setIfishiFarmerId('');
+                    setIfishiSelectedFarmer(null);
+                  }
+                  setIfishiResultsOpen(true);
+                  setIfishiActiveResultIndex(-1);
+                }}
+                onKeyDown={handleIfishiSearchKeyDown}
+              />
+            </div>
+            {ifishiResultsOpen ? <div className="ifishi-search-results" id="ifishi-farmer-results" role="listbox" aria-label={publicLanguage.t('ifishiSearchResults')}>
+              {ifishiFarmersLoading ? <p className="ifishi-search-state" role="status">{publicLanguage.t('loading')}</p> : ifishiFarmers.length ? ifishiFarmers.map((farmer, index) => <button
+                key={farmer.id}
+                id={`ifishi-farmer-option-${farmer.id}`}
+                type="button"
+                role="option"
+                aria-selected={String(farmer.id) === ifishiFarmerId}
+                className={`ifishi-search-result${index === ifishiActiveResultIndex ? ' is-active' : ''}`}
+                onMouseEnter={() => setIfishiActiveResultIndex(index)}
+                onClick={() => chooseIfishiFarmer(farmer, index)}
+              >
+                <span className="ifishi-search-result-name">{farmer.name}{String(farmer.id) === ifishiFarmerId ? <Check size={16} aria-hidden="true" /> : null}</span>
+                <small>{[farmer.collectionCenter, farmer.nationalId ? `ID ${farmer.nationalId}` : null, farmer.phone].filter(Boolean).join(' · ') || farmer.location || '—'}</small>
+              </button>) : <p className="ifishi-search-state" role="status">{publicLanguage.t('ifishiNoPeople')}</p>}
+            </div> : null}
+          </div>
+          {selectedFarmer ? <div className="ifishi-selected-person" role="status"><Check size={18} aria-hidden="true" /><div><span>{publicLanguage.t('ifishiSelectedFarmer')}</span><b>{selectedFarmer.name}</b><small>{[selectedCenterName, selectedFarmerDetail].filter(Boolean).join(' · ')}</small></div></div> : null}
           <label>{publicLanguage.t('milkCollectionDate')}<input type="date" min={startDate} max={endDate} value={ifishiDate} onChange={(event) => setIfishiDate(event.target.value)} /></label>
           <label>{publicLanguage.t('milkSessionFilter')}<select value={ifishiRecordSession} onChange={(event) => setIfishiRecordSession(event.target.value as typeof ifishiRecordSession)}><option value="all">{publicLanguage.t('milkSessionAll')}</option><option value="morning">{publicLanguage.t('milkSessionMorning')}</option><option value="evening">{publicLanguage.t('milkSessionEvening')}</option></select></label>
           <label>{publicLanguage.t('sort')}<select value={`${ifishiRecordSortBy}:${ifishiRecordSortDirection}`} onChange={(event) => { const [field, direction] = event.target.value.split(':'); if (['date', 'volume', 'amount'].includes(field) && ['asc', 'desc'].includes(direction)) { setIfishiRecordSortBy(field as typeof ifishiRecordSortBy); setIfishiRecordSortDirection(direction as typeof ifishiRecordSortDirection); } }}>
@@ -2503,8 +2615,6 @@ const visibleTabs = (isAdmin
             <option value="amount:asc">{publicLanguage.t('milkTotal')} ↑</option><option value="amount:desc">{publicLanguage.t('milkTotal')} ↓</option>
           </select></label>
           {ifishiRecordSession !== 'all' || ifishiRecordSortBy !== 'date' || ifishiRecordSortDirection !== 'desc' ? <button type="button" className="button button-secondary small-button" onClick={() => { setIfishiRecordSession('all'); setIfishiRecordSortBy('date'); setIfishiRecordSortDirection('desc'); }}>{publicLanguage.t('milkClearSearch')}</button> : null}
-          {selectedFarmer ? <p className="muted-note">{selectedCenterName} · {selectedFarmer.name} · {selectedFarmer.collectionCenter || selectedFarmer.location || '—'}</p> : null}
-          {!ifishiFarmers.length ? <div className="workspace-empty" role="status"><b>{publicLanguage.t('ifishiNoPeople')}</b></div> : null}
         </div>
       </section>
       <section className="panel">
@@ -2553,8 +2663,9 @@ const visibleTabs = (isAdmin
   };
 
   const renderDashboard = () => {
-    const currentDate = new Date(`${collectionDate}T00:00:00`);
-    const dateLabel = formatDateLabel(currentDate, publicLanguage.language, {
+    // The label and the daily query must use the same authoritative date-only value.
+    // Passing the string avoids interpreting local midnight as the previous UTC day.
+    const dateLabel = formatDateLabel(collectionDate, publicLanguage.language, {
       weekday: 'long', day: 'numeric', month: 'long', year: 'numeric',
     });
     const periodStart = report?.rangeStart?.slice(8, 10);
@@ -3777,7 +3888,7 @@ const visibleTabs = (isAdmin
         </div>
       </header>
       <div className="workspace-body"><aside className="sidebar"><div className="sidebar-label">{publicLanguage.t('workspace')}</div><nav aria-label={publicLanguage.t('workspaceNavigation')}>{activeTabs.map((item) => { const Icon = item.icon; return <button className={`nav-item${tab === item.id ? ' active' : ''}`} key={item.id} aria-label={item.label} title={item.label} aria-current={tab === item.id ? 'page' : undefined} onClick={() => setTab(item.id)}><Icon size={18} strokeWidth={1.8} /><span>{item.label}</span>{tab === item.id ? <span className="nav-mark" /> : null}</button>; })}</nav><div className="sidebar-foot"><Activity size={15} aria-hidden="true" /><span>{publicLanguage.t('systemOnline')}</span></div></aside>
-      <section className="content-area"><div className="content-heading"><div><span className="eyebrow">{isAdmin ? publicLanguage.t('platformAdmin') : 'MILK SYSTEM'}</span><h1>{activeTabLabel}</h1></div><span className="date-stamp">{formatDateLabel(new Date(), publicLanguage.language, { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' })}</span></div>
+      <section className="content-area"><div className="content-heading"><div><span className="eyebrow">{isAdmin ? publicLanguage.t('platformAdmin') : 'MILK SYSTEM'}</span><h1>{activeTabLabel}</h1></div><span className="date-stamp">{formatDateLabel(today(), publicLanguage.language, { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' })}</span></div>
         {error ? <div className="toast toast-error" role="alert"><span>{error}</span><button onClick={() => setError('')} aria-label="Dismiss"><X size={16} /></button></div> : null}
         {notice ? <div className="toast toast-success" role="status"><span>{notice}</span><button onClick={() => setNotice('')} aria-label="Dismiss"><X size={16} /></button></div> : null}
         <AnimatePresence mode="wait">

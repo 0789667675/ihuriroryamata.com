@@ -13,6 +13,7 @@ test('migration scaffold preserves the required owner and admin model', () => {
   const transportSnapshotMigration = fs.readFileSync(path.join(root, 'supabase', 'migrations', '013_milk_transport_rate_snapshots.sql'), 'utf8');
   const subscriptionLifecycleMigration = fs.readFileSync(path.join(root, 'supabase', 'migrations', '014_configurable_subscription_lifecycle.sql'), 'utf8');
   const subscriptionExemptionsMigration = fs.readFileSync(path.join(root, 'supabase', 'migrations', '017_subscription_exemptions.sql'), 'utf8');
+  const notificationOperationsMigration = fs.readFileSync(path.join(root, 'supabase', 'migrations', '018_notification_operations.sql'), 'utf8');
   const healthRoute = fs.readFileSync(path.join(root, 'app', 'api', 'health', 'route.ts'), 'utf8');
   const usersRoute = fs.readFileSync(path.join(root, 'app', 'api', 'admin', 'super-admin', 'route.ts'), 'utf8');
   const farmerRoute = fs.readFileSync(path.join(root, 'app', 'api', 'farmers', 'route.ts'), 'utf8');
@@ -44,9 +45,17 @@ test('migration scaffold preserves the required owner and admin model', () => {
   assert.match(subscriptionExemptionsMigration, /exemption_granted_by BIGINT REFERENCES users\(id\) ON DELETE SET NULL/);
   assert.match(subscriptionExemptionsMigration, /idx_user_subscriptions_billing_exempt/);
   assert.doesNotMatch(subscriptionExemptionsMigration, /DROP TABLE|TRUNCATE|DELETE FROM|DROP TYPE/i);
+  assert.match(notificationOperationsMigration, /ADD COLUMN IF NOT EXISTS status VARCHAR\(20\) NOT NULL DEFAULT 'open'/);
+  assert.match(notificationOperationsMigration, /ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW\(\)/);
+  assert.match(notificationOperationsMigration, /idx_notifications_owner_status_created/);
+  assert.doesNotMatch(notificationOperationsMigration, /DROP TABLE|TRUNCATE|DELETE FROM|DROP TYPE/i);
   assert.match(healthRoute, /FROM supabase_migrations\.schema_migrations/);
-  assert.match(healthRoute, /'013',\s*'014',\s*'015',\s*'016',\s*'017'/);
+  assert.match(healthRoute, /'013',\s*'014',\s*'015',\s*'016',\s*'017',\s*'018'/);
+  assert.match(healthRoute, /REQUIRED_NOTIFICATION_COLUMNS = \[[\s\S]*?'updated_at'/);
+  assert.match(healthRoute, /information_schema\.columns[\s\S]*?table_name = 'notifications'/);
+  assert.match(healthRoute, /REQUIRED_NOTIFICATION_COLUMNS\.every/);
   assert.match(healthRoute, /REQUIRED_MIGRATIONS\.every/);
+  assert.match(healthRoute, /export const dynamic = 'force-dynamic'/);
   assert.match(healthRoute, /migrated,\s*\}/);
   assert.doesNotMatch(healthRoute, /migrated:\s*true/);
   assert.match(appFile, /Milk System — Next.js \+ Supabase PostgreSQL migration/);

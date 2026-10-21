@@ -185,7 +185,9 @@ test('Farmer Ifishi in Milk Entry contains milk records only', () => {
   assert.doesNotMatch(view, /ifishiAccounting|accountingFarmer|totalTransport|netAmount|reportsGross|dashboardDeductions/);
   assert.match(workspace, /if \(user && tab === 'milk' && ifishiOpen && ifishiFarmerId\) loadIfishiRecords\(\)/);
   assert.doesNotMatch(view, /if \(isCollector\) return renderOwnerIfishi/);
-  assert.match(workspace, /setIfishiFarmers\(result\.data\.length \? result\.data : ifishiFarmers\.filter/);
+  assert.match(workspace, /setIfishiSelectedFarmer\(selectedFarmer\)/);
+  assert.match(workspace, /setIfishiFarmers\(result\.data\)/);
+  assert.doesNotMatch(workspace, /setIfishiFarmerId\(String\(result\.data\[0\]\.id\)\)/);
   const milkEntry = workspace.slice(workspace.indexOf('const renderMilk'), workspace.indexOf('const renderOwnerIfishi'));
   assert.doesNotMatch(milkEntry, /dailySummary\.totalAmount|milkAmount/);
   assert.match(styles, /\.milk-desktop-list \{ width: 100%; margin: 0; border-top: 0; \}/);
@@ -206,7 +208,7 @@ test('notifications are restored in the header and use the existing owned notifi
   assert.match(header, /unreadCount/);
   assert.match(workspace, /api<\{ data: Notice\[\] \}>\('\/api\/notifications\?limit=50'\)/);
   assert.ok(workspace.includes('api<{ data: { unreadCount: number } }>(`/api/notifications/unread-count'));
-  assert.ok(workspace.includes('api(`/api/notifications/${notification.id}/read`'));
+  assert.match(workspace, /api<\{ data\?: Notice \}>\(`\/api\/notifications\/\$\{notification\.id\}\/read`/);
 });
 
 test('Ukwezi UI requests selected half-months and only scopes a Dairy to its active Ikigo', () => {

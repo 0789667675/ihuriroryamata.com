@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 
 const { getAuthenticatedUser } = require('@/lib/security/authenticate.js');
 const { requireAccountType } = require('@/lib/security/account-access.js');
+const { getAccountingDate } = require('@/lib/utils/accounting-period.js');
 const Milk = require('@/lib/services/milk-service.js');
 
 export const runtime = 'nodejs';
@@ -13,7 +14,7 @@ export async function GET(request) {
     if (!user) return NextResponse.json({ message: 'Not authenticated.' }, { status: 401 });
     requireAccountType(user, ['COLLECTOR', 'COLLECTION_CENTER']);
     const params = new URL(request.url).searchParams;
-    const date = params.get('date') || new Date().toISOString().slice(0, 10);
+    const date = params.get('date') || getAccountingDate();
     const centerId = params.get('centerId');
     const center = params.get('center') || params.get('collectionCenter');
     const cursor = params.get('cursor');
