@@ -80,11 +80,24 @@ type ReportOwnerRow = { farmerId: null; farmerName: string; name: string; isOwne
 type CollectorSettlementFields = { collectorFarmerMilkValue?: number | null; collectorFarmerPayable?: number | null; collectorAccountingComplete?: boolean | null; collectorAccountingMissingInputs?: string[] };
 type SettlementAccounting = { farmerGross: number | null; expectedFarmerPayable: number | null; saccoEligiblePayable: number | null; saccoDistributionInstruction: number | null; saccoConfirmedAmount: number; retainedUnpaidAmount: number | null; cashApprovedAmount: number; cashConfirmedAmount: number; debtRepaymentAmount: number; outstandingDebt: number | null; legacyUnallocatedDebtRepayments: number; debtBalancesComplete: boolean; unexplainedDiscrepancy: number | null; ownerGrossReconciliation: { ownerGross: number | null; farmerGross: number | null; surplus: number | null; discrepancy: number | null }; farmers: Array<ReportFarmerRow & { settlement: { saccoEligible: boolean; saccoDistributionInstruction: number | null; cashApprovedAmount: number; cashConfirmedAmount: number; debtRepaymentAmount: number; outstandingDebt: number | null; retainedUnpaidAmount: number | null; unexplainedDiscrepancy: number | null } }> };
 type Report = { totalFarmers: number; totalVolume: number; totalMorning: number; totalEvening: number; totalRevenueMonth: number; ownerGeneratedGross?: number | null; ownerGeneratedVolume?: number; totalDeductionsMonth: number; totalTransportFeesMonth: number; netRevenueMonth: number; pricePerLiter?: number | null; collectorAccountingComplete?: boolean | null; collectorAccountingMissingInputs?: string[]; todayTotal: number; todayMorning: number; todayEvening: number; rangeStart: string; rangeEnd: string; collectorPayable: number | null; collectorGross?: number | null; collectorActualVolume?: number; collectorOriginalVolume?: number; collectorLostVolume?: number; collectorFarmersValidLiters?: number; collectorTotalFarmersPayable?: number; collectorFarmerDeductions?: number; collectorFarmerTransport?: number; collectorSurplusAmount?: number | null; collectorPayableFromBreakdown?: number | null; collectorIsReconciled?: boolean | null; collectorProfile?: { name: string } | null; collectorEntries?: Array<{ id: number; date: string; status: string; volumeLiters: number; effectiveVolumeLiters: number; farmerLostLiters: number; voidReason?: string | null; voidedBy?: number | null; voidedAt?: string | null }>; milkLossRecords?: Array<{ id: number; farmerId: number; farmerName: string; date: string; status: string; originalVolume: number; validVolume: number; lostVolume: number; reason: string | null; adjustedBy: number | null; adjustedAt: string | null }>; collectorSettlementRows?: any[]; ownerSettlementRow?: ReportOwnerRow | null; farmerPayments: ReportFarmerRow[]; settlementAccounting?: SettlementAccounting | null; settlementAccountingStatus?: 'AVAILABLE' | 'MIGRATION_REQUIRED' | null };
-type Account = { user_id: number; account_name: string; account_email: string; account_type: string; account_status: string; effective_status: string; farmer_count: number; center_count: number };
+type Account = { user_id: number; account_name: string; account_email: string; account_type: string; account_status: string; effective_status: string; email_verified: boolean; farmer_count: number; center_count: number };
 type AdminAccountDetails = { account: { id: number; name: string; email: string; account_type: string; account_status: string; email_verified: boolean; phone: string | null; created_at: string }; subscription: { status: string; effective_status?: string; billing_exempt?: boolean; exemption_reason?: string | null; exemption_granted_at?: string | null; exemption_revoked_at?: string | null; plan_id: number | null; current_price: number | string | null; currency: string | null; tier_code: string | null; access_started_at: string | null; payment_due_at: string | null; subscription_started_at: string | null; subscription_ends_at: string | null } | null; counts: { centers: number; farmers: number; milk_records: number; deductions: number; payments: number; notifications: number } };
 type AdminPaymentSummary = { successfulCount: number; successfulAmount: number; pendingCount: number; failedCount: number; cancelledCount: number; expiredCount: number };
 type AdminSummary = { accounts: { total_accounts: number; without_subscription: number; not_approved: number; pending: number; active: number; suspended: number; expired: number; exempt: number }; registrations_last_30_days: number };
-type SystemHealth = { ok: boolean; service: string; database: { configured: boolean; provider: string; connected: boolean }; supabase: { configured: boolean; url: string | null }; migrated: boolean };
+type SystemHealthStatus = 'healthy' | 'warning' | 'unavailable' | 'not_configured';
+type SystemHealthCheck = { status: SystemHealthStatus; detail: string };
+type SystemHealth = {
+  ok: boolean;
+  degraded: boolean;
+  checkedAt: string;
+  database: SystemHealthCheck & { configured: boolean; connected: boolean };
+  migrations: SystemHealthCheck & { appliedCount: number; requiredCount: number; missing: string[]; missingColumns: string[] };
+  email: SystemHealthCheck & { configured: boolean; provider: string | null; senderDomain: string | null };
+  emailOutbox: SystemHealthCheck & { pending: number; processing: number; stuck: number; failedAttempts: number; recentFailures: Array<{ eventType: string | null; attempts: number; errorCode: string | null; updatedAt: string | null }> };
+  payments: SystemHealthCheck & { failedRecent: number; stalePending: number; recentFailures: Array<{ id: number | null; amount: number | null; currency: string | null; status: string | null; updatedAt: string | null }> };
+  scheduler: SystemHealthCheck & { secretConfigured: boolean; routes: string[]; jobs: Array<{ id: string; route: string; expectedCadence: string; detail: string }> };
+  notificationEvaluation: SystemHealthCheck;
+};
 type SubscriptionPlan = { id: number; code: string; name: string; price: number | string; currency: string; billing_period: string; min_volume_liters: number | string | null; max_volume_liters: number | string | null; is_active: boolean };
 type CollectorTierEdit = { name: string; price: string; minVolumeLiters: string; maxVolumeLiters: string; isActive: boolean };
 type SubscriptionPolicy = { initial_access_days: number; grace_period_days: number; enforcement_time: string; time_zone: string };
@@ -189,6 +202,7 @@ const sessionCopy: Record<string, PublicCopyKey> = {
   evening: 'alertSessionEvening',
 };
 const NOTIFICATION_EVALUATION_INTERVAL_MS = 10 * 60 * 1000;
+const ACCOUNT_PAGE_SIZE = 20;
 
 const navigationIcons: Record<Tab, typeof Milk> = {
   dashboard: LayoutDashboard,
@@ -1257,10 +1271,12 @@ const visibleTabs = (isAdmin
   };
   const isOperationalAlert = (item: Notice) => operationalNotificationTypes.has(String(item.notification_type));
 
-  const loadAccounts = async () => {
-    const params = new URLSearchParams({ page: '1', limit: '50' });
-    if (accountSearch) params.set('search', accountSearch);
-    if (accountStatus) params.set('status', accountStatus);
+  const loadAccounts = async (page = 1, filters: { search?: string; status?: string } = {}) => {
+    const params = new URLSearchParams({ page: String(page), limit: String(ACCOUNT_PAGE_SIZE) });
+    const search = filters.search !== undefined ? filters.search : accountSearch;
+    const status = filters.status !== undefined ? filters.status : accountStatus;
+    if (search) params.set('search', search);
+    if (status) params.set('status', status);
     setAccounts(await api(`/api/admin/accounts?${params}`));
   };
 
@@ -1315,8 +1331,8 @@ const visibleTabs = (isAdmin
     }
   };
 
-  const loadAudit = async () => {
-    const result = await api<{ data: { items: any[]; total: number } }>('/api/audit-logs?limit=50');
+  const loadAudit = async (page = 1) => {
+    const result = await api<{ data: { items: any[]; total: number; page: number; limit: number } }>(`/api/audit-logs?page=${page}&limit=50`);
     setAuditRows(result.data);
   };
 
@@ -1465,9 +1481,9 @@ const visibleTabs = (isAdmin
         }).catch((reason) => setError(reason.message)).finally(() => setAdminConfigLoading(false));
       }
       if (tab === 'settings') loadAccountProfile().catch((reason) => setError(reason.message));
-      if (tab === 'system-health') fetch('/api/health').then(async (response) => {
-        setSystemHealth(await response.json());
-      }).catch((reason) => setError(reason.message));
+      if (tab === 'system-health') api<SystemHealth>('/api/admin/system-health', { cache: 'no-store' })
+        .then(setSystemHealth)
+        .catch((reason) => setError(reason.message));
       if (tab === 'notifications-admin') api<{ success: boolean; data: Notice[] }>('/api/notifications').then((result) => {
         setNotifications(result.data);
         mergeNotificationTypeOptions(result.data);
@@ -2126,11 +2142,15 @@ const visibleTabs = (isAdmin
     setTab('milk');
   };
 
-  const adminAction = async (account: Account, action: string) => run(async () => {
-    await api(`/api/admin/accounts/${account.user_id}/${action}`, json('POST', {}));
-    await loadAccounts();
-    setNotice(`Account ${action} complete.`);
-  });
+  const adminAction = async (account: Account, action: string) => {
+    const confirmKey = action === 'suspend' ? 'adminSuspendConfirm' : 'adminReactivateConfirm';
+    if (!window.confirm(publicLanguage.t(confirmKey))) return;
+    await run(async () => {
+      await api(`/api/admin/accounts/${account.user_id}/${action}`, json('POST', {}));
+      await loadAccounts(accounts?.page || 1);
+      setNotice(publicLanguage.t(action === 'suspend' ? 'adminAccountSuspended' : 'adminAccountReactivated'));
+    });
+  };
 
   const openAbacundaIfishi = (assignment: CollectorAssignment) => {
     setAbacundaIfishiCollector(assignment);
@@ -3610,7 +3630,8 @@ const visibleTabs = (isAdmin
     };
     const hasFilters = Boolean(notificationStateFilter !== 'all' || notificationGroupFilter || notificationSearch || notificationStatusFilter || notificationPriorityFilter || notificationTypeFilter);
     return <section className="panel panel-wide notification-panel">
-      <div className="panel-heading"><div><span className="eyebrow">{publicLanguage.t('alertsInbox')}</span><h2>{publicLanguage.t('navAlerts')}</h2></div><button type="button" className="button button-secondary" onClick={() => void markAllNotificationsRead()} disabled={busy || !notifications.some((item) => !item.isRead)}>{publicLanguage.t('markAllRead')}</button></div>
+      <div className="panel-heading"><div><span className="eyebrow">{publicLanguage.t('alertsInbox')}</span><h2>{publicLanguage.t(isAdmin ? 'navAdminAlerts' : 'navAlerts')}</h2></div><button type="button" className="button button-secondary" onClick={() => void markAllNotificationsRead()} disabled={busy || !notifications.some((item) => !item.isRead)}>{publicLanguage.t('markAllRead')}</button></div>
+      {isAdmin ? <p className="block-muted">{publicLanguage.t('adminPersonalAlertsNote')}</p> : null}
       {notificationError ? <div className="form-error" role="alert">{notificationError} <button type="button" className="text-button" onClick={() => void loadNotifications()}>{publicLanguage.t('tryAgain')}</button></div> : null}
       {notificationLoading && !notifications.length ? <div className="workspace-empty workspace-loading" role="status"><span className="loading-indicator" />{publicLanguage.t('notificationsLoading')}</div> : null}
       {!notificationLoading && !notifications.length ? <div className="workspace-empty" role="status"><span className="workspace-empty-icon"><Bell size={21} aria-hidden="true" /></span><div><b>{publicLanguage.t('notificationsEmptyTitle')}</b><p>{publicLanguage.t('notificationsEmptyBody')}</p></div>{hasFilters ? <button type="button" className="button button-secondary small-button" onClick={resetFilters}>{publicLanguage.t('milkClearSearch')}</button> : null}</div> : null}
@@ -3620,19 +3641,23 @@ const visibleTabs = (isAdmin
     </section>;
   };
 
-  const renderAdminAccounts = () => <section className="panel"><div className="panel-heading"><div><span className="eyebrow">{publicLanguage.t('platform')}</span><h2>{publicLanguage.t('customerAccounts')}</h2></div><span className="count-label">{accounts ? `${accounts.total} ${publicLanguage.t('accountsCount')} ` : '…'}</span></div><div className="toolbar"><form className="search-form" onSubmit={(event) => { event.preventDefault(); loadAccounts(); }}><Search size={17} /><input placeholder={publicLanguage.t('searchNameEmail')} value={accountSearch} onChange={(event) => setAccountSearch(event.target.value)} /><button className="button button-secondary">{publicLanguage.t('search')}</button></form><select value={accountStatus} onChange={(event) => setAccountStatus(event.target.value)}><option value="">{publicLanguage.t('allStatuses')}</option>{Object.keys(accountStatusCopy).map((status) => <option key={status} value={status}>{publicLanguage.t(accountStatusCopy[status as keyof typeof accountStatusCopy])}</option>)}</select></div><div className="table-scroll"><table><thead><tr><th>{publicLanguage.t('account')}</th><th>{publicLanguage.t('accountType')}</th><th>{publicLanguage.t('status')}</th><th>{publicLanguage.t('farmers')}</th><th>{publicLanguage.t('navCenters')}</th><th>{publicLanguage.t('actions')}</th></tr></thead><tbody>{accounts?.accounts.map((account) => <tr key={account.user_id}><td><b>{account.account_name}</b><small className="block-muted">{account.account_email}</small></td><td>{account.account_type === 'COLLECTION_CENTER' ? publicLanguage.t('collectionCenter') : publicLanguage.t('collector')}</td><td>{publicLanguage.t(accountStatusCopy[(account.effective_status || account.account_status) as keyof typeof accountStatusCopy] || 'statusActive')}</td><td>{account.farmer_count}</td><td>{account.center_count}</td><td className="actions-cell"><button type="button" className="text-button" onClick={() => { void loadAdminAccountDetails(account.user_id); }}>{publicLanguage.t('adminViewAccount')}</button><button className="text-button" onClick={() => adminAction(account, account.account_status === 'suspended' ? 'reactivate' : 'suspend')}>{publicLanguage.t(account.account_status === 'suspended' ? 'reactivate' : 'suspend')}</button></td></tr>)}</tbody></table></div></section>;
+  const renderAdminAccounts = () => {
+    const totalPages = Math.max(1, Math.ceil((accounts?.total || 0) / ACCOUNT_PAGE_SIZE));
+    return <section className="panel"><div className="panel-heading"><div><span className="eyebrow">{publicLanguage.t('platform')}</span><h2>{publicLanguage.t('customerAccounts')}</h2></div><span className="count-label">{accounts ? `${accounts.total} ${publicLanguage.t('accountsCount')} ` : '…'}</span></div><div className="toolbar"><form className="search-form" onSubmit={(event) => { event.preventDefault(); void loadAccounts(1).catch((reason) => setError(reason.message)); }}><Search size={17} /><input placeholder={publicLanguage.t('searchNameEmail')} value={accountSearch} onChange={(event) => setAccountSearch(event.target.value)} /><button className="button button-secondary">{publicLanguage.t('search')}</button></form><select value={accountStatus} onChange={(event) => { const nextStatus = event.target.value; setAccountStatus(nextStatus); void loadAccounts(1, { status: nextStatus }).catch((reason) => setError(reason.message)); }}><option value="">{publicLanguage.t('allStatuses')}</option>{Object.keys(accountStatusCopy).map((status) => <option key={status} value={status}>{publicLanguage.t(accountStatusCopy[status as keyof typeof accountStatusCopy])}</option>)}</select></div><div className="table-scroll"><table><thead><tr><th>{publicLanguage.t('account')}</th><th>{publicLanguage.t('accountType')}</th><th>{publicLanguage.t('status')}</th><th>{publicLanguage.t('emailVerificationStatus')}</th><th>{publicLanguage.t('farmers')}</th><th>{publicLanguage.t('navCenters')}</th><th>{publicLanguage.t('actions')}</th></tr></thead><tbody>{accounts?.accounts.map((account) => <tr key={account.user_id}><td><b>{account.account_name}</b><small className="block-muted">{account.account_email}</small></td><td>{account.account_type === 'COLLECTION_CENTER' ? publicLanguage.t('collectionCenter') : publicLanguage.t('collector')}</td><td>{publicLanguage.t(accountStatusCopy[(account.effective_status || account.account_status) as keyof typeof accountStatusCopy] || 'statusActive')}{account.account_status === 'not_approved' ? <small className="block-muted">{publicLanguage.t('adminNotApprovedNoWorkflow')}</small> : null}</td><td>{account.email_verified ? publicLanguage.t('emailVerifiedValue') : publicLanguage.t('emailNotVerifiedValue')}</td><td>{account.farmer_count}</td><td>{account.center_count}</td><td className="actions-cell"><button type="button" className="text-button" onClick={() => { void loadAdminAccountDetails(account.user_id); }}>{publicLanguage.t('adminViewAccount')}</button><button className="text-button" onClick={() => adminAction(account, account.account_status === 'suspended' ? 'reactivate' : 'suspend')}>{publicLanguage.t(account.account_status === 'suspended' ? 'reactivate' : 'suspend')}</button></td></tr>)}</tbody></table></div>{accounts ? <div className="panel-footer admin-payment-pagination"><span>{accounts.page} / {totalPages}</span><div><button type="button" className="button button-secondary small-button" disabled={accounts.page <= 1} onClick={() => { void loadAccounts(accounts.page - 1).catch((reason) => setError(reason.message)); }}>{publicLanguage.t('previousPage')}</button><button type="button" className="button button-secondary small-button" disabled={accounts.page >= totalPages} onClick={() => { void loadAccounts(accounts.page + 1).catch((reason) => setError(reason.message)); }}>{publicLanguage.t('nextPage')}</button></div></div> : null}</section>;
+  };
 
   const renderAdminAccountDetailsModal = () => (
     <Modal ariaLabel={publicLanguage.t('customerAccounts')} onClose={closeAdminAccountDetails}>
       <div className="panel-heading">
         <div><span className="eyebrow">{publicLanguage.t('platform')}</span><h2>{adminAccountDetails?.account?.name || publicLanguage.t('customerAccounts')}</h2></div>
-        <button type="button" className="icon-button" onClick={closeAdminAccountDetails} aria-label="Close"><X size={18} /></button>
+        <button type="button" className="icon-button" onClick={closeAdminAccountDetails} aria-label={publicLanguage.t('close')}><X size={18} /></button>
       </div>
       {adminAccountDetailsLoading ? <div className="workspace-empty workspace-loading" role="status"><span className="loading-indicator" />{publicLanguage.t('dashboardLoading')}</div> : adminAccountDetailsError ? <div className="form-error" role="alert">{adminAccountDetailsError}</div> : adminAccountDetails ? <div className="admin-account-details">
         <dl className="payment-readiness-list">
           <div><dt>{publicLanguage.t('email')}</dt><dd>{adminAccountDetails.account.email}</dd></div>
           <div><dt>{publicLanguage.t('accountType')}</dt><dd>{adminAccountDetails.account.account_type === 'COLLECTION_CENTER' ? publicLanguage.t('collectionCenter') : publicLanguage.t('collector')}</dd></div>
-          <div><dt>{publicLanguage.t('status')}</dt><dd>{publicLanguage.t(accountStatusCopy[(adminAccountDetails.account.account_status || 'active') as keyof typeof accountStatusCopy] || 'statusActive')}</dd></div>
+          <div><dt>{publicLanguage.t('status')}</dt><dd>{publicLanguage.t(accountStatusCopy[(adminAccountDetails.account.account_status || 'active') as keyof typeof accountStatusCopy] || 'statusActive')}{adminAccountDetails.account.account_status === 'not_approved' ? <small className="block-muted">{publicLanguage.t('adminNotApprovedNoWorkflow')}</small> : null}</dd></div>
+          <div><dt>{publicLanguage.t('emailVerificationStatus')}</dt><dd>{adminAccountDetails.account.email_verified ? publicLanguage.t('emailVerifiedValue') : publicLanguage.t('emailNotVerifiedValue')}</dd></div>
           <div><dt>{publicLanguage.t('accountPhone')}</dt><dd>{adminAccountDetails.account.phone || '—'}</dd></div>
           <div><dt>{publicLanguage.t('accountCreated')}</dt><dd>{formatDateLabel(adminAccountDetails.account.created_at, publicLanguage.language, { day: 'numeric', month: 'long', year: 'numeric', time: 'short' })}</dd></div>
           <div><dt>{publicLanguage.t('navSubscription')}</dt><dd>{adminAccountDetails.subscription ? `${publicLanguage.t(subscriptionStatusCopy[(adminAccountDetails.subscription.effective_status || adminAccountDetails.subscription.status || 'pending').toLowerCase() as keyof typeof subscriptionStatusCopy] || 'statusPending')} · ${typeof adminAccountDetails.subscription.current_price === 'number' ? money(adminAccountDetails.subscription.current_price) : (adminAccountDetails.subscription.current_price || '—')} ${adminAccountDetails.subscription.currency || 'RWF'}` : publicLanguage.t('subscriptionNoAccount')}</dd></div>
@@ -3655,7 +3680,10 @@ const visibleTabs = (isAdmin
     </Modal>
   );
 
-  const renderAdminAudit = () => <section className="panel"><div className="panel-heading"><div><span className="eyebrow">{publicLanguage.t('auditSecurity')}</span><h2>{publicLanguage.t('auditLog')}</h2></div><span className="count-label">{auditRows?.total ?? '…'} {publicLanguage.t('events')}</span></div><div className="table-scroll"><table><thead><tr><th>{publicLanguage.t('when')}</th><th>{publicLanguage.t('actor')}</th><th>{publicLanguage.t('entity')}</th><th>{publicLanguage.t('actions')}</th><th>{publicLanguage.t('details')}</th></tr></thead><tbody>{(auditRows?.items || []).map((row: any) => <tr key={row.id}><td>{formatDateLabel(row.created_at, publicLanguage.language, { day: 'numeric', month: 'long', year: 'numeric', time: 'short' })}</td><td>{row.actor_name || row.changed_by || 'System'}</td><td>{row.entity_type} #{row.entity_id}</td><td>{row.action}</td><td><code>{JSON.stringify(row.details || {})}</code></td></tr>)}</tbody></table></div></section>;
+  const renderAdminAudit = () => {
+    const totalPages = Math.max(1, Math.ceil((auditRows?.total || 0) / (auditRows?.limit || 50)));
+    return <section className="panel"><div className="panel-heading"><div><span className="eyebrow">{publicLanguage.t('auditSecurity')}</span><h2>{publicLanguage.t('auditLog')}</h2></div><span className="count-label">{auditRows?.total ?? '…'} {publicLanguage.t('events')}</span></div><div className="table-scroll"><table><thead><tr><th>{publicLanguage.t('when')}</th><th>{publicLanguage.t('actor')}</th><th>{publicLanguage.t('account')}</th><th>{publicLanguage.t('entity')}</th><th>{publicLanguage.t('actions')}</th><th>{publicLanguage.t('details')}</th></tr></thead><tbody>{(auditRows?.items || []).map((row: any) => <tr key={row.id}><td>{formatDateLabel(row.created_at, publicLanguage.language, { day: 'numeric', month: 'long', year: 'numeric', time: 'short' })}</td><td>{row.actor_name || row.changed_by || publicLanguage.t('systemActor')}</td><td>{row.owner_user_id ?? '—'}</td><td>{row.entity_type} #{row.entity_id}</td><td>{row.action}</td><td><code>{JSON.stringify(row.details || {})}</code></td></tr>)}</tbody></table></div>{auditRows ? <div className="panel-footer admin-payment-pagination"><span>{auditRows.page} / {totalPages}</span><div><button type="button" className="button button-secondary small-button" disabled={auditRows.page <= 1} onClick={() => { void loadAudit(auditRows.page - 1).catch((reason) => setError(reason.message)); }}>{publicLanguage.t('previousPage')}</button><button type="button" className="button button-secondary small-button" disabled={auditRows.page >= totalPages} onClick={() => { void loadAudit(auditRows.page + 1).catch((reason) => setError(reason.message)); }}>{publicLanguage.t('nextPage')}</button></div></div> : null}</section>;
+  };
 
   const renderAdminConfig = () => {
     const configuredAmount = centerPricing?.config?.monthly_amount ?? centerPricing?.plan?.price;
@@ -3820,16 +3848,56 @@ const visibleTabs = (isAdmin
   };
 
   const renderSystemHealth = () => {
-    const connected = systemHealth?.database.connected;
-    const migrated = systemHealth?.migrated;
-    const healthy = systemHealth?.ok;
+    const statusLabel = (check?: SystemHealthCheck) => {
+      if (!check) return '…';
+      if (check.status === 'healthy') return publicLanguage.t('healthHealthy');
+      if (check.status === 'warning') return publicLanguage.t('healthWarning');
+      if (check.status === 'not_configured') return publicLanguage.t('healthNotConfigured');
+      return publicLanguage.t('healthUnavailable');
+    };
     return <section className="panel panel-wide">
-      <div className="panel-heading"><div><span className="eyebrow">{publicLanguage.t('systemHealth')}</span><h2>{publicLanguage.t('systemOverview')}</h2></div><Building2 size={20} aria-hidden="true" /></div>
-      <div className="metric-strip">
-        <div><span>{publicLanguage.t('databaseStatus')}</span><b>{connected === undefined ? '…' : publicLanguage.t(connected ? 'healthConnected' : 'healthUnavailable')}</b></div>
-        <div><span>{publicLanguage.t('databaseMigrations')}</span><b>{migrated === undefined ? '…' : publicLanguage.t(migrated ? 'healthApplied' : 'healthIncomplete')}</b></div>
-        <div><span>{publicLanguage.t('apiHealth')}</span><b>{healthy === undefined ? '…' : publicLanguage.t(healthy ? 'healthHealthy' : 'healthNeedsAttention')}</b></div>
+      <div className="panel-heading">
+        <div><span className="eyebrow">{publicLanguage.t('systemHealth')}</span><h2>{publicLanguage.t('systemOverview')}</h2></div>
+        <div className="panel-heading-actions">
+          {systemHealth ? <span className="count-label">{publicLanguage.t('healthLastChecked')}: {formatDateLabel(systemHealth.checkedAt, publicLanguage.language, { day: 'numeric', month: 'short', time: 'short' })}</span> : null}
+          <Building2 size={20} aria-hidden="true" />
+        </div>
       </div>
+      <div className="metric-strip">
+        <div><span>{publicLanguage.t('databaseStatus')}</span><b>{statusLabel(systemHealth?.database)}</b></div>
+        <div><span>{publicLanguage.t('databaseMigrations')}</span><b>{statusLabel(systemHealth?.migrations)}</b></div>
+        <div><span>{publicLanguage.t('emailProviderStatus')}</span><b>{statusLabel(systemHealth?.email)}</b></div>
+        <div><span>{publicLanguage.t('emailOutboxStatus')}</span><b>{statusLabel(systemHealth?.emailOutbox)}</b></div>
+        <div><span>{publicLanguage.t('paymentHealthStatus')}</span><b>{statusLabel(systemHealth?.payments)}</b></div>
+        <div><span>{publicLanguage.t('schedulerStatus')}</span><b>{statusLabel(systemHealth?.scheduler)}</b></div>
+        <div><span>{publicLanguage.t('notificationEvaluationStatus')}</span><b>{statusLabel(systemHealth?.notificationEvaluation)}</b></div>
+      </div>
+      {!systemHealth ? <div className="workspace-empty workspace-loading" role="status"><span className="loading-indicator" />{publicLanguage.t('dashboardLoading')}</div> : <>
+        <dl className="payment-readiness-list">
+          <div><dt>{publicLanguage.t('healthProvider')}</dt><dd>{systemHealth.email.provider || '—'}</dd></div>
+          <div><dt>{publicLanguage.t('healthSenderDomain')}</dt><dd>{systemHealth.email.senderDomain || '—'}</dd></div>
+          <div><dt>{publicLanguage.t('databaseMigrations')}</dt><dd>{systemHealth.migrations.appliedCount} / {systemHealth.migrations.requiredCount}</dd></div>
+          <div><dt>{publicLanguage.t('healthNotificationSchema')}</dt><dd>{systemHealth.migrations.missingColumns.length ? `${publicLanguage.t('healthMissing')}: ${systemHealth.migrations.missingColumns.join(', ')}` : publicLanguage.t('healthApplied')}</dd></div>
+          <div><dt>{publicLanguage.t('healthPending')}</dt><dd>{systemHealth.emailOutbox.pending}</dd></div>
+          <div><dt>{publicLanguage.t('healthProcessing')}</dt><dd>{systemHealth.emailOutbox.processing}</dd></div>
+          <div><dt>{publicLanguage.t('healthStuck')}</dt><dd>{systemHealth.emailOutbox.stuck}</dd></div>
+          <div><dt>{publicLanguage.t('healthFailedAttempts')}</dt><dd>{systemHealth.emailOutbox.failedAttempts}</dd></div>
+          <div><dt>{publicLanguage.t('healthFailedRecent')}</dt><dd>{systemHealth.payments.failedRecent}</dd></div>
+          <div><dt>{publicLanguage.t('healthStalePending')}</dt><dd>{systemHealth.payments.stalePending}</dd></div>
+          <div><dt>{publicLanguage.t('healthCronSecretConfigured')}</dt><dd>{systemHealth.scheduler.secretConfigured ? publicLanguage.t('healthConfigured') : publicLanguage.t('healthCronSecretMissing')}</dd></div>
+          <div><dt>{publicLanguage.t('healthSubscriptionEmailJob')}</dt><dd>{publicLanguage.t('healthDaily')}</dd></div>
+          <div><dt>{publicLanguage.t('notificationEvaluationStatus')}</dt><dd>{publicLanguage.t('healthCadenceNotDocumented')}</dd></div>
+          <div><dt>{publicLanguage.t('healthRoutes')}</dt><dd>{systemHealth.scheduler.routes.join(' · ')}</dd></div>
+        </dl>
+        {systemHealth.migrations.missing.length ? <p className="form-error" role="alert">{publicLanguage.t('healthMissing')}: {systemHealth.migrations.missing.join(', ')}</p> : null}
+        <p className="block-muted">{publicLanguage.t(systemHealth.email.configured ? 'healthEmailConfiguredDetail' : 'healthEmailNotConfiguredDetail')}</p>
+        <p className="block-muted">{publicLanguage.t('healthSchedulerUnavailable')}</p>
+        <p className="block-muted">{publicLanguage.t('healthEvaluationUnavailable')}</p>
+        <h3>{publicLanguage.t('healthRecentFailures')}</h3>
+        {systemHealth.emailOutbox.recentFailures.length ? <div className="table-scroll"><table><thead><tr><th>{publicLanguage.t('entity')}</th><th>{publicLanguage.t('healthFailedAttempts')}</th><th>{publicLanguage.t('details')}</th><th>{publicLanguage.t('when')}</th></tr></thead><tbody>{systemHealth.emailOutbox.recentFailures.map((row, index) => <tr key={`${row.eventType}-${row.updatedAt}-${index}`}><td>{row.eventType || '—'}</td><td>{row.attempts}</td><td>{row.errorCode || '—'}</td><td>{row.updatedAt ? formatDateLabel(row.updatedAt, publicLanguage.language, { day: 'numeric', month: 'short', time: 'short' }) : '—'}</td></tr>)}</tbody></table></div> : <p className="block-muted">{publicLanguage.t('healthNoRecentFailures')}</p>}
+        <h3>{publicLanguage.t('healthRecentFailures')} · {publicLanguage.t('paymentHealthStatus')}</h3>
+        {systemHealth.payments.recentFailures.length ? <div className="table-scroll"><table><thead><tr><th>{publicLanguage.t('status')}</th><th>{publicLanguage.t('milkAmount')}</th><th>{publicLanguage.t('when')}</th></tr></thead><tbody>{systemHealth.payments.recentFailures.map((row, index) => <tr key={`${row.id}-${row.updatedAt}-${index}`}><td>{row.status || '—'}</td><td>{row.amount === null ? '—' : `${money(row.amount)} ${row.currency || ''}`}</td><td>{row.updatedAt ? formatDateLabel(row.updatedAt, publicLanguage.language, { day: 'numeric', month: 'short', time: 'short' }) : '—'}</td></tr>)}</tbody></table></div> : <p className="block-muted">{publicLanguage.t('healthNoPaymentFailures')}</p>}
+      </>}
     </section>;
   };
 

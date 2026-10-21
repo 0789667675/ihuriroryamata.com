@@ -508,6 +508,60 @@ test('pending payment uses the canonical usage tier and never activates a subscr
   assert.equal(result.payment.status, 'PENDING');
 });
 
+test('an initiation response that immediately fails or cancels still emits the matching payment notification', async () => {
+  const Notifications = require('../lib/services/notification-service.js');
+  const originalCreatePaymentNotification = Notifications.createPaymentNotification;
+  const captured = [];
+  Notifications.createPaymentNotification = async (input) => {
+    captured.push(input);
+    return { created: true };
+  };
+  try {
+    for (const status of ['FAILED', 'CANCELLED']) {
+      let payment = { id: 401, user_id: 42, status: 'PENDING', provider: 'mtn_momo', provider_reference: 'ref-401', payment_method: 'MTN_MOMO_RWA', mobile_money_phone: '0788000000', amount: 5000, currency: 'RWF' };
+      const repository = {
+        getUser: async () => ({ id: 42, name: 'Milk User', email: 'milk@example.com', phone: '0788000000', accountType: 'COLLECTOR' }),
+        findActivePayments: async () => [],
+        getSubscription: async () => ({ id: 7, status: 'pending', effective_status: 'pending', access_started_at: '2026-10-01T10:00:00.000Z', payment_due_at: '2026-10-15T22:00:00.000Z' }),
+        getActivePlans: async () => usagePlans,
+        getCollectorMilk: async () => [],
+        getFarmerMilkUsage: async () => ({ recordCount: 0, validLiters: 0 }),
+        getTierForVolume: async () => usagePlans[0],
+        getTierByCode: async () => usagePlans[0],
+        getNextTier: async () => usagePlans[1],
+        reservePayment: async (input) => {
+          payment = { ...payment, plan_snapshot: input.planSnapshot };
+          return { payment, reused: false };
+        },
+        getPaymentById: async () => payment,
+        getPaymentByIdForUser: async () => payment,
+        settlePayment: async () => {
+          payment = { ...payment, status, settlementApplied: true };
+          return payment;
+        },
+        recordPaymentEvent: async () => {},
+      };
+      const provider = {
+        assertReady() {},
+        createPaymentRequest: async () => ({ status }),
+        getPaymentStatus: async () => ({ paymentMethod: 'MTN_MOMO_RWA', status: 'PENDING' }),
+      };
+      await Subscriptions.createPendingPayment({
+        userId: 42,
+        planCode: usagePlans[0].code,
+        billingPeriod: 'monthly',
+        repository,
+        provider,
+        now: new Date('2026-10-10T00:00:00.000Z'),
+      });
+    }
+    assert.deepEqual(captured.map((input) => input.type), ['payment_failed', 'payment_cancelled']);
+    assert.deepEqual(captured.map((input) => input.payment.status), ['FAILED', 'CANCELLED']);
+  } finally {
+    Notifications.createPaymentNotification = originalCreatePaymentNotification;
+  }
+});
+
 test('new payment initiation uses the current server plan price, never a client amount', async () => {
   const changedPlans = usagePlans.map((item, index) => index === 0 ? { ...item, price: 6200 } : item);
   let reserved;

@@ -370,17 +370,37 @@ test('Super Admin pricing editor manages dynamic tiers and timing policy without
   assert.doesNotMatch(centerPricingEditor, /30000|monthly_amount \|\|.*0/);
 });
 
-test('Super Admin System Health displays fetched database, migration, and API status', () => {
+test('Super Admin System Health loads protected platform diagnostics instead of the public liveness route', () => {
   const healthView = workspace.slice(workspace.indexOf('const renderSystemHealth'), workspace.indexOf('const activeTab ='));
   const healthLoader = workspace.slice(workspace.indexOf("if (tab === 'system-health')"), workspace.indexOf("if (tab === 'notifications-admin')"));
 
-  assert.match(healthLoader, /fetch\('\/api\/health'\)/);
-  assert.match(healthLoader, /setSystemHealth\(await response\.json\(\)\)/);
-  assert.match(healthView, /systemHealth\?\.database\.connected/);
-  assert.match(healthView, /systemHealth\?\.migrated/);
-  assert.match(healthView, /systemHealth\?\.ok/);
+  assert.match(healthLoader, /api<SystemHealth>\('\/api\/admin\/system-health', \{ cache: 'no-store' \}\)/);
+  assert.doesNotMatch(healthLoader, /fetch\('\/api\/health'\)/);
+  assert.match(healthView, /systemHealth\?\.database/);
+  assert.match(healthView, /systemHealth\?\.migrations/);
+  assert.match(healthView, /systemHealth\?\.emailOutbox/);
+  assert.match(healthView, /systemHealth\?\.payments/);
+  assert.match(healthView, /systemHealth\?\.scheduler/);
+  assert.match(healthView, /systemHealth\?\.notificationEvaluation/);
+  assert.match(healthView, /healthNotConfigured/);
   assert.doesNotMatch(healthView, />Healthy</);
   assert.doesNotMatch(healthView, />Operational</);
+});
+
+test('Super Admin account list paginates, displays verification, confirms destructive actions, and documents the approval gap', () => {
+  const accounts = workspace.slice(workspace.indexOf('const renderAdminAccounts'), workspace.indexOf('const renderAdminAccountDetailsModal'));
+  const loader = workspace.slice(workspace.indexOf('const loadAccounts ='), workspace.indexOf('const loadAdminAccountDetails'));
+  const action = workspace.slice(workspace.indexOf('const adminAction ='), workspace.indexOf('const openAbacundaIfishi'));
+  assert.match(loader, /ACCOUNT_PAGE_SIZE/);
+  assert.match(loader, /page: String\(page\)/);
+  assert.match(accounts, /emailVerificationStatus/);
+  assert.match(accounts, /emailVerifiedValue/);
+  assert.match(accounts, /accounts\.page >= totalPages/);
+  assert.match(accounts, /previousPage/);
+  assert.match(accounts, /adminNotApprovedNoWorkflow/);
+  assert.match(action, /adminSuspendConfirm/);
+  assert.match(action, /adminReactivateConfirm/);
+  assert.match(action, /window\.confirm/);
 });
 
 test('Login and Register use the existing visible brand lockup', () => {

@@ -18,7 +18,8 @@ const REQUIRED_NOTIFICATION_COLUMNS = [
 ];
 
 export async function GET() {
-  const database = { ...getDatabaseStatus(), connected: false };
+  const databaseStatus = getDatabaseStatus();
+  const database = { configured: databaseStatus.configured, connected: false };
   let migrated = false;
   if (database.configured) {
     try {
@@ -45,11 +46,13 @@ export async function GET() {
   }
 
   const ok = database.connected && migrated;
+  const supabase = getSupabaseStatus();
   return NextResponse.json({
     ok,
     service: 'milk-system-next',
     database,
-    supabase: getSupabaseStatus(),
+    // Public liveness does not need the project URL or any provider metadata.
+    supabase: { configured: supabase.configured },
     migrated,
-  }, { status: ok ? 200 : 503 });
+  }, { status: ok ? 200 : 503, headers: { 'Cache-Control': 'no-store' } });
 }

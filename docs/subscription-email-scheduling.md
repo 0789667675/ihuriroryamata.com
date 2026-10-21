@@ -14,11 +14,15 @@ Existing account emails are password reset and email-change confirmation. Paymen
 
 ## Job Endpoint
 
-No deployment scheduler configuration is present in the repository. Configure an external scheduler to POST once daily to:
+No deployment scheduler configuration is present in the repository. Configure an external scheduler to call the subscription email job once daily. The route accepts `GET` (compatible with Vercel Cron) and `POST` (for schedulers that only issue POST):
 
 `https://<deployed-domain>/api/cron/subscription-emails`
 
-Send this header from the scheduler:
+The notification evaluation endpoint also needs a deployment-owned schedule:
+
+`https://<deployed-domain>/api/cron/notifications`
+
+The repository does not document a cadence for notification evaluation; do not assume one. Both endpoints require this header:
 
 `Authorization: Bearer <CRON_SECRET>`
 

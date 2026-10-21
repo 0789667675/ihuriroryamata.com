@@ -53,3 +53,9 @@ export async function POST(request) {
     );
   }
 }
+
+// Vercel Cron invokes scheduled routes with GET. External schedulers may keep
+// using POST. Both methods require the same CRON_SECRET bearer token.
+export async function GET(request) {
+  return POST(request);
+}
