@@ -68,7 +68,7 @@ test('registration UI reports the honest verification and welcome delivery state
   assert.match(workspace, /registrationVerificationEmailFailed/);
   assert.match(workspace, /registrationWelcomeEmailFailed/);
   assert.match(workspace, /registrationEmailSent/);
-  assert.match(workspace, /onLogin\(result\.user, signInNotice\)/);
+  assert.match(workspace, /onLogin\(result\.user, signInNotice, languageTouched \? language : undefined\)/);
 });
 
 test('subscription emails receive the account language with Kinyarwanda as the fallback', () => {
@@ -81,8 +81,9 @@ test('subscription emails receive the account language with Kinyarwanda as the f
 test('registration sends welcome and verification email in the selected supported locale', () => {
   const route = read('app/api/auth/register/route.js');
   assert.match(route, /const emailLanguage = body\.language === 'en' \? 'en' : 'rw'/);
-  assert.equal((route.match(/language: emailLanguage/g) || []).length, 2);
+  assert.equal((route.match(/language: emailLanguage/g) || []).length, 3);
   assert.match(route, /sendRegistrationEmailVerification/);
   assert.match(route, /sendWelcomeEmail/);
+  assert.match(route, /language: emailLanguage,\s+selectedPlanCode/);
   assert.doesNotMatch(route, /language: 'rw'/);
 });

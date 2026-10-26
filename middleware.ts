@@ -1,7 +1,7 @@
 ﻿import { NextResponse, type NextRequest } from 'next/server';
 
-const AUTH_PAGES = new Set(['/login', '/register', '/forgot-password', '/verify-email', '/verify-email-change']);
-const PUBLIC_API_PREFIXES = ['/api/auth', '/api/health'];
+const AUTH_PAGES = new Set(['/login', '/register', '/forgot-password']);
+const PUBLIC_API_PREFIXES = ['/api/auth', '/api/health', '/api/cron'];
 const PUBLIC_API_PATHS = new Set(['/api/subscription/payments/callback', '/api/subscription/plans']);
 const COOKIE_NAME = 'milk_session';
 

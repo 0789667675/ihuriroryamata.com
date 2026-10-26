@@ -4,6 +4,7 @@ const { registerUser } = require('@/lib/services/auth-service.js');
 const { sendRegistrationEmailVerification } = require('@/lib/services/account-service.js');
 const emailService = require('@/lib/services/email-service.js');
 const { repository } = require('@/lib/repositories/userRepository.js');
+const { resolvePublicBaseUrl } = require('@/lib/config/public-url.js');
 
 export const runtime = 'nodejs';
 
@@ -19,23 +20,28 @@ export async function POST(request) {
       email: body.email,
       password: body.password,
       accountType,
+      language: emailLanguage,
       selectedPlanCode,
     });
     const { passwordHash, ...publicUser } = user;
-    const origin = request.headers.get('origin') || process.env.NEXT_PUBLIC_APP_URL || process.env.FRONTEND_URL || 'https://ihuriroryamata.com';
-    const verificationPromise = sendRegistrationEmailVerification({
-      userId: user.id,
-      baseUrl: origin,
-      language: emailLanguage,
-      repository,
-      mailer: emailService,
-    }).catch((error) => ({ ok: false, error }));
-    const welcomePromise = emailService.sendWelcomeEmail({
-      email: user.email,
-      name: user.name,
-      language: emailLanguage,
-      loginUrl: `${origin.replace(/\/$/, '')}/login`,
-    }).catch((error) => ({ ok: false, error }));
+    const origin = resolvePublicBaseUrl({ request });
+    const verificationPromise = origin
+      ? sendRegistrationEmailVerification({
+        userId: user.id,
+        baseUrl: origin,
+        language: emailLanguage,
+        repository,
+        mailer: emailService,
+      }).catch((error) => ({ ok: false, error }))
+      : Promise.resolve({ ok: false, error: { code: 'PUBLIC_APP_URL_NOT_CONFIGURED' } });
+    const welcomePromise = origin
+      ? emailService.sendWelcomeEmail({
+        email: user.email,
+        name: user.name,
+        language: emailLanguage,
+        loginUrl: `${origin}/login`,
+      }).catch((error) => ({ ok: false, error }))
+      : Promise.resolve({ ok: false, error: { code: 'PUBLIC_APP_URL_NOT_CONFIGURED' } });
     const [verificationResult, welcomeResult] = await Promise.all([verificationPromise, welcomePromise]);
     return NextResponse.json({
       ok: true,

@@ -3,6 +3,7 @@ import { NextResponse } from 'next/server';
 const { getAuthenticatedUser } = require('@/lib/security/authenticate.js');
 const { repository } = require('@/lib/repositories/userRepository.js');
 const Accounts = require('@/lib/services/account-service.js');
+const { resolvePublicBaseUrl } = require('@/lib/config/public-url.js');
 
 export const runtime = 'nodejs';
 
@@ -34,7 +35,7 @@ export async function PUT(request) {
     const result = await Accounts.updateProfile({
       userId: user.id,
       input,
-      baseUrl: process.env.FRONTEND_URL || process.env.NEXT_PUBLIC_APP_URL || null,
+      baseUrl: resolvePublicBaseUrl({ request }),
       language: input.language,
     });
     return NextResponse.json({ ok: true, ...result }, { status: result.emailChangePending ? 202 : 200 });

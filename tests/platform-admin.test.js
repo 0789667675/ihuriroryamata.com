@@ -126,6 +126,84 @@ test('platform admin does not accept the retired trial status filter', async () 
   assert.equal(await Admin.manageAccount({ userId: 999, actorId: 1, action: 'suspend', repository: empty }), null);
 });
 
+test('Super Admin resend verification is canonical-base-URL, rate-limited, provider-backed, and audited', async () => {
+  const events = [];
+  const unverified = {
+    account: { id: accountId, email: 'unverified@example.com', email_verified: false, language: 'en' },
+    subscription: null,
+  };
+  const resendRepository = {
+    getAccountDetails: async () => unverified,
+    writeAdminAudit: async (input) => events.push(['audit', input]),
+  };
+  let delivered;
+  const accountService = {
+    sendRegistrationEmailVerification: async (input) => {
+      delivered = input;
+      return { ok: true, email: input.userId };
+    },
+  };
+  const rateLimits = { consumeRateLimit: async (key, limit, windowSeconds) => { events.push(['rate', key, limit, windowSeconds]); return true; } };
+  const result = await Admin.resendVerificationEmail({
+    userId: accountId,
+    actorId: 9,
+    baseUrl: 'https://www.ihuriroryamata.com',
+    repository: resendRepository,
+    userRepository: {},
+    rateLimits,
+    accountService,
+  });
+  assert.deepEqual(result, { ok: true, userId: accountId, email: 'unverified@example.com', auditRecorded: true });
+  assert.equal(delivered.baseUrl, 'https://www.ihuriroryamata.com');
+  assert.equal(delivered.language, 'en');
+  assert.equal(delivered.userId, accountId);
+  assert.equal(events[0][2], 5);
+  assert.equal(events[0][3], 3600);
+  assert.equal(events[1][1].action, 'email_verification_resent');
+  assert.equal(events[1][1].actorId, 9);
+  assert.equal(events[1][1].details.userId, accountId);
+
+  await assert.rejects(() => Admin.resendVerificationEmail({
+    userId: accountId,
+    actorId: 9,
+    baseUrl: 'https://www.ihuriroryamata.com',
+    repository: resendRepository,
+    userRepository: {},
+    rateLimits: { consumeRateLimit: async () => false },
+    accountService,
+  }), (error) => error.statusCode === 429 && error.code === 'RESEND_RATE_LIMITED');
+});
+
+test('Super Admin resend verification refuses verified accounts and missing canonical base URL', async () => {
+  const verifiedRepository = {
+    getAccountDetails: async () => ({ account: { id: accountId, email: 'verified@example.com', email_verified: true } }),
+  };
+  await assert.rejects(() => Admin.resendVerificationEmail({
+    userId: accountId,
+    baseUrl: 'https://www.ihuriroryamata.com',
+    repository: verifiedRepository,
+    userRepository: {},
+    rateLimits: { consumeRateLimit: async () => true },
+    accountService: { sendRegistrationEmailVerification: async () => assert.fail('must not send') },
+  }), (error) => error.statusCode === 409 && error.code === 'ALREADY_VERIFIED');
+
+  await assert.rejects(() => Admin.resendVerificationEmail({
+    userId: accountId,
+    baseUrl: null,
+    repository: { getAccountDetails: async () => ({ account: { id: accountId, email: 'unverified@example.com', email_verified: false } }) },
+    userRepository: {},
+    rateLimits: { consumeRateLimit: async () => true },
+    accountService: { sendRegistrationEmailVerification: async () => assert.fail('must not send') },
+  }), (error) => error.statusCode === 503 && error.code === 'PUBLIC_APP_URL_NOT_CONFIGURED');
+});
+
+test('resend verification action passes the canonical request base URL through the Super Admin API', () => {
+  const route = fs.readFileSync(path.join(__dirname, '..', 'app', 'api', 'admin', 'accounts', '[userId]', '[action]', 'route.js'), 'utf8');
+  assert.match(route, /resolvePublicBaseUrl\(\{ request \}\)/);
+  assert.match(route, /baseUrl/);
+  assert.match(route, /error\.code/);
+});
+
 test('platform payment history is server-authorized for Super Admin and uses subscription service', () => {
   const route = fs.readFileSync(path.join(__dirname, '..', 'app', 'api', 'admin', 'payments', 'route.js'), 'utf8');
   assert.match(route, /getAuthenticatedUser/);

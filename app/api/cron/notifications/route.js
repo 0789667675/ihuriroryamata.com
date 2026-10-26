@@ -4,6 +4,7 @@ import { timingSafeEqual } from 'node:crypto';
 
 const Notifications = require('@/lib/services/notification-service.js');
 const { repository: UserRepository } = require('@/lib/repositories/userRepository.js');
+const { withJobRun } = require('@/lib/repositories/jobRunRepository.js');
 
 export const runtime = 'nodejs';
 
@@ -23,29 +24,35 @@ const authorized = (request) => {
 export async function POST(request) {
   if (!authorized(request)) return NextResponse.json({ message: 'Not authorized.' }, { status: 401 });
   try {
-    const users = await UserRepository.repository.getActiveUsers();
-    let evaluated = 0;
-    let createdCount = 0;
-    let reopenedCount = 0;
-    let resolvedCount = 0;
-    for (const user of users) {
-      const data = await Notifications.evaluateOperationalAlerts({
-        ownerUserId: user.id,
-        accountType: user.accountType,
-        now: new Date(),
-      });
-      evaluated += 1;
-      createdCount += data.createdCount;
-      reopenedCount += data.reopenedCount;
-      resolvedCount += data.resolvedCount;
-    }
-    return NextResponse.json({
-      success: true,
-      evaluated,
-      createdCount,
-      reopenedCount,
-      resolvedCount,
+    const vercelCron = Boolean(request.headers.get('x-vercel-cron'))
+      || /vercel-cron/i.test(request.headers.get('user-agent') || '');
+    const result = await withJobRun({
+      jobId: 'notification_evaluation',
+      trigger: vercelCron ? 'vercel_cron' : 'external',
+      run: async () => {
+        const users = await UserRepository.repository.getActiveUsers();
+        let evaluated = 0;
+        let createdCount = 0;
+        let reopenedCount = 0;
+        let resolvedCount = 0;
+        for (const user of users) {
+          const data = await Notifications.evaluateOperationalAlerts({
+            ownerUserId: user.id,
+            accountType: user.accountType,
+            now: new Date(),
+          });
+          evaluated += 1;
+          createdCount += data.createdCount;
+          reopenedCount += data.reopenedCount;
+          resolvedCount += data.resolvedCount;
+        }
+        return { evaluated, createdCount, reopenedCount, resolvedCount };
+      },
     });
+    if (result.skipped) {
+      return NextResponse.json({ success: false, skipped: true, reason: result.reason });
+    }
+    return NextResponse.json({ success: true, ...result });
   } catch (error) {
     return NextResponse.json(
       { message: 'Notification evaluation job failed.' },

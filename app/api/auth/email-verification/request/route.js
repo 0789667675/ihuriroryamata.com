@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 
 const Accounts = require('@/lib/services/account-service.js');
+const { resolvePublicBaseUrl } = require('@/lib/config/public-url.js');
 
 export const runtime = 'nodejs';
 
@@ -14,7 +15,7 @@ export async function POST(request) {
     const result = await Accounts.requestRegistrationEmailVerification({
       email: body.email,
       ipAddress: getIpAddress(request),
-      baseUrl: process.env.NEXT_PUBLIC_APP_URL || process.env.FRONTEND_URL || new URL(request.url).origin,
+      baseUrl: resolvePublicBaseUrl({ request }),
       language: body.language,
     });
     return NextResponse.json(result);

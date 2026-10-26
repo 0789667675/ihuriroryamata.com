@@ -7,14 +7,19 @@ import {
   Activity, ArrowDown, ArrowRight, ArrowUp, ArrowUpDown, ArrowUpRight, BadgeDollarSign, Bell, BellRing,
   Building2, CalendarDays, ChartNoAxesCombined, Check, ChevronDown, ChevronLeft, ChevronRight,
   BookOpen, CircleDollarSign, ClipboardList, ContactRound, CreditCard, Eye, EyeOff, FileBarChart2, Gauge,
-  HandCoins, History, LayoutDashboard, LogOut, Milk, Plus, ReceiptText, Search, Settings, Shield, Truck, UserRound,
-  Users, UsersRound, Wallet, Warehouse, X,
+  HandCoins, History, LayoutDashboard, LogOut, Milk, Plus, ReceiptText, RotateCcw, Search, Settings, Shield, Truck, UserRound,
+  Users, UsersRound, Wallet, Warehouse, X, Upload,
 } from 'lucide-react';
 import { motion, AnimatePresence, useReducedMotion } from 'framer-motion';
 import { flushOfflineWrites, getOfflineWrites, queueOfflineWrite } from '@/lib/offline-queue';
 import { buildFarmerListQuery } from '@/lib/farmer-list-query';
 import { BrandLockup } from '@/components/brand-lockup';
 import { Modal } from '@/components/ui/modal';
+import { FarmerBulkImportModal } from '@/components/imports/farmer-bulk-import';
+import { MilkNotebookImportModal } from '@/components/imports/milk-notebook-import';
+import { getImportCopy } from '@/lib/i18n/import-copy';
+import { AnimatedCounter } from '@/components/ui/animated-counter';
+import { TypingDisplay } from '@/components/ui/typing-display';
 import { usePublicLanguage } from '@/hooks/use-public-language';
 import { formatPublicCopy, type PublicCopyKey } from '@/lib/i18n/public-copy';
 import { formatDateLabel, getMonthNames } from '@/lib/i18n/date-format';
@@ -22,8 +27,8 @@ import { getAccountingDate, getAccountingHalfForDay, getCurrentAccountingPeriod,
 import { resolveWorkspaceTab } from '@/lib/workspace-navigation';
 import { calculateMilkDifference, projectOwnerMilkEntry } from '@/lib/milk-reconciliation';
 
-type User = { id: number; name: string; email: string; role: string; accountType: string };
-type AccountProfile = { id: number; name: string; email: string; phone: string | null; nationalId: string | null; accountNumber: string | null; profilePicture: string | null; role: string; accountType: string; accountStatus: string; emailVerified: boolean };
+type User = { id: number; name: string; email: string; role: string; accountType: string; language?: 'rw' | 'en'; emailVerified?: boolean };
+type AccountProfile = { id: number; name: string; email: string; phone: string | null; nationalId: string | null; accountNumber: string | null; profilePicture: string | null; role: string; accountType: string; accountStatus: string; emailVerified: boolean; language?: 'rw' | 'en' };
 type Farmer = { id: number; name: string; location: string | null; phone: string | null; nationalId: string | null; accountNumber: string | null; collectionCenter: string | null; cowType: string | null; collectorUserId?: number | null };
 type Center = { id: number; name: string; owner_user_id?: number; pricePerLiter: number; transportRatePerLiter: number; morning_start: string; morning_end: string; evening_start: string; evening_end: string };
 type Page<T> = { data: T[]; nextCursor: string | null; hasMore: boolean; pageSize: number };
@@ -92,11 +97,12 @@ type SystemHealth = {
   checkedAt: string;
   database: SystemHealthCheck & { configured: boolean; connected: boolean };
   migrations: SystemHealthCheck & { appliedCount: number; requiredCount: number; missing: string[]; missingColumns: string[] };
+  appUrl: SystemHealthCheck & { configured: boolean; url: string | null };
   email: SystemHealthCheck & { configured: boolean; provider: string | null; senderDomain: string | null };
-  emailOutbox: SystemHealthCheck & { pending: number; processing: number; stuck: number; failedAttempts: number; recentFailures: Array<{ eventType: string | null; attempts: number; errorCode: string | null; updatedAt: string | null }> };
-  payments: SystemHealthCheck & { failedRecent: number; stalePending: number; recentFailures: Array<{ id: number | null; amount: number | null; currency: string | null; status: string | null; updatedAt: string | null }> };
-  scheduler: SystemHealthCheck & { secretConfigured: boolean; routes: string[]; jobs: Array<{ id: string; route: string; expectedCadence: string; detail: string }> };
-  notificationEvaluation: SystemHealthCheck;
+  emailOutbox: SystemHealthCheck & { pending: number; processing: number; stuck: number; neverAttempted: number; failedAttempts: number; oldestPendingAt: string | null; oldestPendingAgeHours: number | null; recentFailures: Array<{ id: number | null; eventType: string | null; attempts: number; errorCode: string | null; updatedAt: string | null }> };
+  payments: SystemHealthCheck & { failedRecent: number; stalePending: number; provider: { provider: string; displayName: string; realPaymentsEnabled: boolean; credentialsConfigured: boolean; apiConfigured: boolean; callbackConfigured: boolean; ready: boolean }; recentFailures: Array<{ id: number | null; amount: number | null; currency: string | null; status: string | null; updatedAt: string | null }> };
+  scheduler: SystemHealthCheck & { secretConfigured: boolean; configured: boolean; scheduleConfigured: boolean; scheduleSource: string; runHistoryAvailable: boolean; routes: string[]; jobs: Array<{ id: string; path: string; route: string; expectedCadence: string; scheduled: boolean; status: SystemHealthStatus; lastRunAt: string | null; lastRunAgeHours: number | null; lastResult: string | null; lastTrigger: string | null; lastErrorCode: string | null; failedRecent: number; detail: string }> };
+  notificationEvaluation: SystemHealthCheck & { lastRunAt: string | null; lastRunAgeHours: number | null; lastResult: string | null; lastErrorCode: string | null; failedRecent: number };
 };
 type SubscriptionPlan = { id: number; code: string; name: string; price: number | string; currency: string; billing_period: string; min_volume_liters: number | string | null; max_volume_liters: number | string | null; is_active: boolean };
 type CollectorTierEdit = { name: string; price: string; minVolumeLiters: string; maxVolumeLiters: string; isActive: boolean };
@@ -120,6 +126,9 @@ const api = async <T,>(path: string, options?: RequestInit): Promise<T> => {
   return body as T;
 };
 const json = (method: string, body: unknown): RequestInit => ({ method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+const userLanguage = (user: Pick<User, 'language'> | null | undefined): 'rw' | 'en' | null => (
+  user?.language === 'en' ? 'en' : user?.language === 'rw' ? 'rw' : null
+);
 const MtnMoMoBrand = ({ compact = false }: { compact?: boolean }) => <span className={`mtn-momo-brand${compact ? ' compact' : ''}`} role="img" aria-label="MTN MoMo Rwanda">
   <span className="mtn-momo-mark" aria-hidden="true">MTN</span>
   <span className="mtn-momo-wordmark"><b>MoMo</b><small>Rwanda</small></span>
@@ -272,7 +281,7 @@ const subscriptionStatusCopy = {
 
 type PublicLanguageState = ReturnType<typeof usePublicLanguage>;
 
-function Login({ onLogin, language, setLanguage, t }: { onLogin: (user: User, notice?: string) => void } & PublicLanguageState) {
+function Login({ onLogin, language, setLanguage, t }: { onLogin: (user: User, notice?: string, preferredLanguage?: 'rw' | 'en') => void } & PublicLanguageState) {
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const forgotPassword = pathname === '/forgot-password';
@@ -287,6 +296,7 @@ function Login({ onLogin, language, setLanguage, t }: { onLogin: (user: User, no
   const [newPassword, setNewPassword] = useState('');
   const [confirmNewPassword, setConfirmNewPassword] = useState('');
   const [resetMessage, setResetMessage] = useState('');
+  const [languageTouched, setLanguageTouched] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
 
@@ -364,8 +374,7 @@ function Login({ onLogin, language, setLanguage, t }: { onLogin: (user: User, no
         }
       }
       const result = await api<{ user: User }>('/api/auth/login', json('POST', { email, password }));
-      await api('/api/auth/profile', json('PATCH', { language })).catch(() => undefined);
-      onLogin(result.user, signInNotice);
+      onLogin(result.user, signInNotice, languageTouched ? language : undefined);
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : 'Unable to sign in.');
     } finally {
@@ -385,8 +394,8 @@ function Login({ onLogin, language, setLanguage, t }: { onLogin: (user: User, no
         <div className="auth-panel-topbar">
           <Link className="auth-back-link auth-top-back-link" href="/">{t('backToWelcome')}</Link>
           <div className="public-language-switch" role="group" aria-label={t('languageLabel')}>
-            <button type="button" aria-label={t('languageKinyarwanda')} aria-pressed={language === 'rw'} onClick={() => setLanguage('rw')}>RW</button>
-            <button type="button" aria-label={t('languageEnglish')} aria-pressed={language === 'en'} onClick={() => setLanguage('en')}>EN</button>
+            <button type="button" aria-label={t('languageKinyarwanda')} aria-pressed={language === 'rw'} onClick={() => { setLanguageTouched(true); setLanguage('rw'); }}>RW</button>
+            <button type="button" aria-label={t('languageEnglish')} aria-pressed={language === 'en'} onClick={() => { setLanguageTouched(true); setLanguage('en'); }}>EN</button>
           </div>
         </div>
         <div className="auth-heading">
@@ -438,10 +447,28 @@ function Login({ onLogin, language, setLanguage, t }: { onLogin: (user: User, no
 
 export default function Workspace() {
   const publicLanguage = usePublicLanguage();
-  const [user, setUser] = useState<User | null>(null);
-  const [authLoading, setAuthLoading] = useState(true);
+  const pathname = usePathname();
+  const isAuthRoute = pathname === '/login' || pathname === '/register' || pathname === '/forgot-password';
+  const [user, setUser] = useState<User | null>(() => {
+    if (typeof window === 'undefined') return null;
+    try {
+      const stored = sessionStorage.getItem('milk-session-user');
+      return stored ? JSON.parse(stored) : null;
+    } catch {
+      return null;
+    }
+  });
+  const [authLoading, setAuthLoading] = useState(() => {
+    if (typeof window === 'undefined') return true;
+    const isAuth = ['/login', '/register', '/forgot-password'].includes(window.location.pathname);
+    if (isAuth) return false;
+    const stored = sessionStorage.getItem('milk-session-user');
+    return !stored;
+  });
   const [authError, setAuthError] = useState('');
   const [authAttempt, setAuthAttempt] = useState(0);
+  const [logoutConfirm, setLogoutConfirm] = useState(false);
+  const [logoutBusy, setLogoutBusy] = useState(false);
   const [online, setOnline] = useState(true);
   const [pendingWrites, setPendingWrites] = useState(0);
   const [tab, setTabState] = useState<Tab>('dashboard');
@@ -462,6 +489,8 @@ export default function Workspace() {
   const [farmerSortDirection, setFarmerSortDirection] = useState<'asc' | 'desc'>('asc');
   const [farmerForm, setFarmerForm] = useState({ name: '', collectionCenterId: '', phone: '', nationalId: '', accountNumber: '', cowType: '', collectorUserId: '' });
   const [farmerCreateOpen, setFarmerCreateOpen] = useState(false);
+  const [farmerImportOpen, setFarmerImportOpen] = useState(false);
+  const [milkImportOpen, setMilkImportOpen] = useState(false);
   const [farmerCreateError, setFarmerCreateError] = useState('');
   const farmerCreateSubmittingRef = useRef(false);
   const [editingFarmer, setEditingFarmer] = useState<Farmer | null>(null);
@@ -699,6 +728,28 @@ const visibleTabs = (isAdmin
     if (nextPath !== currentPath) window.history.pushState({}, '', nextPath);
   };
 
+  const adoptUserLanguage = (nextUser: User, preferredLanguage?: 'rw' | 'en') => {
+    const language = preferredLanguage || userLanguage(nextUser);
+    if (language) publicLanguage.setLanguage(language);
+  };
+
+  const changeLanguage = async (nextLanguage: 'rw' | 'en') => {
+    if (publicLanguage.language === nextLanguage) return;
+    publicLanguage.setLanguage(nextLanguage);
+    if (!user) return;
+    try {
+      await api('/api/auth/profile', json('PATCH', { language: nextLanguage }));
+      setUser((current) => {
+        if (!current) return current;
+        const updated = { ...current, language: nextLanguage };
+        sessionStorage.setItem('milk-session-user', JSON.stringify(updated));
+        return updated;
+      });
+    } catch {
+      setError(publicLanguage.t('accountLanguageSaveError'));
+    }
+  };
+
   useEffect(() => {
     if (!mobileMoreOpen) return undefined;
     const closeOnEscape = (event: KeyboardEvent) => {
@@ -717,14 +768,21 @@ const visibleTabs = (isAdmin
       .then((result) => {
         if (!active) return;
         setUser(result.user);
+        adoptUserLanguage(result.user);
         sessionStorage.setItem('milk-session-user', JSON.stringify(result.user));
       })
       .catch((reason) => {
         if (!active) return;
         if (!navigator.onLine && storedUser) {
-          try { setUser(JSON.parse(storedUser) as User); } catch { sessionStorage.removeItem('milk-session-user'); }
+          try {
+            const restoredUser = JSON.parse(storedUser) as User;
+            setUser(restoredUser);
+            adoptUserLanguage(restoredUser);
+          } catch { sessionStorage.removeItem('milk-session-user'); }
         } else if (!(reason instanceof Error && 'status' in reason && reason.status === 401)) {
-          setAuthError('Unable to start Milk System. Check your connection or try again.');
+          if (!isAuthRoute) {
+            setAuthError('Unable to start Milk System. Check your connection or try again.');
+          }
         }
       })
       .finally(() => {
@@ -765,6 +823,7 @@ const visibleTabs = (isAdmin
       try {
         const result = await api<{ user: User }>('/api/auth/me');
         setUser(result.user);
+        adoptUserLanguage(result.user);
         sessionStorage.setItem('milk-session-user', JSON.stringify(result.user));
       } catch (reason) {
         const status = reason instanceof Error && 'status' in reason ? reason.status : null;
@@ -1599,14 +1658,42 @@ const visibleTabs = (isAdmin
   }, [user?.id, isCollector, tab, settlementMonth, settlementHalf]);
 
   const logout = async () => {
-    await api('/api/auth/logout', { method: 'POST' }).catch(() => null);
-    sessionStorage.removeItem('milk-session-user');
-    setUser(null);
+    if (logoutBusy) return;
+    setLogoutBusy(true);
+    clearMessages();
+    try {
+      const result = await api<{ ok: boolean }>('/api/auth/logout', { method: 'POST' });
+      if (!result?.ok) throw new Error('The session could not be closed.');
+      sessionStorage.removeItem('milk-session-user');
+      setLogoutConfirm(false);
+      setUser(null);
+      if (typeof window !== 'undefined') window.location.replace('/login');
+    } catch (reason) {
+      setError(reason instanceof Error && reason.message ? reason.message : publicLanguage.t('signOutError'));
+    } finally {
+      setLogoutBusy(false);
+    }
   };
 
+  const handleLogin = (signedIn: User, signInNotice?: string, preferredLanguage?: 'rw' | 'en') => {
+    const nextLanguage = preferredLanguage || userLanguage(signedIn);
+    if (nextLanguage) publicLanguage.setLanguage(nextLanguage);
+    const sessionUser = nextLanguage ? { ...signedIn, language: nextLanguage } : signedIn;
+    sessionStorage.setItem('milk-session-user', JSON.stringify(sessionUser));
+    setTabState('dashboard');
+    setUser(sessionUser);
+    if (signInNotice) setNotice(signInNotice);
+    if (preferredLanguage && preferredLanguage !== userLanguage(signedIn)) {
+      void api('/api/auth/profile', json('PATCH', { language: preferredLanguage })).catch(() => {
+        setError(publicLanguage.t('accountLanguageSaveError'));
+      });
+    }
+  };
+
+  if (!user && isAuthRoute) return <Login {...publicLanguage} onLogin={handleLogin} />;
   if (authLoading) return <main className="boot-screen"><BrandLockup imageSize={44} /><small className="boot-company">Milk System Technologies Ltd.</small><div className="loading-status" role="status" aria-live="polite"><span className="loading-indicator" aria-hidden="true" />{publicLanguage.t('loading')}</div></main>;
   if (authError) return <main className="boot-screen boot-screen-error"><BrandLockup imageSize={44} /><small className="boot-company">Milk System Technologies Ltd.</small><section className="boot-error-panel" role="alert"><h1>Unable to start Milk System.</h1><p>Please check your connection and try again.</p><button type="button" className="button button-primary" onClick={() => { setAuthError(''); setAuthLoading(true); setAuthAttempt((attempt) => attempt + 1); }}>Retry</button></section></main>;
-  if (!user) return <Login {...publicLanguage} onLogin={(signedIn, signInNotice) => { sessionStorage.setItem('milk-session-user', JSON.stringify(signedIn)); setTabState('dashboard'); setUser(signedIn); if (signInNotice) setNotice(signInNotice); }} />;
+  if (!user) return <Login {...publicLanguage} onLogin={handleLogin} />;
 
   const openIfishiForFarmer = (farmerId: number | null, farmerName?: string, farmerDetails?: Farmer) => {
     if (!farmerId) return;
@@ -2143,12 +2230,22 @@ const visibleTabs = (isAdmin
   };
 
   const adminAction = async (account: Account, action: string) => {
-    const confirmKey = action === 'suspend' ? 'adminSuspendConfirm' : 'adminReactivateConfirm';
-    if (!window.confirm(publicLanguage.t(confirmKey))) return;
+    if (action === 'resendVerification') {
+      if (!window.confirm(publicLanguage.t('resendVerificationConfirm'))) return;
+    } else {
+      const confirmKey = action === 'suspend' ? 'adminSuspendConfirm' : 'adminReactivateConfirm';
+      if (!window.confirm(publicLanguage.t(confirmKey))) return;
+    }
     await run(async () => {
       await api(`/api/admin/accounts/${account.user_id}/${action}`, json('POST', {}));
+      if (action === 'suspend') {
+        setNotice(publicLanguage.t('adminAccountSuspended'));
+      } else if (action === 'reactivate') {
+        setNotice(publicLanguage.t('adminAccountReactivated'));
+      } else if (action === 'resendVerification') {
+        setNotice(publicLanguage.t('emailVerificationResent'));
+      }
       await loadAccounts(accounts?.page || 1);
-      setNotice(publicLanguage.t(action === 'suspend' ? 'adminAccountSuspended' : 'adminAccountReactivated'));
     });
   };
 
@@ -2170,7 +2267,7 @@ const visibleTabs = (isAdmin
           : collectorAssignmentsError ? <div className="workspace-empty" role="alert"><b>{collectorAssignmentsError}</b><button type="button" className="button button-secondary small-button" onClick={() => loadCollectorAssignments().catch(() => undefined)}>Retry</button></div>
           : !selectedCenter ? <div className="workspace-empty" role="status"><b>No active Ikigo is available for this account.</b></div>
           : collectorAssignments.length ? <>
-          <div className="table-scroll abacunda-desktop-list"><table><thead><tr><th aria-sort={collectorAssignmentSortDirection === 'asc' ? 'ascending' : 'descending'}><button type="button" className="farmer-sort-button" onClick={() => { const direction = collectorAssignmentSortDirection === 'asc' ? 'desc' : 'asc'; setCollectorAssignmentSortDirection(direction); void loadCollectorAssignments(direction).catch((reason) => setError(reason.message)); }}>{publicLanguage.t('assignedCollectors')}{collectorAssignmentSortDirection === 'asc' ? <ArrowUp size={13} /> : <ArrowDown size={13} />}</button></th><th>{publicLanguage.t('accountNationalId')}</th><th>{publicLanguage.t('accountPhone')} / {publicLanguage.t('accountNumber')}</th><th>{publicLanguage.t('navAbacunda')}</th><th>{publicLanguage.t('navIfishi')}</th></tr></thead><tbody>{collectorAssignments.map((assignment) => <tr key={assignment.collector_user_id}><td className="strong-cell">{assignment.collector_name}</td><td>{assignment.collector_national_id || '—'}</td><td>{[assignment.collector_phone, assignment.collector_account_number].filter(Boolean).join(' / ') || '—'}</td><td>{assignment.abacunda_count}</td><td><button type="button" className="text-button" onClick={() => openAbacundaIfishi(assignment)}>{publicLanguage.t('navIfishi')}</button></td></tr>)}</tbody></table></div>
+          <div className="table-scroll abacunda-desktop-list"><table><thead><tr><th aria-sort={collectorAssignmentSortDirection === 'asc' ? 'ascending' : 'descending'}><button type="button" className="farmer-sort-button" onClick={() => { const direction = collectorAssignmentSortDirection === 'asc' ? 'desc' : 'asc'; setCollectorAssignmentSortDirection(direction); void loadCollectorAssignments(direction).catch((reason) => setError(reason.message)); }}>{publicLanguage.t('assignedCollectors')}{collectorAssignmentSortDirection === 'asc' ? <ArrowUp size={13} /> : <ArrowDown size={13} />}</button></th><th>{publicLanguage.t('accountNationalId')}</th><th>{publicLanguage.t('accountPhone')} / {publicLanguage.t('accountNumber')}</th><th>{publicLanguage.t('navAbacunda')}</th><th>{publicLanguage.t('navIfishi')}</th></tr></thead><tbody>{collectorAssignments.map((assignment, index) => <tr key={assignment.collector_user_id}><td>{index + 1}</td><td className="strong-cell">{assignment.collector_name}</td><td>{assignment.collector_national_id || '—'}</td><td>{[assignment.collector_phone, assignment.collector_account_number].filter(Boolean).join(' / ') || '—'}</td><td>{assignment.abacunda_count}</td><td><button type="button" className="text-button" onClick={() => openAbacundaIfishi(assignment)}>{publicLanguage.t('navIfishi')}</button></td></tr>)}</tbody></table></div>
           <div className="abacunda-mobile-list">{collectorAssignments.map((assignment) => <article className="abacunda-mobile-card" key={assignment.collector_user_id}><header><b>{assignment.collector_name}</b><span>{assignment.abacunda_count} {publicLanguage.t('navAbacunda').toLowerCase()}</span></header><p>{[assignment.collector_phone, assignment.collector_account_number].filter(Boolean).join(' / ') || '—'}</p><button type="button" className="button button-secondary small-button" onClick={() => openAbacundaIfishi(assignment)}><BookOpen size={15} />{publicLanguage.t('navIfishi')}</button></article>)}</div>
         </> : <div className="workspace-empty" role="status"><span className="workspace-empty-icon"><Users size={21} aria-hidden="true" /></span><b>{publicLanguage.t('noCollectorsLinked')}</b></div>}
       </section>
@@ -2199,7 +2296,7 @@ const visibleTabs = (isAdmin
         </form>
       </section> : null}
       <section className="panel panel-wide">
-        <div className="panel-heading"><div><span className="eyebrow">{isDairy ? publicLanguage.t('dashboardCenter') : publicLanguage.t('directory')}</span><h2>{publicLanguage.t('navFarmers')}</h2></div><div className="panel-heading-actions"><span className="count-label">{farmers ? `${farmers.data.length} ${publicLanguage.t('farmersLoaded')}` : '…'}{isDairy && selectedCenter ? ` · ${centers.find((center) => String(center.id) === selectedCenter)?.name || ''}` : !isDairy ? ` · ${publicLanguage.t('pageSize')}` : ''}</span><button type="button" className="button button-primary small-button" onClick={() => { setFarmerCreateError(''); setFarmerCreateOpen(true); }} disabled={Boolean((isCollector || isDairy) && !selectedCenter)}><Plus size={15} aria-hidden="true" />{publicLanguage.t('farmersAdd')}</button></div></div>
+        <div className="panel-heading"><div><span className="eyebrow">{isDairy ? publicLanguage.t('dashboardCenter') : publicLanguage.t('directory')}</span><h2>{publicLanguage.t('navFarmers')}</h2></div><div className="panel-heading-actions"><span className="count-label">{farmers ? formatPublicCopy(publicLanguage.language, 'farmersFound', 'Farmers found: {count}', { count: farmers.data.length }) : '…'}{isDairy && selectedCenter ? ` · ${centers.find((center) => String(center.id) === selectedCenter)?.name || ''}` : !isDairy ? ` · ${publicLanguage.t('pageSize')}` : ''}{collectorAssignments.length > 0 ? ` · ${formatPublicCopy(publicLanguage.language, 'collectorsFound', 'Collectors found: {count}', { count: collectorAssignments.length })}` : ''}</span>{isCollector || isDairy ? <button type="button" className="button button-secondary small-button" onClick={() => setFarmerImportOpen(true)} disabled={!centers.length}><Upload size={15} aria-hidden="true" />{getImportCopy(publicLanguage.language, 'openFarmerImport')}</button> : null}<button type="button" className="button button-primary small-button" onClick={() => { setFarmerCreateError(''); setFarmerCreateOpen(true); }} disabled={Boolean((isCollector || isDairy) && !selectedCenter)}><Plus size={15} aria-hidden="true" />{publicLanguage.t('farmersAdd')}</button></div></div>
         <div className="toolbar farmers-toolbar">
           <form className={['search', 'form'].join('-')} onSubmit={(event) => { event.preventDefault(); setFarmerSearch(farmerQuery.trim()); }}><Search size={17} /><input aria-label={publicLanguage.t('farmersSearchPlaceholder')} placeholder={publicLanguage.t('farmersSearchPlaceholder')} value={farmerQuery} onChange={(event) => setFarmerQuery(event.target.value)} /><button className="button button-secondary">{publicLanguage.t('search')}</button></form>
           {isDairy ? centers.length > 1 ? <select aria-label="Active Ikigo" value={selectedCenter} onChange={(event) => setSelectedCenter(event.target.value)}>{centers.map((center) => <option key={center.id} value={String(center.id)}>{center.name}</option>)}</select> : null : <select aria-label={publicLanguage.t('allCenters')} value={farmerCenter} onChange={(event) => setFarmerCenter(event.target.value)}><option value="">{publicLanguage.t('allCenters')}</option>{centers.map((center) => <option key={center.id} value={center.name}>{center.name}</option>)}</select>}
@@ -2253,7 +2350,7 @@ const visibleTabs = (isAdmin
           })}
           <th>{publicLanguage.t('actions')}</th>
         </tr></thead><tbody>
-          {(farmers?.data || []).map((farmer) => <tr key={farmer.id}><td className="strong-cell">{farmer.name}</td><td>{farmer.location || '—'}</td><td>{farmer.phone || '—'}</td><td>{farmer.nationalId || '—'}</td><td>{farmer.collectionCenter || '—'}</td><td className="actions-cell"><button className="text-button" onClick={() => editFarmerStart(farmer)}>{publicLanguage.t('edit')}</button><button className="text-button danger-text" onClick={() => deleteFarmer(farmer)}>{publicLanguage.t('delete')}</button></td></tr>)}
+          {(farmers?.data || []).map((farmer, index) => <tr key={farmer.id}><td>{index + 1}</td><td className="strong-cell">{farmer.name}</td><td>{farmer.location || '—'}</td><td>{farmer.phone || '—'}</td><td>{farmer.nationalId || '—'}</td><td>{farmer.collectionCenter || '—'}</td><td className="actions-cell"><button className="text-button" onClick={() => editFarmerStart(farmer)}>{publicLanguage.t('edit')}</button><button className="text-button danger-text" onClick={() => deleteFarmer(farmer)}>{publicLanguage.t('delete')}</button></td></tr>)}
         </tbody></table></div>
         {farmers ? farmers.data.length ? <div className="farmer-mobile-list">{farmers.data.map((farmer) => <article className="farmer-mobile-card" key={farmer.id}><header><b>{farmer.name}</b><span>{farmer.collectionCenter || farmer.location || '—'}</span></header><dl><div><dt>{publicLanguage.t('columnLocation')}</dt><dd>{farmer.location || '—'}</dd></div><div><dt>{publicLanguage.t('columnPhone')}</dt><dd>{farmer.phone || '—'}</dd></div><div><dt>{publicLanguage.t('columnNationalId')}</dt><dd>{farmer.nationalId || '—'}</dd></div><div><dt>{publicLanguage.t('columnCenter')}</dt><dd>{farmer.collectionCenter || '—'}</dd></div>{!isDairy ? <div><dt>{publicLanguage.t('assignedCollector')}</dt><dd>{getFarmerCollectorName(farmer.collectorUserId)}</dd></div> : null}</dl><footer><button type="button" className="button button-secondary small-button" onClick={() => openIfishiForFarmer(farmer.id, farmer.name)}><BookOpen size={15} />{publicLanguage.t('navIfishi')}</button><button className="button button-secondary small-button" onClick={() => editFarmerStart(farmer)}>{publicLanguage.t('edit')}</button><button className="button button-secondary small-button danger-text" onClick={() => deleteFarmer(farmer)}>{publicLanguage.t('delete')}</button></footer></article>)}</div> : <div className="workspace-empty" role="status"><span className="workspace-empty-icon"><Users size={21} aria-hidden="true" /></span><div><b>{publicLanguage.t('farmersEmptyTitle')}</b><p>{publicLanguage.t('farmersEmptyBody')}</p></div>{farmerSearch || farmerCenter || farmerCollectorFilter ? <button type="button" className="button button-secondary small-button" onClick={() => { setFarmerSearch(''); setFarmerQuery(''); setFarmerCenter(''); setFarmerCollectorFilter(''); }}>{publicLanguage.t('milkClearSearch')}</button> : <button type="button" className="button button-primary small-button" onClick={() => { setFarmerCreateError(''); setFarmerCreateOpen(true); }}><Plus size={15} />{publicLanguage.t('farmersAdd')}</button>}</div> : <div className="workspace-empty workspace-loading" role="status"><span className="loading-indicator" />{publicLanguage.t('dashboardLoading')}</div>}
         {farmers?.hasMore ? <div className="panel-footer"><button className="button button-secondary" onClick={() => loadFarmers(farmers.nextCursor, true)}>{publicLanguage.t('milkLoadMore')} <ChevronDown size={16} /></button></div> : null}
@@ -2390,6 +2487,7 @@ const visibleTabs = (isAdmin
           <option value="totalVolume:desc">{publicLanguage.t('milkTotal')} ↓</option>
         </select></label>
         <label><span>{publicLanguage.t('milkPageSize')}</span><select value={dailyPageSize} onChange={(event) => setDailyPageSize(Number(event.target.value))}><option value={10}>10</option><option value={25}>25</option><option value={50}>50</option><option value={100}>100</option></select></label>
+        {isCollector ? <button type="button" className="button button-secondary small-button" onClick={() => setMilkImportOpen(true)}><Upload size={15} aria-hidden="true" />{getImportCopy(publicLanguage.language, 'openMilkScanner')}</button> : null}
         {centers.length && (
           <button type="button" className="button button-secondary small-button" onClick={() => {
             setLossEventPercentage('');
@@ -2711,13 +2809,13 @@ const visibleTabs = (isAdmin
       <section className="dashboard-overview">
         <div className="dashboard-today">
           <div className="dashboard-today-heading"><div><span className="eyebrow">{publicLanguage.t('dashboardToday')}</span><h2>{dateLabel}</h2></div><CalendarDays size={20} aria-hidden="true" /></div>
-          <div className="dashboard-volume"><strong>{dashboardLoading ? '…' : liters(dailySummary.totalVolume)}</strong><span>L</span></div>
-          <div className="dashboard-split"><div><span>{publicLanguage.t('dashboardMorning')}</span><b>{dashboardLoading ? '…' : `${liters(dailySummary.totalMorning)} L`}</b></div><div><span>{publicLanguage.t('dashboardEvening')}</span><b>{dashboardLoading ? '…' : `${liters(dailySummary.totalEvening)} L`}</b></div></div>
+          <div className="dashboard-volume"><strong>{dashboardLoading ? '…' : <AnimatedCounter value={dailySummary.totalVolume} formatter={liters} />}</strong><span>L</span></div>
+          <div className="dashboard-split"><div><span>{publicLanguage.t('dashboardMorning')}</span><b>{dashboardLoading ? '…' : <><AnimatedCounter value={dailySummary.totalMorning} formatter={liters} /> L</>}</b></div><div><span>{publicLanguage.t('dashboardEvening')}</span><b>{dashboardLoading ? '…' : <><AnimatedCounter value={dailySummary.totalEvening} formatter={liters} /> L</>}</b></div></div>
           {isCollector ? <div className="dashboard-milk-reconciliation">
             <h3>{publicLanguage.t('dashboardMilkComparison')}</h3>
             {dashboardOwnerMilk.status === 'loading' ? <p>{publicLanguage.t('dashboardComparisonLoading')}</p> : <>
-              <div><span>{publicLanguage.t('dashboardFarmerMilk')}</span><b>{liters(dailySummary.totalVolume)} L</b></div>
-              <div><span>{publicLanguage.t('dashboardOwnerMilk')}</span><b>{dashboardOwnerMilk.status === 'available' ? `${liters(dashboardOwnerMilk.validVolumeLiters)} L` : '—'}</b></div>
+              <div><span>{publicLanguage.t('dashboardFarmerMilk')}</span><b><AnimatedCounter value={dailySummary.totalVolume} formatter={liters} /> L</b></div>
+              <div><span>{publicLanguage.t('dashboardOwnerMilk')}</span><b>{dashboardOwnerMilk.status === 'available' ? <><AnimatedCounter value={dashboardOwnerMilk.validVolumeLiters} formatter={liters} /> L</> : '—'}</b></div>
               <div><span>{publicLanguage.t('dashboardMilkDifference')}</span><b>{milkDifference ? `${signedLiters(milkDifference.difference)} L` : '—'}</b></div>
               {dashboardOwnerMilk.status === 'available' && milkDifference ? <small>{publicLanguage.t(milkDifference.higherSide === 'owner' ? 'dashboardOwnerHigher' : milkDifference.higherSide === 'farmers' ? 'dashboardFarmersHigher' : 'dashboardMilkEqual')} · {publicLanguage.t('dashboardMorning')} {liters(dashboardOwnerMilk.volumeMorning)} L · {publicLanguage.t('dashboardEvening')} {liters(dashboardOwnerMilk.volumeEvening)} L</small> : null}
               {dashboardOwnerMilk.status === 'missing' ? <p>{publicLanguage.t('dashboardOwnerMilkMissing')}</p> : null}
@@ -2731,10 +2829,10 @@ const visibleTabs = (isAdmin
       </section>
 
       <section className="dashboard-metrics" aria-label={publicLanguage.t('dashboardToday')}>
-        <div><span>{accountCopy('dashboardFarmers', 'dashboardAbacundaToday')}</span><b>{dashboardLoading ? '…' : `${dailySummary.presentCount} / ${dailySummary.totalFarmers}`}</b></div>
+        <div><span>{accountCopy('dashboardFarmers', 'dashboardAbacundaToday')}</span><b>{dashboardLoading ? '…' : <><AnimatedCounter value={dailySummary.presentCount} /> / <AnimatedCounter value={dailySummary.totalFarmers} /></>}</b></div>
         <div><span>{publicLanguage.t('dashboardCenter')}</span><b>{dashboardLoading ? '…' : centerLabel}</b></div>
         <div><span>{publicLanguage.t('dashboardPeriod')}</span><b>{dashboardLoading ? '…' : periodStart && periodEnd && periodMonth ? `${publicLanguage.t('dashboardUkwezi')} ${Number(periodStart)}–${Number(periodEnd)} · ${periodMonth}` : '—'}</b></div>
-        <button type="button" onClick={() => setTab('notifications')}><span>{publicLanguage.t('dashboardUnread')}</span><b>{unreadCount === null ? '…' : unreadCount}</b><Bell size={17} aria-hidden="true" /></button>
+        <button type="button" onClick={() => setTab('notifications')}><span>{publicLanguage.t('dashboardUnread')}</span><b>{unreadCount === null ? '…' : <AnimatedCounter value={unreadCount} fallback="…" />}</b><Bell size={17} aria-hidden="true" /></button>
       </section>
 
       <section className="dashboard-lower">
@@ -2743,7 +2841,7 @@ const visibleTabs = (isAdmin
           {dashboardLoading ? <p className="dashboard-state">{publicLanguage.t('dashboardLoading')}</p> : recentRows.length ? <div className="dashboard-activity-list">{recentRows.map((row) => <div className="dashboard-activity-row" key={row.recordId}><span className="dashboard-activity-icon"><Milk size={16} aria-hidden="true" /></span><div><b>{row.farmerName}</b><small>{row.collectionCenter || dailyCenter || ''}</small></div><strong>{liters(row.totalVolume)} L</strong></div>)}</div> : <p className="dashboard-state">{publicLanguage.t('dashboardNoActivity')}</p>}
         </div>
         <div className="dashboard-side">
-          <section className="panel dashboard-accounting"><div className="panel-heading"><div><span className="eyebrow">{publicLanguage.t('dashboardPeriod')}</span><h2>{publicLanguage.t('dashboardAccounting')}</h2></div><Wallet size={19} aria-hidden="true" /></div><dl><div><dt>{publicLanguage.t('dashboardDeductions')}</dt><dd>{dashboardLoading || !report ? '…' : `${money(report.totalDeductionsMonth)} RWF`}</dd></div><div><dt>{publicLanguage.t('dashboardNet')}</dt><dd>{dashboardLoading || !report ? '…' : `${money(report.netRevenueMonth)} RWF`}</dd></div>{isCollector ? <div><dt>{publicLanguage.t('dashboardPayable')}</dt><dd>{dashboardLoading || !report || report.collectorPayable === null ? '—' : `${money(report.collectorPayable)} RWF`}</dd></div> : null}</dl></section>
+          <section className="panel dashboard-accounting"><div className="panel-heading"><div><span className="eyebrow">{publicLanguage.t('dashboardPeriod')}</span><h2>{publicLanguage.t('dashboardAccounting')}</h2></div><Wallet size={19} aria-hidden="true" /></div><dl><div><dt>{publicLanguage.t('dashboardDeductions')}</dt><dd>{dashboardLoading || !report ? '…' : <><AnimatedCounter value={report.totalDeductionsMonth} formatter={money} /> RWF</>}</dd></div><div><dt>{publicLanguage.t('dashboardNet')}</dt><dd>{dashboardLoading || !report ? '…' : <><AnimatedCounter value={report.netRevenueMonth} formatter={money} /> RWF</>}</dd></div>{isCollector ? <div><dt>{publicLanguage.t('dashboardPayable')}</dt><dd>{dashboardLoading || !report || report.collectorPayable === null ? '—' : <><AnimatedCounter value={report.collectorPayable} formatter={money} /> RWF</>}</dd></div> : null}</dl></section>
           <button type="button" className="panel dashboard-subscription" onClick={() => setTab('billing')}><span><span className="eyebrow">{publicLanguage.t('dashboardSubscription')}</span><b>{subscriptionStatusLabel(billing?.subscription?.effective_status || billing?.subscription?.status)}</b></span><ArrowRight size={17} aria-hidden="true" /></button>
         </div>
       </section>
@@ -3151,27 +3249,27 @@ const visibleTabs = (isAdmin
                   <motion.div className="reports-kpi-card" whileHover={{ y: -2 }} transition={{ duration: 0.2 }}>
                     <div className="reports-kpi-icon"><Milk size={16} aria-hidden="true" /></div>
                     <span className="reports-kpi-label">{publicLanguage.t('reportsVolume')}</span>
-                    <span className="reports-kpi-value">{liters(volume)} L</span>
+                    <span className="reports-kpi-value"><AnimatedCounter value={volume} formatter={liters} /> L</span>
                   </motion.div>
                   <motion.div className="reports-kpi-card" whileHover={{ y: -2 }} transition={{ duration: 0.2 }}>
                     <div className="reports-kpi-icon"><BadgeDollarSign size={16} aria-hidden="true" /></div>
                     <span className="reports-kpi-label">{publicLanguage.t('reportsRevenue')}</span>
-                    <span className={`reports-kpi-value${grossMissing ? ' is-missing' : ''}`}>{grossMissing ? publicLanguage.t('reportsIncomplete') : `${money(gross)} RWF`}</span>
+                    <span className={`reports-kpi-value${grossMissing ? ' is-missing' : ''}`}>{grossMissing ? publicLanguage.t('reportsIncomplete') : <><AnimatedCounter value={gross} formatter={money} /> RWF</>}</span>
                   </motion.div>
                   <motion.div className="reports-kpi-card" whileHover={{ y: -2 }} transition={{ duration: 0.2 }}>
                     <div className="reports-kpi-icon"><Truck size={16} aria-hidden="true" /></div>
                     <span className="reports-kpi-label">{publicLanguage.t('reportsTransport')}</span>
-                    <span className={`reports-kpi-value${transportMissing ? ' is-missing' : ''}`}>{transportMissing ? publicLanguage.t('reportsIncomplete') : `${money(transport)} RWF`}</span>
+                    <span className={`reports-kpi-value${transportMissing ? ' is-missing' : ''}`}>{transportMissing ? publicLanguage.t('reportsIncomplete') : <><AnimatedCounter value={transport} formatter={money} /> RWF</>}</span>
                   </motion.div>
                   <motion.div className="reports-kpi-card" whileHover={{ y: -2 }} transition={{ duration: 0.2 }}>
                     <div className="reports-kpi-icon"><ReceiptText size={16} aria-hidden="true" /></div>
                     <span className="reports-kpi-label">{publicLanguage.t('dashboardDeductions')}</span>
-                    <span className="reports-kpi-value">{money(deductions)} RWF</span>
+                    <span className="reports-kpi-value"><AnimatedCounter value={deductions} formatter={money} /> RWF</span>
                   </motion.div>
                   <motion.div className="reports-kpi-card" whileHover={{ y: -2 }} transition={{ duration: 0.2 }}>
                     <div className="reports-kpi-icon"><Wallet size={16} aria-hidden="true" /></div>
                     <span className="reports-kpi-label">{publicLanguage.t('reportsNet')}</span>
-                    <span className={`reports-kpi-value${netMissing ? ' is-missing' : ''}`}>{netMissing ? publicLanguage.t('reportsIncomplete') : `${money(net)} RWF`}</span>
+                    <span className={`reports-kpi-value${netMissing ? ' is-missing' : ''}`}>{netMissing ? publicLanguage.t('reportsIncomplete') : <><AnimatedCounter value={net} formatter={money} /> RWF</>}</span>
                   </motion.div>
                 </div>
 
@@ -3445,13 +3543,17 @@ const visibleTabs = (isAdmin
 
         <section className="panel account-settings-preferences">
           <div className="panel-heading"><div><span className="eyebrow">{publicLanguage.t('accountLanguage')}</span><h2>{publicLanguage.t('languageLabel')}</h2></div></div>
-          <div className="account-settings-quick-actions">
-            <div className="language-setting"><span>{publicLanguage.t('accountLanguage')}</span><div className="public-language-switch" role="group" aria-label={publicLanguage.t('languageLabel')}>
-              <button type="button" aria-label={publicLanguage.t('languageKinyarwanda')} aria-pressed={publicLanguage.language === 'rw'} onClick={() => { publicLanguage.setLanguage('rw'); void api('/api/auth/profile', json('PATCH', { language: 'rw' })).catch(() => setError(publicLanguage.t('accountLanguageSaveError'))); }}>RW</button>
-              <button type="button" aria-label={publicLanguage.t('languageEnglish')} aria-pressed={publicLanguage.language === 'en'} onClick={() => { publicLanguage.setLanguage('en'); void api('/api/auth/profile', json('PATCH', { language: 'en' })).catch(() => setError(publicLanguage.t('accountLanguageSaveError'))); }}>EN</button>
-            </div></div>
+          <p className="muted-note">{publicLanguage.t('accountLanguageHeaderHint')}</p>
+        </section>
+
+        <section className="panel account-settings-logout">
+          <div className="panel-heading"><div><span className="eyebrow">{publicLanguage.t('accountManagement')}</span><h2>{publicLanguage.t('signOut')}</h2></div></div>
+          <div className="panel-settings-actions">
+            <button type="button" className="button button-danger button-block" onClick={() => setLogoutConfirm(true)} disabled={logoutBusy}>{publicLanguage.t('signOut')}</button>
           </div>
         </section>
+
+        {logoutConfirm ? <div className="workspace-empty" role="status"><span className="workspace-empty-icon"><RotateCcw size={24} aria-hidden="true" /></span><div><b>{publicLanguage.t('logoutConfirm')}</b></div><div className="form-actions"><button type="button" className="button button-primary" onClick={() => void logout()} disabled={logoutBusy}>{publicLanguage.t('signOut')}</button><button type="button" className="button button-secondary" onClick={() => setLogoutConfirm(false)}>{publicLanguage.t('cancel')}</button></div></div> : null}
 
         <section className="panel account-settings-security">
           <div className="panel-heading"><div><span className="eyebrow">{publicLanguage.t('accountSecurity')}</span><h2>{publicLanguage.t('accountChangePassword')}</h2></div><Shield size={20} aria-hidden="true" /></div>
@@ -3643,7 +3745,7 @@ const visibleTabs = (isAdmin
 
   const renderAdminAccounts = () => {
     const totalPages = Math.max(1, Math.ceil((accounts?.total || 0) / ACCOUNT_PAGE_SIZE));
-    return <section className="panel"><div className="panel-heading"><div><span className="eyebrow">{publicLanguage.t('platform')}</span><h2>{publicLanguage.t('customerAccounts')}</h2></div><span className="count-label">{accounts ? `${accounts.total} ${publicLanguage.t('accountsCount')} ` : '…'}</span></div><div className="toolbar"><form className="search-form" onSubmit={(event) => { event.preventDefault(); void loadAccounts(1).catch((reason) => setError(reason.message)); }}><Search size={17} /><input placeholder={publicLanguage.t('searchNameEmail')} value={accountSearch} onChange={(event) => setAccountSearch(event.target.value)} /><button className="button button-secondary">{publicLanguage.t('search')}</button></form><select value={accountStatus} onChange={(event) => { const nextStatus = event.target.value; setAccountStatus(nextStatus); void loadAccounts(1, { status: nextStatus }).catch((reason) => setError(reason.message)); }}><option value="">{publicLanguage.t('allStatuses')}</option>{Object.keys(accountStatusCopy).map((status) => <option key={status} value={status}>{publicLanguage.t(accountStatusCopy[status as keyof typeof accountStatusCopy])}</option>)}</select></div><div className="table-scroll"><table><thead><tr><th>{publicLanguage.t('account')}</th><th>{publicLanguage.t('accountType')}</th><th>{publicLanguage.t('status')}</th><th>{publicLanguage.t('emailVerificationStatus')}</th><th>{publicLanguage.t('farmers')}</th><th>{publicLanguage.t('navCenters')}</th><th>{publicLanguage.t('actions')}</th></tr></thead><tbody>{accounts?.accounts.map((account) => <tr key={account.user_id}><td><b>{account.account_name}</b><small className="block-muted">{account.account_email}</small></td><td>{account.account_type === 'COLLECTION_CENTER' ? publicLanguage.t('collectionCenter') : publicLanguage.t('collector')}</td><td>{publicLanguage.t(accountStatusCopy[(account.effective_status || account.account_status) as keyof typeof accountStatusCopy] || 'statusActive')}{account.account_status === 'not_approved' ? <small className="block-muted">{publicLanguage.t('adminNotApprovedNoWorkflow')}</small> : null}</td><td>{account.email_verified ? publicLanguage.t('emailVerifiedValue') : publicLanguage.t('emailNotVerifiedValue')}</td><td>{account.farmer_count}</td><td>{account.center_count}</td><td className="actions-cell"><button type="button" className="text-button" onClick={() => { void loadAdminAccountDetails(account.user_id); }}>{publicLanguage.t('adminViewAccount')}</button><button className="text-button" onClick={() => adminAction(account, account.account_status === 'suspended' ? 'reactivate' : 'suspend')}>{publicLanguage.t(account.account_status === 'suspended' ? 'reactivate' : 'suspend')}</button></td></tr>)}</tbody></table></div>{accounts ? <div className="panel-footer admin-payment-pagination"><span>{accounts.page} / {totalPages}</span><div><button type="button" className="button button-secondary small-button" disabled={accounts.page <= 1} onClick={() => { void loadAccounts(accounts.page - 1).catch((reason) => setError(reason.message)); }}>{publicLanguage.t('previousPage')}</button><button type="button" className="button button-secondary small-button" disabled={accounts.page >= totalPages} onClick={() => { void loadAccounts(accounts.page + 1).catch((reason) => setError(reason.message)); }}>{publicLanguage.t('nextPage')}</button></div></div> : null}</section>;
+    return <section className="panel"><div className="panel-heading"><div><span className="eyebrow">{publicLanguage.t('platform')}</span><h2>{publicLanguage.t('customerAccounts')}</h2></div><span className="count-label">{accounts ? `${accounts.total} ${publicLanguage.t('accountsCount')} ` : '…'}</span></div><div className="toolbar"><form className="search-form" onSubmit={(event) => { event.preventDefault(); void loadAccounts(1).catch((reason) => setError(reason.message)); }}><Search size={17} /><input placeholder={publicLanguage.t('searchNameEmail')} value={accountSearch} onChange={(event) => setAccountSearch(event.target.value)} /><button className="button button-secondary">{publicLanguage.t('search')}</button></form><select value={accountStatus} onChange={(event) => { const nextStatus = event.target.value; setAccountStatus(nextStatus); void loadAccounts(1, { status: nextStatus }).catch((reason) => setError(reason.message)); }}><option value="">{publicLanguage.t('allStatuses')}</option>{Object.keys(accountStatusCopy).map((status) => <option key={status} value={status}>{publicLanguage.t(accountStatusCopy[status as keyof typeof accountStatusCopy])}</option>)}</select></div><div className="table-scroll"><table><thead><tr><th>{publicLanguage.t('account')}</th><th>{publicLanguage.t('accountType')}</th><th>{publicLanguage.t('status')}</th><th>{publicLanguage.t('emailVerificationStatus')}</th><th>{publicLanguage.t('farmers')}</th><th>{publicLanguage.t('navCenters')}</th><th>{publicLanguage.t('actions')}</th></tr></thead><tbody>{accounts?.accounts.map((account) => <tr key={account.user_id}><td><b>{account.account_name}</b><small className="block-muted">{account.account_email}</small></td><td>{account.account_type === 'COLLECTION_CENTER' ? publicLanguage.t('collectionCenter') : publicLanguage.t('collector')}</td><td>{publicLanguage.t(accountStatusCopy[(account.effective_status || account.account_status) as keyof typeof accountStatusCopy] || 'statusActive')}{account.account_status === 'not_approved' ? <small className="block-muted">{publicLanguage.t('adminNotApprovedNoWorkflow')}</small> : null}</td><td>{account.email_verified ? publicLanguage.t('emailVerifiedValue') : publicLanguage.t('emailNotVerifiedValue')}</td><td>{account.farmer_count}</td><td>{account.center_count}</td><td className="actions-cell"><button type="button" className="text-button" onClick={() => { void loadAdminAccountDetails(account.user_id); }}>{publicLanguage.t('adminViewAccount')}</button>{account.email_verified ? null : <button type="button" className="text-button" onClick={() => void adminAction(account, 'resendVerification')} disabled={busy}>{publicLanguage.t('resendVerificationEmail')}</button>}<button className="text-button" onClick={() => adminAction(account, account.account_status === 'suspended' ? 'reactivate' : 'suspend')}>{publicLanguage.t(account.account_status === 'suspended' ? 'reactivate' : 'suspend')}</button></td></tr>)}</tbody></table></div>{accounts ? <div className="panel-footer admin-payment-pagination"><span>{accounts.page} / {totalPages}</span><div><button type="button" className="button button-secondary small-button" disabled={accounts.page <= 1} onClick={() => { void loadAccounts(accounts.page - 1).catch((reason) => setError(reason.message)); }}>{publicLanguage.t('previousPage')}</button><button type="button" className="button button-secondary small-button" disabled={accounts.page >= totalPages} onClick={() => { void loadAccounts(accounts.page + 1).catch((reason) => setError(reason.message)); }}>{publicLanguage.t('nextPage')}</button></div></div> : null}</section>;
   };
 
   const renderAdminAccountDetailsModal = () => (
@@ -3720,8 +3822,8 @@ const visibleTabs = (isAdmin
 
     return <div className="dashboard-view admin-dashboard">
       <section className="dashboard-metrics" aria-label={publicLanguage.t('adminAccountsOverview')}>
-        {metrics.map((metric) => <div key={metric.label}><span>{metric.label}</span><b>{metric.value ?? '…'}</b></div>)}
-        <div><span>{publicLanguage.t('adminRegistrations')}</span><b>{adminSummary?.registrations_last_30_days ?? '…'}</b></div>
+        {metrics.map((metric) => <div key={metric.label}><span>{metric.label}</span><b>{metric.value != null ? <AnimatedCounter value={metric.value} /> : '…'}</b></div>)}
+        <div><span>{publicLanguage.t('adminRegistrations')}</span><b>{adminSummary?.registrations_last_30_days != null ? <AnimatedCounter value={adminSummary.registrations_last_30_days} /> : '…'}</b></div>
       </section>
       <section className="dashboard-quick panel">
         <div className="panel-heading"><div><span className="eyebrow">{publicLanguage.t('platformAdmin')}</span><h2>{publicLanguage.t('adminGovernanceActions')}</h2></div><Shield size={20} aria-hidden="true" /></div>
@@ -3877,22 +3979,32 @@ const visibleTabs = (isAdmin
           <div><dt>{publicLanguage.t('healthProvider')}</dt><dd>{systemHealth.email.provider || '—'}</dd></div>
           <div><dt>{publicLanguage.t('healthSenderDomain')}</dt><dd>{systemHealth.email.senderDomain || '—'}</dd></div>
           <div><dt>{publicLanguage.t('databaseMigrations')}</dt><dd>{systemHealth.migrations.appliedCount} / {systemHealth.migrations.requiredCount}</dd></div>
+          <div><dt>{publicLanguage.t('healthAppUrl')}</dt><dd>{systemHealth.appUrl.url || publicLanguage.t('healthNotConfigured')}</dd></div>
           <div><dt>{publicLanguage.t('healthNotificationSchema')}</dt><dd>{systemHealth.migrations.missingColumns.length ? `${publicLanguage.t('healthMissing')}: ${systemHealth.migrations.missingColumns.join(', ')}` : publicLanguage.t('healthApplied')}</dd></div>
           <div><dt>{publicLanguage.t('healthPending')}</dt><dd>{systemHealth.emailOutbox.pending}</dd></div>
           <div><dt>{publicLanguage.t('healthProcessing')}</dt><dd>{systemHealth.emailOutbox.processing}</dd></div>
           <div><dt>{publicLanguage.t('healthStuck')}</dt><dd>{systemHealth.emailOutbox.stuck}</dd></div>
+          <div><dt>{publicLanguage.t('healthNeverAttempted')}</dt><dd>{systemHealth.emailOutbox.neverAttempted}</dd></div>
+          <div><dt>{publicLanguage.t('healthOldestPendingAge')}</dt><dd>{systemHealth.emailOutbox.oldestPendingAgeHours === null ? publicLanguage.t('healthNotRecorded') : systemHealth.emailOutbox.oldestPendingAgeHours}</dd></div>
           <div><dt>{publicLanguage.t('healthFailedAttempts')}</dt><dd>{systemHealth.emailOutbox.failedAttempts}</dd></div>
           <div><dt>{publicLanguage.t('healthFailedRecent')}</dt><dd>{systemHealth.payments.failedRecent}</dd></div>
           <div><dt>{publicLanguage.t('healthStalePending')}</dt><dd>{systemHealth.payments.stalePending}</dd></div>
+          <div><dt>{publicLanguage.t('healthProviderReady')}</dt><dd>{systemHealth.payments.provider.ready ? publicLanguage.t('healthConfigured') : publicLanguage.t('healthNotConfigured')}</dd></div>
+          <div><dt>{publicLanguage.t('healthRealPayments')}</dt><dd>{systemHealth.payments.provider.realPaymentsEnabled ? publicLanguage.t('healthConfigured') : publicLanguage.t('healthNotConfigured')}</dd></div>
           <div><dt>{publicLanguage.t('healthCronSecretConfigured')}</dt><dd>{systemHealth.scheduler.secretConfigured ? publicLanguage.t('healthConfigured') : publicLanguage.t('healthCronSecretMissing')}</dd></div>
-          <div><dt>{publicLanguage.t('healthSubscriptionEmailJob')}</dt><dd>{publicLanguage.t('healthDaily')}</dd></div>
-          <div><dt>{publicLanguage.t('notificationEvaluationStatus')}</dt><dd>{publicLanguage.t('healthCadenceNotDocumented')}</dd></div>
+          <div><dt>{publicLanguage.t('healthScheduleConfigured')}</dt><dd>{systemHealth.scheduler.configured ? publicLanguage.t('healthConfigured') : publicLanguage.t('healthNotConfigured')}</dd></div>
+          <div><dt>{publicLanguage.t('healthSubscriptionEmailJob')}</dt><dd>{systemHealth.scheduler.jobs.find((job) => job.id === 'subscription_emails')?.scheduled ? publicLanguage.t('healthScheduled') : publicLanguage.t('healthNotScheduled')} · {publicLanguage.t('healthDaily')}</dd></div>
+          <div><dt>{publicLanguage.t('notificationEvaluationStatus')}</dt><dd>{systemHealth.scheduler.jobs.find((job) => job.id === 'notification_evaluation')?.scheduled ? publicLanguage.t('healthScheduled') : publicLanguage.t('healthNotScheduled')} · {publicLanguage.t('healthCadenceNotDocumented')}</dd></div>
+          <div><dt>{publicLanguage.t('healthLastRun')} · {publicLanguage.t('healthSubscriptionEmailJob')}</dt><dd>{systemHealth.scheduler.jobs.find((job) => job.id === 'subscription_emails')?.lastRunAt ? formatDateLabel(systemHealth.scheduler.jobs.find((job) => job.id === 'subscription_emails')!.lastRunAt!, publicLanguage.language, { day: 'numeric', month: 'short', time: 'short' }) : publicLanguage.t('healthNotRecorded')} · {systemHealth.scheduler.jobs.find((job) => job.id === 'subscription_emails')?.lastResult || publicLanguage.t('healthNotRecorded')}{systemHealth.scheduler.jobs.find((job) => job.id === 'subscription_emails')?.lastErrorCode ? ` (${systemHealth.scheduler.jobs.find((job) => job.id === 'subscription_emails')!.lastErrorCode})` : ''}</dd></div>
+          <div><dt>{publicLanguage.t('healthLastRun')} · {publicLanguage.t('notificationEvaluationStatus')}</dt><dd>{systemHealth.notificationEvaluation.lastRunAt ? formatDateLabel(systemHealth.notificationEvaluation.lastRunAt, publicLanguage.language, { day: 'numeric', month: 'short', time: 'short' }) : publicLanguage.t('healthNotRecorded')} · {systemHealth.notificationEvaluation.lastResult || publicLanguage.t('healthNotRecorded')}{systemHealth.notificationEvaluation.lastErrorCode ? ` (${systemHealth.notificationEvaluation.lastErrorCode})` : ''}</dd></div>
           <div><dt>{publicLanguage.t('healthRoutes')}</dt><dd>{systemHealth.scheduler.routes.join(' · ')}</dd></div>
         </dl>
         {systemHealth.migrations.missing.length ? <p className="form-error" role="alert">{publicLanguage.t('healthMissing')}: {systemHealth.migrations.missing.join(', ')}</p> : null}
         <p className="block-muted">{publicLanguage.t(systemHealth.email.configured ? 'healthEmailConfiguredDetail' : 'healthEmailNotConfiguredDetail')}</p>
-        <p className="block-muted">{publicLanguage.t('healthSchedulerUnavailable')}</p>
-        <p className="block-muted">{publicLanguage.t('healthEvaluationUnavailable')}</p>
+        <p className="block-muted">{publicLanguage.t('healthSchedulerDetail')}</p>
+        <p className="block-muted">{publicLanguage.t('healthNotificationDetail')}</p>
+        <p className="block-muted">{publicLanguage.t('healthPaymentDetail')}</p>
+        {!systemHealth.scheduler.runHistoryAvailable ? <p className="form-error" role="alert">{publicLanguage.t('healthRunHistoryUnavailable')}</p> : null}
         <h3>{publicLanguage.t('healthRecentFailures')}</h3>
         {systemHealth.emailOutbox.recentFailures.length ? <div className="table-scroll"><table><thead><tr><th>{publicLanguage.t('entity')}</th><th>{publicLanguage.t('healthFailedAttempts')}</th><th>{publicLanguage.t('details')}</th><th>{publicLanguage.t('when')}</th></tr></thead><tbody>{systemHealth.emailOutbox.recentFailures.map((row, index) => <tr key={`${row.eventType}-${row.updatedAt}-${index}`}><td>{row.eventType || '—'}</td><td>{row.attempts}</td><td>{row.errorCode || '—'}</td><td>{row.updatedAt ? formatDateLabel(row.updatedAt, publicLanguage.language, { day: 'numeric', month: 'short', time: 'short' }) : '—'}</td></tr>)}</tbody></table></div> : <p className="block-muted">{publicLanguage.t('healthNoRecentFailures')}</p>}
         <h3>{publicLanguage.t('healthRecentFailures')} · {publicLanguage.t('paymentHealthStatus')}</h3>
@@ -3911,6 +4023,10 @@ const visibleTabs = (isAdmin
       <header className="topbar">
         <BrandLockup className="topbar-brand" imageSize={34} />
         <div className="topbar-right">
+          <div className="public-language-switch topbar-language-switch" role="group" aria-label={publicLanguage.t('languageLabel')}>
+            <button type="button" aria-label={publicLanguage.t('languageKinyarwanda')} aria-pressed={publicLanguage.language === 'rw'} onClick={() => void changeLanguage('rw')}>RW</button>
+            <button type="button" aria-label={publicLanguage.t('languageEnglish')} aria-pressed={publicLanguage.language === 'en'} onClick={() => void changeLanguage('en')}>EN</button>
+          </div>
           <span className={`account-tag${online ? '' : ' offline-tag'}`}><span className={`status-dot${online ? '' : ' offline-dot'}`} />{online ? isAdmin ? publicLanguage.t('platformAdmin') : user.accountType.replace('_', ' ') : `Offline · ${pendingWrites} queued`}</span>
           <div className="notification-menu" ref={notificationMenuRef}>
             <button type="button" className="icon-button notification-trigger" aria-label={`${publicLanguage.t('navAlerts')}: ${unreadCount ?? 0}`} aria-expanded={notificationPanelOpen} onClick={toggleNotificationPanel}>
@@ -3952,7 +4068,7 @@ const visibleTabs = (isAdmin
             <UserRound size={16} aria-hidden="true" />
             <span>{user.name || user.email}</span>
           </button>
-          <button className="icon-button" onClick={logout} aria-label={publicLanguage.t('signOut')} title={publicLanguage.t('signOut')}><LogOut size={18} /></button>
+          <button type="button" className="icon-button" onClick={() => void logout()} disabled={logoutBusy} aria-busy={logoutBusy} aria-label={publicLanguage.t('signOut')} title={publicLanguage.t('signOut')}><LogOut size={18} /></button>
         </div>
       </header>
       <div className="workspace-body"><aside className="sidebar"><div className="sidebar-label">{publicLanguage.t('workspace')}</div><nav aria-label={publicLanguage.t('workspaceNavigation')}>{activeTabs.map((item) => { const Icon = item.icon; return <button className={`nav-item${tab === item.id ? ' active' : ''}`} key={item.id} aria-label={item.label} title={item.label} aria-current={tab === item.id ? 'page' : undefined} onClick={() => setTab(item.id)}><Icon size={18} strokeWidth={1.8} /><span>{item.label}</span>{tab === item.id ? <span className="nav-mark" /> : null}</button>; })}</nav><div className="sidebar-foot"><Activity size={15} aria-hidden="true" /><span>{publicLanguage.t('systemOnline')}</span></div></aside>
@@ -4016,6 +4132,20 @@ const visibleTabs = (isAdmin
           <div className="form-actions"><button type="button" className="button button-secondary" onClick={() => setResolveTarget(null)} disabled={resolveSaving}>{publicLanguage.t('cancel')}</button><button className="button button-primary" disabled={resolveSaving}>{resolveSaving ? publicLanguage.t('wait') : publicLanguage.t('alertResolutionSubmit')}</button></div>
         </form>
       </Modal> : null}
+      {farmerImportOpen && user && !isAdmin && (isCollector || isDairy) ? <FarmerBulkImportModal
+        centers={centers}
+        selectedCenterId={selectedCenter}
+        user={{ id: user.id, accountType: user.accountType }}
+        language={publicLanguage.language}
+        onClose={() => setFarmerImportOpen(false)}
+        onCompleted={async () => { await loadFarmers(); }}
+      /> : null}
+      {milkImportOpen && user && isCollector ? <MilkNotebookImportModal
+        collectionDate={collectionDate}
+        language={publicLanguage.language}
+        onClose={() => setMilkImportOpen(false)}
+        onCompleted={async () => { await loadDaily(); }}
+      /> : null}
       <nav className="mobile-nav" aria-label={publicLanguage.t('workspaceNavigation')}>
         {mobilePrimaryTabs.map((item) => { const Icon = item.icon; return <button type="button" key={item.id} className={tab === item.id ? 'active' : ''} aria-label={item.label} title={item.label} aria-current={tab === item.id ? 'page' : undefined} onClick={() => setTab(item.id)}><Icon size={18} aria-hidden="true" /><span>{item.label}</span></button>; })}
         {mobileMoreTabs.length ? <button type="button" className={`mobile-more-trigger${mobileMoreTabs.some((item) => item.id === tab) ? ' active' : ''}`} aria-controls="mobile-more-menu" aria-expanded={mobileMoreOpen} aria-label={publicLanguage.t('more')} onClick={() => setMobileMoreOpen((open) => !open)}><ChevronDown size={18} /><span>{publicLanguage.t('more')}</span></button> : null}

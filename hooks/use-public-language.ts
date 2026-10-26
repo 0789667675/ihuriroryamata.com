@@ -20,10 +20,21 @@ export function usePublicLanguage() {
     document.documentElement.lang = language;
   }, [language]);
 
+  useEffect(() => {
+    const syncLanguage = (event: StorageEvent) => {
+      if (event.key !== LANGUAGE_STORAGE_KEY) return;
+      setLanguageState(normalizePublicLanguage(event.newValue));
+    };
+    window.addEventListener('storage', syncLanguage);
+    return () => window.removeEventListener('storage', syncLanguage);
+  }, []);
+
   const setLanguage = useCallback((nextLanguage: PublicLanguage) => {
-    setLanguageState(nextLanguage);
+    const normalized = normalizePublicLanguage(nextLanguage);
+    setLanguageState(normalized);
+    document.documentElement.lang = normalized;
     try {
-      window.localStorage.setItem(LANGUAGE_STORAGE_KEY, nextLanguage);
+      window.localStorage.setItem(LANGUAGE_STORAGE_KEY, normalized);
     } catch {
       // The selected language remains available for the current page session.
     }

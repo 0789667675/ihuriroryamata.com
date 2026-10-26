@@ -60,6 +60,16 @@ Migrations `001_initial_schema.sql` through `018_notification_operations.sql` ar
 historical records created before this convention. They are intentionally left
 untouched — do not edit, rewrite, or renumber them.
 
+`019_import_batches.sql` follows the explicit-grant convention above. It stores only
+import row status metadata (row numbers, status/error codes/messages, and created farmer
+IDs), never source documents or OCR text.
+
+`020_platform_job_runs.sql` follows the same convention. It stores operational
+execution metadata for scheduled jobs (job id, status, timestamps, counts, trigger,
+and error code), never email bodies, recipients, or secrets. It grants access only
+to `service_role`; no `authenticated` or `anon` grant is needed because cron routes
+run server-side.
+
 If an existing production table genuinely needs a grant correction, add a **new
 forward-only migration** containing only the `GRANT` statements; never modify an
 applied migration file.

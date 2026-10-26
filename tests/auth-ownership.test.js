@@ -105,7 +105,8 @@ test('registration persistence creates configured initial access in the same tra
   });
   assert.equal(result.subscription.status, 'pending');
   assert.equal(statements.length, 2);
-  assert.match(statements[0].text, /email_verified\)\s+VALUES \(\$1, \$2, \$3, \$4, \$5, 'active', FALSE\)/);
+  assert.match(statements[0].text, /email_verified, language\)\s+VALUES \(\$1, \$2, \$3, \$4, \$5, 'active', FALSE, \$6\)/);
+  assert.equal(statements[0].values[5], 'rw');
   assert.match(statements[1].text, /SELECT \$1, 'pending', u\.created_at/);
   assert.match(statements[1].text, /access_started_at, payment_due_at/);
   assert.deepEqual(statements[1].values, [15, 'USAGE_0_5000_MONTHLY']);

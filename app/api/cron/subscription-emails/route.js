@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { timingSafeEqual } from 'node:crypto';
 
 const Subscriptions = require('@/lib/services/subscription-service.js');
+const { withJobRun } = require('@/lib/repositories/jobRunRepository.js');
 
 export const runtime = 'nodejs';
 
@@ -29,8 +30,17 @@ export async function POST(request) {
   if (!authorized(request)) return NextResponse.json({ message: 'Not authorized.' }, { status: 401 });
   try {
     const reminderDays = configuredReminderDays();
-    const result = await Subscriptions.runSubscriptionEmailJob({ reminderDays });
-    return NextResponse.json({ ...result, remindersConfigured: reminderDays.length > 0 });
+    const vercelCron = Boolean(request.headers.get('x-vercel-cron'))
+      || /vercel-cron/i.test(request.headers.get('user-agent') || '');
+    const result = await withJobRun({
+      jobId: 'subscription_emails',
+      trigger: vercelCron ? 'vercel_cron' : 'external',
+      run: () => Subscriptions.runSubscriptionEmailJob({ reminderDays }),
+    });
+    if (result.skipped) {
+      return NextResponse.json({ success: false, skipped: true, reason: result.reason, remindersConfigured: reminderDays.length > 0 });
+    }
+    return NextResponse.json({ success: true, ...result, remindersConfigured: reminderDays.length > 0 });
   } catch (error) {
     return NextResponse.json({ message: error.code === 'SUBSCRIPTION_REMINDER_CONFIG_INVALID' ? error.message : 'Subscription email job failed.' }, {
       status: error.code === 'DATABASE_NOT_CONFIGURED' ? 503 : 500,
