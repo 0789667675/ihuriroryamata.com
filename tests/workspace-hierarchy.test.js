@@ -49,9 +49,15 @@ test('Collection Center farmer management uses owner scope without Collector ass
   assert.match(farmerView, /<div className="toolbar farmers-toolbar">/);
   assert.match(farmerView, /!isCollector && !isDairy \? <div className="assignment-tool">/);
   const farmerTable = farmerView.slice(farmerView.indexOf('table-scroll farmers-desktop-table'), farmerView.indexOf('{farmers ? farmers.data.length'));
-  assert.doesNotMatch(farmerTable, /assignedCollector|navIfishi/);
+  assert.match(farmerTable, /farmerNumberShort/);
+  assert.match(farmerTable, /assignedCollector/);
+  assert.match(farmerTable, /statusLabel/);
+  assert.match(farmerTable, /viewFarmerHistory/);
+  assert.doesNotMatch(farmerTable, /navIfishi/);
   assert.doesNotMatch(farmerView, /farmerVillage|farmerForm\.location|farmerEdit\.location/);
-  assert.match(styles, /farmer-mobile-card dl > div:nth-child\(5\), \.farmer-mobile-card footer > button:first-child \{ display: none; \}/);
+  assert.match(farmerView, /openFarmerHistory\(farmer\)/);
+  assert.doesNotMatch(styles, /farmer-mobile-card dl > div:nth-child\(5\).*display: none/);
+  assert.match(styles, /\.farmer-mobile-card footer \{ justify-content: flex-start; flex-wrap: wrap;/);
   assert.match(farmerView, /createFarmer/);
   assert.match(farmerView, /saveFarmer/);
   assert.match(farmerView, /screen-grid farmers-view/);
@@ -87,7 +93,9 @@ test('Dairy navigation includes Settings and Dairy Amata is read-only Abacunda a
   assert.match(milkEntry, /row\.presentCount \|\| 0/);
   assert.match(milkEntry, /publicLanguage\.t\('milkResultsCount'\)/);
   assert.match(milkEntry, /isCollector \? <><span className=\{`milk-entry-state/);
-  assert.match(milkEntry, /isCollector \? <><button type="button" className="button button-secondary small-button" onClick=\{\(\) => openIfishiForFarmer/);
+  assert.match(milkEntry, /milk-card-identity/);
+  assert.match(milkEntry, /openFarmerHistory\(row\)/);
+  assert.match(milkEntry, /isCollector \? <button className="button button-secondary small-button" onClick=\{\(\) => saveMilk/);
 });
 
 test('Settlements and shared navigation use paired locale copy and accessible labels', () => {
@@ -171,7 +179,7 @@ test('Milk Entry exposes secure search, session, page-size, clear, and reset con
   assert.match(workspace, /params\.set\('search', search\)/);
   assert.match(workspace, /params\.set\('session', session\)/);
   assert.match(workspace, /setDailyCursor\(null\)/);
-  assert.match(workspace, /debouncedDailySearch, dailySession, dailyPageSize/);
+  assert.match(workspace, /const dailyFilterState = \[debouncedDailySearch, dailySession, dailyDeliveryFilter, dailyCollectorFilter, dailyPageSize\]/);
   assert.doesNotMatch(header, /search-form|Global search|globalSearch|global-search/);
   assert.doesNotMatch(workspace, /globalSearch|runGlobalSearch|global-search-panel/);
 });

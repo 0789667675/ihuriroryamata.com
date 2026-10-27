@@ -21,6 +21,7 @@ export async function GET(request) {
     const limit = params.get('limit') || 50;
     const search = params.get('search') || '';
     const session = params.get('session') || 'all';
+    const deliveryStatus = params.get('deliveryStatus') || 'all';
     const sortBy = params.get('sortBy') || undefined;
     const sortDirection = params.get('sortDirection') || undefined;
 
@@ -39,6 +40,7 @@ export async function GET(request) {
       limit,
       search,
       session,
+      deliveryStatus,
       sortBy,
       sortDirection,
     });

@@ -8,7 +8,7 @@ export const dynamic = 'force-dynamic';
 
 const REQUIRED_MIGRATIONS = [
   '001', '002', '003', '004', '005', '006', '007',
-  '008', '009', '010', '011', '012', '013', '014', '015', '016', '017', '018', '019',
+  '008', '009', '010', '011', '012', '013', '014', '015', '016', '017', '018', '019', '020', '021',
 ];
 
 // A ledger row is not proof that the deployed schema has the columns that the

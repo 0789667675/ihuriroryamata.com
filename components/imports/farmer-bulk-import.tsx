@@ -5,6 +5,7 @@ import { Camera, Check, FileSpreadsheet, FileText, Image as ImageIcon, Upload, X
 import { ImportFrame, ImportNotice, ImportPager, ImportProgress, ImportStatus, ImportSteps } from '@/components/imports/import-ui';
 import { getImportCopy, type ImportCopyKey } from '@/lib/i18n/import-copy';
 import type { PublicLanguage } from '@/lib/i18n/public-copy';
+import { loadImportFarmers, postJson, type ImportFarmer } from '@/lib/imports/client-api';
 import {
   IMPORT_MAX_FILE_BYTES,
   isCsvFile,
@@ -14,74 +15,76 @@ import {
   prepareImageForOcr,
   readTextFile,
 } from '@/lib/imports/client-files';
-import { loadImportFarmers, postJson, type ImportFarmer } from '@/lib/imports/client-api';
 import { buildFarmerIndex, farmerLabel, findImportDuplicates, matchFarmer } from '@/lib/imports/farmer-matching';
+import {
+  defaultFieldConfig,
+  resolveFieldConfig,
+  enabledFields,
+  requiredFields,
+  assessFieldValue,
+  MAX_LENGTHS,
+} from '@/lib/imports/farmer-field-config';
+import {
+  IMPORT_TARGETS,
+  interpretColumns,
+  detectColumnMisalignment,
+} from '@/lib/imports/semantic-mapping';
 import {
   detectHeader,
   groupWordsIntoLines,
-  linesToRows,
-  mapHeaderRow,
-  mapRows,
+  linesToRowCells,
   parseTextRows,
-  positionalMapping,
 } from '@/lib/imports/text-parsing';
 
 type CenterOption = { id: number | string; name: string; owner_user_id?: number };
 type Account = { id: number; accountType: string };
 
-type BaseRow = {
+type ImportTarget = 'exclude' | 'farmerNumber' | 'name' | 'phone' | 'nationalId' | 'accountNumber' | 'collectionCenter' | 'cowType';
+
+type FieldConfig = {
+  key: string;
+  label: { rw: string; en: string };
+  column: string;
+  enabled: boolean;
+  required: boolean;
+  sortOrder: number;
+  system: boolean;
+};
+
+type CellConfidence = 'high' | 'medium' | 'low' | null;
+
+type ColumnInterpretation = {
+  index: number;
+  heading: string;
+  normalized: string;
+  field: string | null;
+  confidence: 'high' | 'medium' | 'low' | 'none';
+  ambiguous: boolean;
+  ocrConfusion: boolean;
+  candidates: Array<{ field: string; confidence: string }>;
+  reasons: string[];
+};
+
+type ImportRow = {
   uid: number;
   rowNumber: number;
-  name: string;
-  phone: string;
-  nationalId: string;
-  accountNumber: string;
-  cowType: string;
+  values: Record<string, string>;
+  confidence: Record<string, CellConfidence>;
   centerId: string;
   centerText: string;
   include: boolean;
-};
-
-type MatchResult = {
-  status: 'exact' | 'ambiguous' | 'possible' | 'none' | 'invalid';
-  farmerId: number | null;
-  farmer: ImportFarmer | null;
-  candidates: ImportFarmer[];
-  matchedField?: string;
-  reason?: string;
-};
-
-type AssessedRow = BaseRow & {
-  status: 'ready' | 'possible' | 'duplicate' | 'invalid' | 'excluded';
-  match: MatchResult;
+  edited: boolean;
+  status: 'ready' | 'needs-review' | 'possible-duplicate' | 'duplicate' | 'invalid' | 'excluded';
+  match: ReturnType<typeof matchFarmer>;
   duplicateOf: number | null;
   duplicateField: string | null;
   nameDuplicateOf: number | null;
-  blocking: boolean;
-  lockedDuplicate: boolean;
+  warnings: Array<{ field: string; code: string; message: string }>;
   detail: string;
+  lockedDuplicate: boolean;
 };
 
-type ServerRowResult = {
-  rowNumber: number;
-  status: string;
-  farmerId?: number;
-  errorCode?: string;
-  message?: string;
-};
-
-type Mapping = Record<string, number | ''>;
-type Step = 0 | 1 | 2 | 3;
-
-const FIELD_KEYS = ['name', 'phone', 'nationalId', 'accountNumber', 'collectionCenter', 'cowType'] as const;
-const FIELD_COPY: Record<(typeof FIELD_KEYS)[number], ImportCopyKey> = {
-  name: 'name',
-  phone: 'phone',
-  nationalId: 'nationalId',
-  accountNumber: 'accountNumber',
-  collectionCenter: 'center',
-  cowType: 'cowType',
-};
+type Step = 0 | 1 | 2 | 3 | 4;
 
 const isAbort = (error: unknown) => error instanceof DOMException && error.name === 'AbortError';
 
@@ -91,6 +94,43 @@ const fileErrorCode = (error: unknown) => {
 };
 
 const centerIdOf = (center: CenterOption) => String(center.id);
+
+const fieldCopyKey = (fieldKey: string): ImportCopyKey | null => {
+  const map: Record<string, ImportCopyKey> = {
+    name: 'name',
+    phone: 'phone',
+    nationalId: 'nationalId',
+    accountNumber: 'accountNumber',
+    collectionCenter: 'center',
+    cowType: 'cowType',
+  };
+  return map[fieldKey] ?? null;
+};
+
+const fieldLabel = (language: PublicLanguage, fieldKey: string) => {
+  if (fieldKey === 'farmerNumber') return getImportCopy(language, 'farmerNumber');
+  const key = fieldCopyKey(fieldKey);
+  if (!key) return fieldKey;
+  return getImportCopy(language, key);
+};
+
+const targetOptionLabel = (language: PublicLanguage, target: ImportTarget) => {
+  if (target === 'exclude') return getImportCopy(language, 'excludeColumn');
+  if (target === 'farmerNumber') return getImportCopy(language, 'farmerNumber');
+  return fieldLabel(language, target);
+};
+
+const STATUS_ORDER: Record<ImportRow['status'], number> = {
+  invalid: 5,
+  duplicate: 4,
+  'needs-review': 3,
+  'possible-duplicate': 2,
+  ready: 1,
+  excluded: 0,
+};
+
+const worseStatus = (a: ImportRow['status'], b: ImportRow['status']) =>
+  STATUS_ORDER[a] >= STATUS_ORDER[b] ? a : b;
 
 export function FarmerBulkImportModal({
   onClose,
@@ -108,6 +148,7 @@ export function FarmerBulkImportModal({
   language: PublicLanguage;
 }) {
   const t = useCallback((key: ImportCopyKey, params?: Record<string, string | number>) => getImportCopy(language, key, params), [language]);
+
   const availableCenters = useMemo(() => centers.filter((center) => user.accountType !== 'COLLECTOR' || Number(center.owner_user_id) === Number(user.id)), [centers, user]);
   const defaultFromWorkspace = availableCenters.some((center) => centerIdOf(center) === selectedCenterId)
     ? selectedCenterId
@@ -119,10 +160,20 @@ export function FarmerBulkImportModal({
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [previewUrl, setPreviewUrl] = useState('');
   const [tableRows, setTableRows] = useState<string[][]>([]);
+  // Parallel OCR confidence matrix (same shape as tableRows); null where not OCR-extracted.
+  const [cellConfidence, setCellConfidence] = useState<CellConfidence[][]>([]);
   const [hasHeader, setHasHeader] = useState(false);
-  const [mapping, setMapping] = useState<Mapping>({});
+  const [headers, setHeaders] = useState<string[]>([]);
+  const [columnInterpretations, setColumnInterpretations] = useState<ColumnInterpretation[]>([]);
+  // column index -> target ('' = not decided yet, 'exclude' = excluded)
+  const [columnDecision, setColumnDecision] = useState<Record<number, ImportTarget | ''>>({});
   const [defaultCenterId, setDefaultCenterId] = useState(defaultFromWorkspace);
-  const [rows, setRows] = useState<BaseRow[]>([]);
+  const [rows, setRows] = useState<ImportRow[]>([]);
+  const [fieldConfig, setFieldConfig] = useState<FieldConfig[]>([]);
+  const [draftConfig, setDraftConfig] = useState<FieldConfig[]>([]);
+  const [fieldConfigLoading, setFieldConfigLoading] = useState(true);
+  const [fieldConfigError, setFieldConfigError] = useState('');
+  const [fieldConfigSaved, setFieldConfigSaved] = useState(false);
   const [busy, setBusy] = useState(false);
   const [busyLabel, setBusyLabel] = useState('');
   const [error, setError] = useState('');
@@ -130,9 +181,9 @@ export function FarmerBulkImportModal({
   const [ocrConfigured, setOcrConfigured] = useState<boolean | null>(null);
   const [ocrSetup, setOcrSetup] = useState<string[]>([]);
   const [existingFarmers, setExistingFarmers] = useState<ImportFarmer[]>([]);
+  const [existingFarmersCount, setExistingFarmersCount] = useState<number | null>(null);
   const [farmersLoading, setFarmersLoading] = useState(true);
   const [farmersError, setFarmersError] = useState('');
-  const [farmersTruncated, setFarmersTruncated] = useState(false);
   const [issuesOnly, setIssuesOnly] = useState(false);
   const [page, setPage] = useState(0);
   const [confirmed, setConfirmed] = useState(false);
@@ -141,7 +192,7 @@ export function FarmerBulkImportModal({
   const [saveTotal, setSaveTotal] = useState(0);
   const [saveError, setSaveError] = useState('');
   const [saveAttempted, setSaveAttempted] = useState(false);
-  const [serverResults, setServerResults] = useState<ServerRowResult[]>([]);
+  const [serverResults, setServerResults] = useState<Array<{ rowNumber: number; status: string; farmerId?: number; errorCode?: string; message?: string }>>([]);
   const [completedSummary, setCompletedSummary] = useState<{ created: number; failed: number; skipped: number } | null>(null);
 
   const uidRef = useRef(0);
@@ -151,6 +202,19 @@ export function FarmerBulkImportModal({
   const saveLockRef = useRef(false);
 
   const farmerIndex = useMemo(() => buildFarmerIndex(existingFarmers), [existingFarmers]);
+
+  const enabledConfig = useMemo<{ key: string; enabled: boolean; required: boolean; sortOrder: number; system: boolean }[]>(
+    () => enabledFields(fieldConfig),
+    [fieldConfig]
+  );
+  const requiredConfig = useMemo<{ key: string; enabled: boolean; required: boolean; sortOrder: number; system: boolean }[]>(
+    () => requiredFields(fieldConfig),
+    [fieldConfig]
+  );
+  const reviewEnabledFields = useMemo<{ key: string; enabled: boolean; required: boolean; sortOrder: number; system: boolean }[]>(
+    () => enabledConfig.filter((field: { system: boolean }) => !field.system),
+    [enabledConfig]
+  );
 
   const replacePreview = (url: string) => {
     if (previewRef.current) URL.revokeObjectURL(previewRef.current);
@@ -163,38 +227,89 @@ export function FarmerBulkImportModal({
     if (previewRef.current) URL.revokeObjectURL(previewRef.current);
   }, []);
 
-  useEffect(() => {
+  const loadContext = useCallback(async () => {
     const controller = new AbortController();
     let active = true;
     setFarmersLoading(true);
-    loadImportFarmers({ signal: controller.signal })
-      .then((result) => {
-        if (!active) return;
-        setExistingFarmers(result.farmers);
-        setFarmersTruncated(result.truncated);
-        setFarmersError('');
-      })
-      .catch((loadError) => {
-        if (!active || isAbort(loadError)) return;
-        setFarmersError(loadError instanceof Error ? loadError.message : t('loadError'));
-      })
-      .finally(() => { if (active) setFarmersLoading(false); });
-    fetch('/api/imports/ocr', { credentials: 'include', signal: controller.signal })
-      .then(async (response) => {
-        if (!response.ok) return null;
-        return response.json();
-      })
-      .then((data) => {
-        if (!active || !data) return;
-        setOcrConfigured(Boolean(data.configured));
-        setOcrSetup(Array.isArray(data.setup) ? data.setup : []);
-      })
-      .catch(() => {});
-    return () => {
-      active = false;
-      controller.abort();
-    };
+    setFieldConfigLoading(true);
+    try {
+      await Promise.all([
+        (async () => {
+          try {
+            const result = await fetch('/api/farmers/count', { credentials: 'include', signal: controller.signal });
+            if (result.ok) {
+              const data = await result.json();
+              if (active && Number.isInteger(data.count)) setExistingFarmersCount(Number(data.count));
+            }
+          } catch {
+            // The count is informational; the loaded list length is used as fallback.
+          }
+        })(),
+        (async () => {
+          try {
+            const result = await fetch('/api/farmers/field-config', {
+              credentials: 'include',
+              signal: controller.signal,
+            });
+            if (result.ok) {
+              const data = await result.json();
+              if (active) setFieldConfig(resolveFieldConfig(Array.isArray(data.configurations) ? data.configurations : []));
+            } else if (active) {
+              setFieldConfig(resolveFieldConfig());
+            }
+          } catch {
+            if (active) setFieldConfig(resolveFieldConfig());
+          } finally {
+            if (active) setFieldConfigLoading(false);
+          }
+        })(),
+        (async () => {
+          try {
+            const result = await loadImportFarmers({ signal: controller.signal });
+            if (!active) return;
+            setExistingFarmers(result.farmers);
+            setFarmersError('');
+          } catch (loadError) {
+            if (!active || isAbort(loadError)) return;
+            setFarmersError(loadError instanceof Error ? loadError.message : t('loadError'));
+          } finally {
+            if (active) setFarmersLoading(false);
+          }
+        })(),
+      ]);
+      fetch('/api/imports/ocr', { credentials: 'include', signal: controller.signal })
+        .then(async (response) => {
+          if (!response.ok) return null;
+          return response.json();
+        })
+        .then((data) => {
+          if (!active || !data) return;
+          setOcrConfigured(Boolean(data.configured));
+          setOcrSetup(Array.isArray(data.setup) ? data.setup : []);
+        })
+        .catch(() => {});
+    } finally {
+      if (active) {
+        setFarmersLoading(false);
+        setFieldConfigLoading(false);
+      }
+    }
+    return () => { controller.abort(); };
   }, [t]);
+
+  useEffect(() => {
+    loadContext();
+  }, [loadContext]);
+
+  useEffect(() => {
+    setDraftConfig(fieldConfig);
+  }, [fieldConfig]);
+
+  useEffect(() => {
+    if (existingFarmersCount === null && !farmersLoading && !farmersError) {
+      setExistingFarmersCount(existingFarmers.length);
+    }
+  }, [existingFarmersCount, farmersLoading, farmersError, existingFarmers.length]);
 
   const reset = () => {
     abortRef.current?.abort();
@@ -204,11 +319,16 @@ export function FarmerBulkImportModal({
     setSelectedFile(null);
     replacePreview('');
     setTableRows([]);
+    setCellConfidence([]);
     setHasHeader(false);
-    setMapping({});
+    setHeaders([]);
+    setColumnInterpretations([]);
+    setColumnDecision({});
     setRows([]);
+    setDraftConfig(fieldConfig);
     setError('');
     setWarning('');
+    setFieldConfigSaved(false);
     setIssuesOnly(false);
     setPage(0);
     setConfirmed(false);
@@ -221,7 +341,33 @@ export function FarmerBulkImportModal({
     batchKeyRef.current = '';
   };
 
-  const prepareTable = (incoming: string[][]) => {
+  const ocrConfidenceAt = (tableRowIndex: number, columnIndex: number): CellConfidence => {
+    const confidence = cellConfidence[tableRowIndex]?.[columnIndex];
+    return confidence === null || confidence === undefined ? 'high' : confidence;
+  };
+
+  /**
+   * Build one data-row value object from a source row using the column decision.
+   * Each field receives the value of its mapped source column only. Columns
+   * without a mapping contribute nothing: values are never shifted into another
+   * field to fill a gap.
+   */
+  const mapRowValues = (sourceRow: string[], tableRowIndex: number) => {
+    const values: Record<string, string> = {};
+    const confidence: Record<string, CellConfidence> = {};
+    const fieldToColumn = new Map<string, number>();
+    for (const [columnIndex, target] of Object.entries(columnDecision)) {
+      if (target && target !== 'exclude') fieldToColumn.set(target, Number(columnIndex));
+    }
+    for (const field of reviewEnabledFields) {
+      const columnIndex = fieldToColumn.get(field.key);
+      values[field.key] = columnIndex === undefined ? '' : String(sourceRow[columnIndex] ?? '').trim();
+      confidence[field.key] = columnIndex === undefined ? 'high' : ocrConfidenceAt(tableRowIndex, columnIndex);
+    }
+    return { values, confidence };
+  };
+
+  const prepareTable = (incoming: string[][], confidenceMatrix: CellConfidence[][] = []) => {
     const clean = incoming
       .map((row) => (Array.isArray(row) ? row.map((cell) => String(cell ?? '').trim()) : []))
       .filter((row) => row.some(Boolean));
@@ -233,14 +379,29 @@ export function FarmerBulkImportModal({
       setError(`${t('errorNoRows')} ${t('rowLimitNotice')}`);
       return;
     }
-    const width = clean.reduce((max, row) => Math.max(max, row.length), 0);
     const detected = detectHeader(clean);
+    const headerRow = detected.hasHeader ? clean[0] : [];
+    const synthesized = headerRow.length
+      ? headerRow
+      : clean[0].map((_, index) => `${t('column')} ${index + 1}`);
     setTableRows(clean);
+    setCellConfidence(confidenceMatrix);
     setHasHeader(detected.hasHeader);
-    setMapping(detected.hasHeader ? detected.mapping : positionalMapping(width));
+    setHeaders(synthesized);
+    const interpretations = interpretColumns(synthesized, language);
+    setColumnInterpretations(interpretations as ColumnInterpretation[]);
+    const decision: Record<number, ImportTarget | ''> = {};
+    interpretations.forEach((interp) => {
+      decision[interp.index] = (interp.confidence === 'high' || interp.confidence === 'medium') && interp.field
+        ? (interp.field as ImportTarget)
+        : '';
+    });
+    setColumnDecision(decision);
+    setDraftConfig(fieldConfig);
     setStep(1);
     setPage(0);
     setError('');
+    setWarning('');
   };
 
   const handlePaste = () => {
@@ -281,8 +442,10 @@ export function FarmerBulkImportModal({
         );
         if (!result.words?.length && !result.text) throw new Error(t('errorOcr'));
         const lines = result.words?.length ? groupWordsIntoLines(result.words) : [];
-        const table = lines.length ? linesToRows(lines) : parseTextRows(result.text);
-        prepareTable(table);
+        const rowCells = lines.length ? linesToRowCells(lines) : null;
+        const table = rowCells ? rowCells.map((cells) => cells.map((cell) => cell.text)) : parseTextRows(result.text);
+        const confidenceMatrix = rowCells ? rowCells.map((cells) => cells.map((cell) => cell.confidence)) : [];
+        prepareTable(table, confidenceMatrix);
         if (!table.length) setError(t('errorNoRows'));
       } else if (isCsvFile(selectedFile)) {
         if (selectedFile.size > IMPORT_MAX_FILE_BYTES) throw new Error(t('fileTooLarge'));
@@ -306,7 +469,7 @@ export function FarmerBulkImportModal({
           if (code === 'PDF_NO_TEXT') throw new Error(t('pdfNoText'));
           throw Object.assign(new Error(payload.message || t('errorFile')), { code });
         }
-        const notices = [];
+        const notices: string[] = [];
         if (payload.kind === 'table') {
           if (Number(payload.sheetCount) > 1) notices.push(t('sheetNotice'));
           if (payload.truncated) notices.push(t('rowLimitNotice'));
@@ -336,130 +499,229 @@ export function FarmerBulkImportModal({
     }
   };
 
-  const setMappingField = (field: string, value: string) => {
-    setMapping((current) => ({
-      ...current,
-      [field]: value === '' ? '' : Number(value),
-    }));
+  const setColumnTarget = (columnIndex: number, target: ImportTarget | '') => {
+    setColumnDecision((current) => ({ ...current, [columnIndex]: target }));
+    setError('');
   };
 
-  const toggleHeader = (checked: boolean) => {
-    setHasHeader(checked);
-    const width = tableRows.reduce((max, row) => Math.max(max, row.length), 0);
-    setMapping((checked ? mapHeaderRow(tableRows[0] || []) : positionalMapping(width)) as Mapping);
+  const setFieldSource = (fieldKey: string, columnIndex: number | '') => {
+    setColumnDecision((current) => {
+      const next = { ...current };
+      for (const [column, target] of Object.entries(current)) {
+        if (target === fieldKey) next[Number(column)] = '';
+      }
+      if (columnIndex !== '') next[Number(columnIndex)] = fieldKey as ImportTarget;
+      return next;
+    });
+    setError('');
+  };
+
+  const mappingValid = () => {
+    for (const field of requiredConfig) {
+      let mapped = false;
+      for (const target of Object.values(columnDecision)) {
+        if (target === field.key) { mapped = true; break; }
+      }
+      if (!mapped) return false;
+    }
+    return true;
   };
 
   const buildRows = () => {
-    if (mapping.name === undefined || mapping.name === '') {
-      setError(`${t('name')}: ${t('mapHint')}`);
+    if (!mappingValid()) {
+      const missing = requiredConfig.filter((field: { key: string }) => !Object.values(columnDecision).includes(field.key as ImportTarget)) as { key: string }[];
+      setError(`${missing.map((field) => fieldLabel(language, field.key)).join(', ')} ${t('mapRequired')}`);
       return;
     }
-    const mapped = mapRows(tableRows, mapping, hasHeader ? 1 : 0);
-    if (!mapped.length) {
+    const startIndex = hasHeader ? 1 : 0;
+    const dataRows = tableRows.slice(startIndex);
+    if (!dataRows.length) {
       setError(t('errorNoRows'));
       return;
     }
     const centerByName = new Map(availableCenters.map((center) => [center.name.trim().toLowerCase(), center]));
-    const nextRows: BaseRow[] = mapped.map((record: Record<string, string>, index: number) => {
-      const name = String(record.name || '').trim();
-      const centerText = String(record.collectionCenter || '').trim();
+    const nextRows: ImportRow[] = dataRows.map((sourceRow, index) => {
+      const tableRowIndex = startIndex + index;
+      const rowNumber = index + 1;
+      const { values, confidence } = mapRowValues(sourceRow, tableRowIndex);
+      const centerText = String(values.collectionCenter || '').trim();
       const matchedCenter = centerText ? centerByName.get(centerText.toLowerCase()) : null;
       const centerId = matchedCenter ? centerIdOf(matchedCenter) : (!centerText ? defaultCenterId : '');
-      const match = matchFarmer({ name, nationalId: record.nationalId, accountNumber: record.accountNumber, phone: record.phone }, farmerIndex);
-      const identifierDuplicate = Boolean(match.status === 'exact'
-        && (match.matchedField === 'nationalId' || match.matchedField === 'accountNumber'))
-        || (match.status === 'ambiguous' && match.reason === 'identifier-duplicate');
-      const possibleExisting = match.status === 'exact' || match.status === 'possible' || match.status === 'ambiguous';
       return {
         uid: uidRef.current += 1,
-        rowNumber: index + 1,
-        name,
-        phone: String(record.phone || '').trim(),
-        nationalId: String(record.nationalId || '').trim(),
-        accountNumber: String(record.accountNumber || '').trim(),
-        cowType: String(record.cowType || '').trim(),
+        rowNumber,
+        values,
+        confidence,
         centerId,
         centerText,
-        include: Boolean(name) && !identifierDuplicate && !possibleExisting,
+        include: Boolean(values.name),
+        edited: false,
+        status: 'ready',
+        match: { status: 'none', farmerId: null, farmer: null, candidates: [], reason: 'no-match' },
+        duplicateOf: null,
+        duplicateField: null,
+        nameDuplicateOf: null,
+        warnings: [],
+        detail: '',
+        lockedDuplicate: false,
       };
     });
-    setRows(nextRows);
+    setRows(assessRows(nextRows));
     setServerResults([]);
     setConfirmed(false);
     setPage(0);
     setIssuesOnly(false);
     setError('');
-    setStep(2);
-    if (nextRows.some((row) => !row.centerId && row.name)) {
+    setStep(3);
+    if (nextRows.some((row) => !row.centerId && Boolean(row.values.name))) {
       setError(t('selectCenterOption'));
     }
   };
 
-  const assessedRows = useMemo<AssessedRow[]>(() => {
-    const duplicateFlags = findImportDuplicates(rows);
-    return rows.map((row, index) => {
+  /**
+   * Assess every row: field validation, OCR confidence, semantic cross-checks,
+   * duplicates against existing farmers and within the file. No row is
+   * silently dropped or corrected.
+   */
+  const assessRows = useCallback((inputRows: ImportRow[]): ImportRow[] => {
+    const duplicateFlags = findImportDuplicates(inputRows.map((row, index) => ({
+      rowNumber: row.rowNumber,
+      name: row.values.name,
+      nationalId: row.values.nationalId,
+      accountNumber: row.values.accountNumber,
+      phone: row.values.phone,
+    })));
+    return inputRows.map((row, index) => {
       const duplicate = duplicateFlags[index] || { duplicateOf: null, duplicateField: null, nameDuplicateOf: null };
-      const match = matchFarmer({ name: row.name, nationalId: row.nationalId, accountNumber: row.accountNumber, phone: row.phone }, farmerIndex) as MatchResult;
+      const match = matchFarmer({
+        name: row.values.name,
+        nationalId: row.values.nationalId,
+        accountNumber: row.values.accountNumber,
+        phone: row.values.phone,
+      }, farmerIndex) as ReturnType<typeof matchFarmer>;
+
+      const warnings: ImportRow['warnings'] = [];
+      let status: ImportRow['status'] = 'ready';
+      let detail = '';
+      let lockedDuplicate = false;
+      let duplicateOf: number | null = duplicate.duplicateOf ?? null;
+      let duplicateField: string | null = duplicate.duplicateField ?? null;
+      let nameDuplicateOf: number | null = duplicate.nameDuplicateOf ?? null;
+
+      for (const field of reviewEnabledFields) {
+        const value = String(row.values[field.key] ?? '').trim();
+        if (!value) continue;
+        const fit = assessFieldValue(field.key, value);
+        for (const fitWarning of fit.warnings) {
+          warnings.push({ field: field.key, code: fitWarning.code, message: fitWarning.message });
+        }
+        if (fit.fit === 'poor') status = worseStatus(status, 'invalid');
+        else if (fit.fit === 'suspect') status = worseStatus(status, 'needs-review');
+        if (row.confidence[field.key] === 'low') {
+          warnings.push({ field: field.key, code: 'OCR_LOW_CONFIDENCE', message: t('ocrLowConfidence') });
+          status = worseStatus(status, 'needs-review');
+        }
+      }
+
+      for (const field of requiredConfig) {
+        if (!String(row.values[field.key] ?? '').trim()) {
+          warnings.push({ field: field.key, code: 'REQUIRED_MISSING', message: `${fieldLabel(language, field.key)}: ${t('isRequired')}` });
+          status = worseStatus(status, 'invalid');
+        }
+      }
+
       const identifierDuplicate = Boolean(match.status === 'exact'
         && (match.matchedField === 'nationalId' || match.matchedField === 'accountNumber'))
         || (match.status === 'ambiguous' && match.reason === 'identifier-duplicate');
-      const blocking = Boolean(duplicate.duplicateOf) || identifierDuplicate;
-      const possible = Boolean(duplicate.nameDuplicateOf)
-        || match.status === 'possible'
-        || match.status === 'exact'
-        || match.status === 'ambiguous';
-      let baseStatus: AssessedRow['status'] = 'ready';
-      let detail = '';
-      if (blocking) {
-        baseStatus = 'duplicate';
-        if (duplicate.duplicateOf) detail = `${t('duplicate')}: ${t('rowNumber')} ${duplicate.duplicateOf}`;
-        else if (match.farmer) detail = `${t('existingMatch')}: ${farmerLabel(match.farmer)}`;
-        else if (match.candidates.length) detail = `${t('existingMatch')}: ${farmerLabel(match.candidates[0])}`;
-      } else if (!row.name.trim()) {
-        baseStatus = 'invalid';
-        detail = `${t('name')}: ${t('notPresent')}`;
-      } else if (!row.centerId) {
-        baseStatus = 'invalid';
-        detail = row.centerText ? `${t('center')}: ${row.centerText}` : t('selectCenterOption');
-      } else if (possible) {
-        baseStatus = 'possible';
-        if (duplicate.nameDuplicateOf) detail = `${t('nameInFile')} ${duplicate.nameDuplicateOf}`;
-        else if (match.farmer) detail = `${t('possibleMatch')}: ${farmerLabel(match.farmer)}`;
-        else if (match.candidates.length) detail = `${t('possibleMatch')}: ${farmerLabel(match.candidates[0])}`;
-        else detail = t('possibleMatch');
+      const possibleExisting = match.status === 'exact' || match.status === 'possible' || match.status === 'ambiguous';
+
+      if (identifierDuplicate) {
+        status = 'duplicate';
+        lockedDuplicate = true;
+        duplicateOf = match.farmerId ?? null;
+        detail = match.farmer ? `${t('existingMatch')}: ${farmerLabel(match.farmer)}`
+          : match.candidates.length ? `${t('existingMatch')}: ${farmerLabel(match.candidates[0])}` : t('duplicate');
+      } else if (possibleExisting) {
+        status = worseStatus(status, 'possible-duplicate');
+        detail = match.farmer ? `${t('possibleMatch')}: ${farmerLabel(match.farmer)}`
+          : match.candidates.length ? `${t('possibleMatch')}: ${farmerLabel(match.candidates[0])}` : t('possibleMatch');
+      } else if (duplicateField) {
+        status = 'duplicate';
+        duplicateOf = duplicate.duplicateOf ?? null;
+        lockedDuplicate = duplicateField === 'nationalId' || duplicateField === 'accountNumber';
+        detail = `${t('duplicate')}: ${t('rowNumber')} ${duplicateOf}`;
+      } else if (nameDuplicateOf !== null) {
+        status = worseStatus(status, 'possible-duplicate');
+        detail = `${t('nameInFile')} ${nameDuplicateOf}`;
       }
-      if (!row.include && baseStatus !== 'duplicate') {
-        return { ...row, ...duplicate, match, status: 'excluded', blocking, lockedDuplicate: identifierDuplicate, detail };
-      }
-      return { ...row, ...duplicate, match, status: baseStatus, blocking, lockedDuplicate: identifierDuplicate, detail };
+
+      const base = { ...row, ...duplicate, match, duplicateOf, duplicateField, nameDuplicateOf, lockedDuplicate, detail, warnings };
+      if (!row.include) return { ...base, status: 'excluded' };
+      return { ...base, status };
     });
-  }, [rows, farmerIndex, t]);
+  }, [enabledConfig, requiredConfig, reviewEnabledFields, farmerIndex, t]);
+
+  const assessedRows = useMemo(() => assessRows(rows), [rows, assessRows]);
 
   const counts = useMemo(() => assessedRows.reduce((summary, row) => {
     summary.total += 1;
     if (row.status === 'ready') summary.ready += 1;
-    else if (row.status === 'possible') summary.possible += 1;
+    else if (row.status === 'needs-review') summary.needsReview += 1;
+    else if (row.status === 'possible-duplicate') summary.possible += 1;
     else if (row.status === 'duplicate') summary.duplicate += 1;
     else if (row.status === 'invalid') summary.invalid += 1;
     else summary.excluded += 1;
     return summary;
-  }, { total: 0, ready: 0, possible: 0, duplicate: 0, invalid: 0, excluded: 0 }), [assessedRows]);
+  }, { total: 0, ready: 0, needsReview: 0, possible: 0, duplicate: 0, invalid: 0, excluded: 0 }), [assessedRows]);
 
-  const includedRows = useMemo(() => assessedRows.filter((row) => row.include && (row.status === 'ready' || row.status === 'possible')), [assessedRows]);
-  const blockingIncluded = useMemo(() => assessedRows.filter((row) => row.include && (row.status === 'duplicate' || row.status === 'invalid')), [assessedRows]);
+  const includableRows = useMemo(() => assessedRows.filter((row) =>
+    row.include && row.status !== 'invalid' && !row.lockedDuplicate), [assessedRows]);
+
+  const blockingIncluded = useMemo(() => assessedRows.filter((row) =>
+    row.include && (row.status === 'invalid' || row.lockedDuplicate)), [assessedRows]);
+
   const canSave = Boolean(confirmed
-    && includedRows.length
+    && includableRows.length
     && !blockingIncluded.length
     && !saveRunning
     && !busy
     && !farmersLoading
     && !farmersError);
 
-  const updateRow = (uid: number, changes: Partial<BaseRow>) => {
+  const updateRowValue = (uid: number, fieldKey: string, value: string) => {
     if (saveAttempted) return;
     setConfirmed(false);
-    setRows((current) => current.map((row) => row.uid === uid ? { ...row, ...changes } : row));
+    setRows((current) => current.map((row) => row.uid === uid ? { ...row, values: { ...row.values, [fieldKey]: value }, edited: true } : row));
   };
+
+  const updateRowCenter = (uid: number, centerId: string) => {
+    if (saveAttempted) return;
+    setConfirmed(false);
+    setRows((current) => current.map((row) => row.uid === uid ? { ...row, centerId } : row));
+  };
+
+  const updateRowCenterText = (uid: number, centerText: string) => {
+    if (saveAttempted) return;
+    setConfirmed(false);
+    const centerByName = new Map(availableCenters.map((center) => [center.name.trim().toLowerCase(), center]));
+    const matched = centerText ? centerByName.get(centerText.trim().toLowerCase()) : null;
+    setRows((current) => current.map((row) => row.uid === uid
+      ? { ...row, centerText, centerId: matched ? centerIdOf(matched) : (!centerText ? defaultCenterId : '') }
+      : row));
+  };
+
+  const toggleInclude = (uid: number, include: boolean) => {
+    if (saveAttempted) return;
+    setConfirmed(false);
+    setRows((current) => current.map((row) => row.uid === uid ? { ...row, include } : row));
+  };
+
+  const misalignmentFlags = useMemo(() => detectColumnMisalignment(
+    columnInterpretations.map((interp) => ({ ...interp })),
+    rows.map((row) => ({ values: row.values }))
+  ), [columnInterpretations, rows]);
+
+  const steps = [t('stepSource'), t('stepUnderstand'), t('stepMapFields'), t('stepReviewRows'), t('stepImport')];
 
   const filteredRows = useMemo(() => assessedRows.filter((row) => !issuesOnly || (row.status !== 'ready' && row.status !== 'excluded')), [assessedRows, issuesOnly]);
   const pageSize = 50;
@@ -471,9 +733,10 @@ export function FarmerBulkImportModal({
     if (page !== safePage) setPage(safePage);
   }, [page, safePage]);
 
-  const statusLabel = (row: AssessedRow) => {
+  const statusLabel = (row: ImportRow) => {
     if (row.status === 'ready') return t('ready');
-    if (row.status === 'possible') return t('possible');
+    if (row.status === 'needs-review') return t('rowNeedsReview');
+    if (row.status === 'possible-duplicate') return t('rowPossibleDuplicate');
     if (row.status === 'duplicate') return t('duplicate');
     if (row.status === 'invalid') return t('invalid');
     return t('excluded');
@@ -488,35 +751,36 @@ export function FarmerBulkImportModal({
     setServerResults([]);
     setCompletedSummary(null);
     setSavedProcessed(0);
-    setSaveTotal(includedRows.length);
+    setSaveTotal(includableRows.length);
     if (!batchKeyRef.current) batchKeyRef.current = typeof crypto !== 'undefined' && crypto.randomUUID
       ? crypto.randomUUID()
       : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
     const controller = new AbortController();
     abortRef.current = controller;
     const chunkSize = 50;
-    const collected: ServerRowResult[] = [];
+    const collected: Array<{ rowNumber: number; status: string; farmerId?: number; errorCode?: string; message?: string }> = [];
     let created = 0;
     let failed = 0;
     try {
-      for (let offset = 0; offset < includedRows.length; offset += chunkSize) {
+      for (let offset = 0; offset < includableRows.length; offset += chunkSize) {
         if (controller.signal.aborted) throw new DOMException('Aborted', 'AbortError');
-        const chunk = includedRows.slice(offset, offset + chunkSize);
+        const chunk = includableRows.slice(offset, offset + chunkSize);
         const result = await postJson<{
           created?: number;
           failed?: number;
-          rows?: ServerRowResult[];
+          rows?: Array<{ rowNumber: number; status: string; farmerId?: number; errorCode?: string; message?: string }>;
           idempotent?: boolean;
         }>('/api/farmers/import', {
           batchKey: `${batchKeyRef.current}-${Math.floor(offset / chunkSize)}`,
+          dryRun: false,
           rows: chunk.map((row) => ({
             rowNumber: row.rowNumber,
-            name: row.name,
-            phone: row.phone,
-            nationalId: row.nationalId,
-            accountNumber: row.accountNumber,
-            cowType: row.cowType,
-            collectionCenterId: Number(row.centerId),
+            name: row.values.name,
+            phone: row.values.phone,
+            nationalId: row.values.nationalId,
+            accountNumber: row.values.accountNumber,
+            cowType: reviewEnabledFields.some((field) => field.key === 'cowType') ? row.values.cowType : undefined,
+            collectionCenterId: Number(row.centerId || defaultCenterId || ''),
           })),
         }, controller.signal);
         const chunkResults = Array.isArray(result.rows) ? result.rows : [];
@@ -524,10 +788,10 @@ export function FarmerBulkImportModal({
         setServerResults([...collected]);
         created += chunkResults.filter((row) => row.status === 'created').length;
         failed += chunkResults.filter((row) => row.status !== 'created').length;
-        setSavedProcessed(Math.min(includedRows.length, offset + chunk.length));
+        setSavedProcessed(Math.min(includableRows.length, offset + chunk.length));
       }
       setCompletedSummary({ created, failed, skipped: counts.excluded + counts.invalid + counts.duplicate });
-      setStep(3);
+      setStep(4);
       try {
         await onCompleted();
       } catch {
@@ -535,7 +799,7 @@ export function FarmerBulkImportModal({
       }
     } catch (saveFailure) {
       if (isAbort(saveFailure)) {
-        setSaveError(`${t('cancel')}. ${t('progress', { done: savedProcessed, total: includedRows.length })}`);
+        setSaveError(`${t('cancel')}. ${t('progress', { done: savedProcessed, total: includableRows.length })}`);
       } else {
         setSaveError(saveFailure instanceof Error ? saveFailure.message : t('errorGeneric'));
       }
@@ -557,7 +821,48 @@ export function FarmerBulkImportModal({
     else replacePreview('');
   };
 
-  const steps = [t('stepSource'), t('stepMap'), t('stepReview'), t('stepDone')];
+  // Field configuration draft handling
+  const toggleDraftEnabled = (key: string) => {
+    setDraftConfig((current) => current.map((field) => field.key === key ? { ...field, enabled: !field.enabled } : field));
+    setFieldConfigSaved(false);
+  };
+  const toggleDraftRequired = (key: string) => {
+    setDraftConfig((current) => current.map((field) => field.key === key ? { ...field, required: !field.required && field.enabled } : field));
+    setFieldConfigSaved(false);
+  };
+  const changeDraftOrder = (key: string, order: number) => {
+    setDraftConfig((current) => current.map((field) => field.key === key ? { ...field, sortOrder: Math.max(0, order) } : field));
+    setFieldConfigSaved(false);
+  };
+  const saveFieldConfig = async () => {
+    setSaveError('');
+    try {
+      const result = await fetch('/api/farmers/field-config', {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          configurations: draftConfig.filter((field) => !field.system).map((field) => ({
+            fieldKey: field.key,
+            enabled: field.enabled,
+            required: field.required,
+            sortOrder: field.sortOrder,
+          })),
+        }),
+      });
+      if (!result.ok) {
+        const body = await result.json().catch(() => ({}));
+        throw new Error(body.message || t('errorGeneric'));
+      }
+      const data = await result.json();
+      setFieldConfig(resolveFieldConfig(Array.isArray(data.configurations) ? data.configurations : []));
+      setDraftConfig(fieldConfig);
+      setFieldConfigSaved(true);
+      setTimeout(() => setFieldConfigSaved(false), 3000);
+    } catch (saveFailure) {
+      setSaveError(saveFailure instanceof Error ? saveFailure.message : t('errorGeneric'));
+    }
+  };
 
   return <ImportFrame
     title={t('titleFarmers')}
@@ -565,18 +870,28 @@ export function FarmerBulkImportModal({
     description={t('subtitleFarmers')}
     busy={saveRunning || busy}
     onClose={onClose}
-    footer={step === 2 ? <div className="import-footer-actions">
+    footer={step === 1 || step === 2 ? <div className="import-footer-actions">
+      <div className="import-footer-left">
+        <span className="muted-note">{t('confirmHint')}</span>
+      </div>
+      <div className="import-footer-right">
+        <button type="button" className="button button-secondary" onClick={() => setStep(0)} disabled={saveRunning || saveAttempted}>{t('backToSource')}</button>
+        <button type="button" className="button button-primary" onClick={buildRows} disabled={!mappingValid() || saveRunning || saveAttempted || farmersLoading || Boolean(farmersError)}>
+          <Check size={16} aria-hidden="true" />{t('continueReview')}
+        </button>
+      </div>
+    </div> : step === 3 ? <div className="import-footer-actions">
       <div className="import-footer-left">
         {saveRunning ? <button type="button" className="button button-secondary" onClick={cancelSave}>{t('cancel')}</button> : null}
         <span className="muted-note">{t('confirmHint')}</span>
       </div>
       <div className="import-footer-right">
-        <button type="button" className="button button-secondary" onClick={() => setStep(1)} disabled={saveRunning || saveAttempted}>{t('backToSource')}</button>
+        <button type="button" className="button button-secondary" onClick={() => setStep(2)} disabled={saveRunning || saveAttempted}>{t('backToSource')}</button>
         <button type="button" className="button button-primary" onClick={startSave} disabled={!canSave}>
           <Check size={16} aria-hidden="true" />{saveRunning ? t('importing') : t('importRows')}
         </button>
       </div>
-    </div> : step === 3 ? <div className="import-footer-actions">
+    </div> : step === 4 ? <div className="import-footer-actions">
       <span className="muted-note">{t('doneBody')}</span>
       <div className="import-footer-right">
         <button type="button" className="button button-secondary" onClick={reset}>{t('startOver')}</button>
@@ -587,9 +902,10 @@ export function FarmerBulkImportModal({
     <ImportSteps steps={steps} active={step} />
     {error ? <ImportNotice tone="error" role="alert">{error}<button type="button" className="text-button import-dismiss" onClick={() => setError('')}><X size={14} /></button></ImportNotice> : null}
     {warning ? <ImportNotice tone="warning">{warning}</ImportNotice> : null}
-    {saveError ? <ImportNotice tone="error" role="alert">{saveError}</ImportNotice> : null}
-    {farmersError ? <ImportNotice tone="warning" role="alert">{farmersError} <button type="button" className="text-button" onClick={() => { setFarmersLoading(true); setFarmersError(''); loadImportFarmers().then((result) => { setExistingFarmers(result.farmers); setFarmersTruncated(result.truncated); }).catch((loadError) => setFarmersError(loadError instanceof Error ? loadError.message : t('loadError'))).finally(() => setFarmersLoading(false)); }}>{t('retry')}</button></ImportNotice> : null}
-    {farmersLoading ? <p className="muted-note" role="status">{t('loadingFarmers')}</p> : <p className="muted-note">{t('farmersLoaded', { count: existingFarmers.length })}{farmersTruncated ? ` ${t('showingFirstFarmers', { count: 1500 })}` : ''}</p>}
+    {saveError ? <ImportNotice tone="error" role="alert">{saveError}<button type="button" className="text-button import-dismiss" onClick={() => setSaveError('')}> <X size={14} /></button></ImportNotice> : null}
+    {fieldConfigSaved ? <ImportNotice tone="success">{t('fieldConfigSaved')}</ImportNotice> : null}
+    {farmersError ? <ImportNotice tone="warning" role="alert">{farmersError} <button type="button" className="text-button" onClick={() => { setFarmersLoading(true); setFarmersError(''); loadContext(); }}>{t('retry')}</button></ImportNotice> : null}
+    {farmersLoading ? <p className="muted-note" role="status">{t('loadingFarmers')}</p> : <p className="muted-note" role="status">{t('farmersLoaded', { count: existingFarmersCount ?? existingFarmers.length })}{existingFarmersCount === null ? ` ${t('showingFirstFarmers', { count: 1500 })}` : ''}</p>}
 
     {step === 0 ? <div className="import-source">
       <div className="import-source-tabs" role="tablist" aria-label={t('sourceTitle')}>
@@ -639,57 +955,146 @@ export function FarmerBulkImportModal({
     </div> : null}
 
     {step === 1 ? <div className="import-map">
-      <div className="import-map-heading"><div><h3>{t('mapTitle')}</h3><p className="muted-note">{t('mapHint')}</p></div><label className="import-check"><input type="checkbox" checked={hasHeader} onChange={(event) => toggleHeader(event.target.checked)} />{t('firstRowHeader')}</label></div>
-      <div className="import-map-grid">
-        {FIELD_KEYS.map((field) => <label key={field}>{t(FIELD_COPY[field])}
-          <select value={mapping[field] ?? ''} onChange={(event) => setMappingField(field, event.target.value)}>
-            <option value="">{t('notPresent')}</option>
-            {(tableRows[0] || []).map((cell, index) => <option key={index} value={index}>{hasHeader && cell ? `${cell} (${index + 1})` : `${language === 'rw' ? 'Inkingi' : 'Column'} ${index + 1}`}</option>)}
-          </select>
-        </label>)}
-      </div>
+      <div className="import-map-heading"><div><h3>{t('detectedColumns')}</h3><p className="muted-note">{t('mapHint')}</p></div></div>
+      {misalignmentFlags.length ? <ImportNotice tone="warning">{t('possibleColumnMismatch')} {t('mismatchNotice')} <button type="button" className="text-button" onClick={() => setStep(2)}>{t('reviewColumnMapping')}</button></ImportNotice> : null}
+      <div className="table-scroll import-preview-table"><table><thead><tr>
+        <th>{t('columnHeading')}</th><th>{t('targetField')}</th><th>{t('confidenceLevel')}</th><th>{t('sample')}</th>
+      </tr></thead><tbody>
+        {columnInterpretations.map((interp) => {
+          const decided = columnDecision[interp.index];
+          const sampleValues = tableRows.slice(hasHeader ? 1 : 0)
+            .map((row) => String(row[interp.index] ?? '').trim())
+            .filter(Boolean)
+            .slice(0, 3);
+          return <tr key={interp.index}>
+            <td>{interp.heading || `${t('column')} ${interp.index + 1}`}</td>
+            <td>
+              <select value={decided ?? ''} onChange={(event) => setColumnTarget(interp.index, (event.target.value as ImportTarget | ''))}>
+                <option value="">{t('notDecided')}</option>
+                {IMPORT_TARGETS.map((target) => <option key={target.key} value={target.key}>{targetOptionLabel(language, target.key as ImportTarget)}</option>)}
+              </select>
+              {decided === 'exclude' ? <span className="muted-note"> · {t('notFarmerField')}</span> : null}
+            </td>
+            <td><span className={`conf conf-${interp.confidence}`}>{interp.confidence}</span>
+              {interp.ocrConfusion ? <span className="muted-note"> · OCR</span> : null}
+              {interp.ambiguous ? <span className="muted-note"> · {t('ambiguous')}</span> : null}
+            </td>
+            <td className="muted-note import-sample">{sampleValues.length ? sampleValues.join(' · ') : '—'}</td>
+          </tr>;
+        })}
+      </tbody></table></div>
       <div className="import-map-extra">
         <label>{t('defaultCenter')}<select value={defaultCenterId} onChange={(event) => setDefaultCenterId(event.target.value)}><option value="">{t('chooseCenter')}</option>{availableCenters.map((center) => <option key={center.id} value={centerIdOf(center)}>{center.name}</option>)}</select></label>
       </div>
-      <div className="table-scroll import-preview-table"><table><thead><tr>{FIELD_KEYS.map((field) => <th key={field}>{t(FIELD_COPY[field])}</th>)}</tr></thead><tbody>
-        {mapRows(tableRows, mapping, hasHeader ? 1 : 0).slice(0, 4).map((record: Record<string, string>, index: number) => <tr key={index}>{FIELD_KEYS.map((field) => <td key={field}>{record[field] || '—'}</td>)}</tr>)}
-      </tbody></table></div>
+      <p className="muted-note">{t('noFieldNote')}</p>
       <div className="import-footer-actions import-inline-actions">
         <button type="button" className="button button-secondary" onClick={() => setStep(0)}>{t('backToSource')}</button>
-        <button type="button" className="button button-primary" onClick={buildRows} disabled={!tableRows.length || mapping.name === undefined || mapping.name === '' || farmersLoading || Boolean(farmersError)}>{t('continueReview')}</button>
+        <button type="button" className="button button-primary" onClick={buildRows} disabled={!mappingValid() || saveRunning || saveAttempted || farmersLoading || Boolean(farmersError)}>{t('continueReview')}</button>
       </div>
     </div> : null}
 
-    {step === 2 ? <div className="import-review">
+    {step === 2 ? <div className="import-map">
+      <div className="import-map-heading"><div><h3>{t('stepMapFields')}</h3><p className="muted-note">{t('mapHint')}</p></div></div>
+      {misalignmentFlags.length ? <ImportNotice tone="warning">{t('possibleColumnMismatch')} {t('mismatchNotice')}</ImportNotice> : null}
+      <div className="import-map-grid">
+        {reviewEnabledFields.map((field) => {
+          const sourceColumn = Number(Object.entries(columnDecision).find(([, target]) => target === field.key)?.[0] || -1);
+          const header = sourceColumn >= 0 ? (headers[sourceColumn] || `${t('column')} ${sourceColumn + 1}`) : '';
+          return <label key={field.key} className="import-field-row">
+            <span>{fieldLabel(language, field.key)}{field.required ? ' *' : ''}</span>
+            <select value={sourceColumn >= 0 ? String(sourceColumn) : ''} onChange={(event) => setFieldSource(field.key, event.target.value === '' ? '' : Number(event.target.value))}>
+              <option value="">{t('notPresent')}</option>
+              {columnInterpretations.map((interp) => <option key={interp.index} value={interp.index}>{interp.heading || `${t('column')} ${interp.index + 1}`}</option>)}
+            </select>
+            <span className="muted-note">{header}</span>
+          </label>;
+        })}
+        <label className="import-field-row">
+          <span>{fieldLabel(language, 'farmerNumber')}</span>
+          <span className="muted-note">{t('noFieldNote')}</span>
+        </label>
+      </div>
+      <div className="import-map-extra">
+        <h4>{t('excludedColumnsLabel')}</h4>
+        <p className="muted-note">{t('excludedColumnsNotice')}</p>
+        <ul>
+          {columnInterpretations.filter((interp) => columnDecision[interp.index] === 'exclude').map((interp) => <li key={interp.index}>{interp.heading || `${t('column')} ${interp.index + 1}`}</li>)}
+        </ul>
+      </div>
+      <div className="import-map-extra">
+        <h4>{t('fieldConfigurationTitle')}</h4>
+        <p className="muted-note">{t('configureFields')}</p>
+        {fieldConfigLoading ? <p className="muted-note">{t('loadingFarmers')}</p> : null}
+        <table className="import-config-table">
+          <thead><tr><th>{t('fieldLabel')}</th><th>{t('enabledLabel')}</th><th>{t('requiredLabel')}</th><th>{t('orderLabel')}</th></tr></thead>
+          <tbody>
+            {draftConfig.filter((field) => !field.system).map((field) => <tr key={field.key}>
+              <td>{fieldLabel(language, field.key)}</td>
+              <td><label className="import-check"><input type="checkbox" checked={field.enabled} onChange={() => toggleDraftEnabled(field.key)} />{field.enabled ? t('enabledLabel') : t('excludedCount')}</label></td>
+              <td><label className="import-check"><input type="checkbox" checked={field.required} onChange={() => toggleDraftRequired(field.key)} disabled={!field.enabled} />{field.required ? t('requiredLabel') : t('notRequired')}</label></td>
+              <td><input type="number" min="0" value={field.sortOrder} onChange={(event) => changeDraftOrder(field.key, Number(event.target.value || 0))} /></td>
+            </tr>)}
+          </tbody>
+        </table>
+        {fieldConfigError ? <p className="muted-note">{fieldConfigError}</p> : null}
+        <div className="import-actions" style={{ marginTop: 8 }}>
+          <button type="button" className="button button-primary" onClick={saveFieldConfig} disabled={fieldConfigLoading}>{t('saveFieldConfig')}</button>
+          <span className="muted-note">{t('cowTypeNote')}</span>
+        </div>
+      </div>
+      <div className="import-footer-actions import-inline-actions">
+        <button type="button" className="button button-secondary" onClick={() => setStep(1)}>{t('backToSource')}</button>
+        <button type="button" className="button button-primary" onClick={buildRows} disabled={!mappingValid() || saveRunning || saveAttempted || farmersLoading || Boolean(farmersError)}>{t('continueReview')}</button>
+      </div>
+    </div> : null}
+
+    {step === 3 ? <div className="import-review">
       {saveRunning ? <ImportProgress value={savedProcessed} max={saveTotal} label={t('progress', { done: savedProcessed, total: saveTotal })} /> : null}
-      {saveAttempted && !saveRunning && saveError ? <ImportNotice tone="warning">{t('reviewHint')} {language === 'rw' ? 'Imirongo imwe yanditswe; ntubashe kuyihindura muri iyi session.' : 'Some rows may already be saved; editing is locked in this session. Close and start a new import to correct failed rows.'}</ImportNotice> : null}
+      {saveAttempted && !saveRunning && saveError ? <ImportNotice tone="warning">{t('reviewHint')} You can correct and retry failed rows in this session.</ImportNotice> : null}
       <div className="import-review-toolbar">
         <div className="import-counts">
           <span><b>{counts.total}</b> {t('allRows')}</span>
-          <span className="ok"><b>{counts.ready + counts.possible}</b> {t('ready')}</span>
-          {counts.possible ? <span className="warn"><b>{counts.possible}</b> {t('possible')}</span> : null}
-          {counts.invalid ? <span className="danger"><b>{counts.invalid}</b> {t('invalid')}</span> : null}
+          <span className="ok"><b>{counts.ready}</b> {t('ready')}</span>
+          {counts.needsReview ? <span className="warn"><b>{counts.needsReview}</b> {t('rowNeedsReview')}</span> : null}
+          {counts.possible ? <span className="warn"><b>{counts.possible}</b> {t('rowPossibleDuplicate')}</span> : null}
           {counts.duplicate ? <span className="danger"><b>{counts.duplicate}</b> {t('duplicate')}</span> : null}
+          {counts.invalid ? <span className="danger"><b>{counts.invalid}</b> {t('invalid')}</span> : null}
           {counts.excluded ? <span><b>{counts.excluded}</b> {t('excluded')}</span> : null}
         </div>
         <label className="import-check"><input type="checkbox" checked={issuesOnly} onChange={(event) => { setIssuesOnly(event.target.checked); setPage(0); }} />{t('filterIssues')}</label>
       </div>
       <div className="table-scroll import-review-table"><table>
-        <thead><tr><th>{t('include')}</th><th>{t('rowNumber')}</th><th>{t('name')}</th><th>{t('phone')}</th><th>{t('nationalId')}</th><th>{t('accountNumber')}</th><th>{t('center')}</th><th>{t('cowType')}</th><th>{t('status')}</th></tr></thead>
+        <thead><tr><th>{t('include')}</th><th>{t('rowNumber')}</th>
+          {reviewEnabledFields.map((field) => <th key={field.key}>{fieldLabel(language, field.key)}{field.required ? ' *' : ''}</th>)}
+          <th>{t('center')}</th><th>{t('status')}</th><th>{t('actions')}</th>
+        </tr></thead>
         <tbody>
-          {visibleRows.map((row) => <tr key={row.uid} className={row.status === 'duplicate' || row.status === 'invalid' ? 'import-row-blocked' : row.status === 'possible' ? 'import-row-warning' : ''}>
-            <td><input type="checkbox" aria-label={`${t('include')} ${row.rowNumber}`} checked={row.include} disabled={saveRunning || saveAttempted || (row.status === 'duplicate' && row.lockedDuplicate)} onChange={(event) => updateRow(row.uid, { include: event.target.checked })} /></td>
+          {visibleRows.map((row) => <tr key={row.uid} className={row.status === 'duplicate' || row.status === 'invalid' ? 'import-row-blocked' : row.status === 'needs-review' || row.status === 'possible-duplicate' ? 'import-row-warning' : ''}>
+            <td><input type="checkbox" aria-label={`${t('include')} ${row.rowNumber}`} checked={row.include}
+              disabled={saveRunning || saveAttempted || row.status === 'invalid' || row.lockedDuplicate}
+              onChange={(event) => toggleInclude(row.uid, event.target.checked)} /></td>
             <td>{row.rowNumber}</td>
-            <td><input value={row.name} maxLength={255} disabled={saveRunning || saveAttempted} onChange={(event) => updateRow(row.uid, { name: event.target.value })} /></td>
-            <td><input value={row.phone} maxLength={50} disabled={saveRunning || saveAttempted} onChange={(event) => updateRow(row.uid, { phone: event.target.value })} /></td>
-            <td><input value={row.nationalId} maxLength={50} disabled={saveRunning || saveAttempted} onChange={(event) => updateRow(row.uid, { nationalId: event.target.value })} /></td>
-            <td><input value={row.accountNumber} maxLength={255} disabled={saveRunning || saveAttempted} onChange={(event) => updateRow(row.uid, { accountNumber: event.target.value })} /></td>
-            <td><select value={row.centerId} disabled={saveRunning || saveAttempted || !availableCenters.length} onChange={(event) => updateRow(row.uid, { centerId: event.target.value })}>
-              <option value="">{t('selectCenterOption')}</option>
-              {availableCenters.map((center) => <option key={center.id} value={centerIdOf(center)}>{center.name}</option>)}
-            </select></td>
-            <td><input value={row.cowType} maxLength={255} disabled={saveRunning || saveAttempted} onChange={(event) => updateRow(row.uid, { cowType: event.target.value })} /></td>
-            <td className="import-status-cell"><ImportStatus status={row.status} label={statusLabel(row)} />{row.detail ? <small>{row.detail}</small> : null}{row.status === 'possible' ? <small>{t('include')} / {t('excluded')}: {t('possibleMatch')}</small> : null}</td>
+            {reviewEnabledFields.map((field) => <td key={field.key}>
+              <input value={row.values[field.key] ?? ''} maxLength={MAX_LENGTHS[field.key as keyof typeof MAX_LENGTHS] || 255}
+                disabled={saveRunning || saveAttempted}
+                onChange={(event) => updateRowValue(row.uid, field.key, event.target.value)} />
+              {row.warnings.filter((w) => w.field === field.key).map((w) => <div key={w.code} className="import-field-warning">{w.message}</div>)}
+            </td>)}
+            <td>
+              <select value={row.centerId} disabled={saveRunning || saveAttempted || !availableCenters.length} onChange={(event) => updateRowCenter(row.uid, event.target.value)}>
+                <option value="">{t('selectCenterOption')}</option>
+                {availableCenters.map((center) => <option key={center.id} value={centerIdOf(center)}>{center.name}</option>)}
+              </select>
+            </td>
+            <td className="import-status-cell"><ImportStatus status={row.status} label={statusLabel(row)} />
+              {row.detail ? <small>{row.detail}</small> : null}
+              {row.status === 'possible-duplicate' ? <small>{t('include')} / {t('excludeRow')}: {t('possibleMatch')}</small> : null}
+            </td>
+            <td>
+              {row.status === 'excluded' ? <span className="muted-note">{t('excluded')}</span>
+               : row.status === 'invalid' || row.lockedDuplicate ? <span className="muted-note">{t('fixAndRetry')}</span>
+               : <button type="button" className="text-button" onClick={() => toggleInclude(row.uid, false)}>{t('excludeRow')}</button>}
+            </td>
           </tr>)}
         </tbody>
       </table></div>
@@ -703,7 +1108,7 @@ export function FarmerBulkImportModal({
       {serverResults.length && !saveRunning && saveError ? <div className="import-results"><h4>{t('batchSummary')}</h4><ul>{serverResults.filter((result) => result.status !== 'created').map((result) => <li key={`${result.rowNumber}-${result.errorCode}`}>{t('rowNumber')} {result.rowNumber}: {result.message || result.errorCode}</li>)}</ul></div> : null}
     </div> : null}
 
-    {step === 3 && completedSummary ? <div className="import-done">
+    {step === 4 && completedSummary ? <div className="import-done">
       <div className="import-done-mark"><Check size={28} aria-hidden="true" /></div>
       <h3>{t('doneTitle')}</h3>
       <p>{t('doneBody')}</p>
@@ -712,6 +1117,7 @@ export function FarmerBulkImportModal({
         <div><b>{completedSummary.failed}</b><span>{t('failed')}</span></div>
         <div><b>{completedSummary.skipped}</b><span>{t('skipped')}</span></div>
       </div>
+      <div className="import-note">{t('keepEditable')}</div>
       {serverResults.some((row) => row.status !== 'created') ? <div className="import-results"><h4>{t('batchSummary')}</h4><ul>{serverResults.filter((row) => row.status !== 'created').map((row) => <li key={`${row.rowNumber}-${row.errorCode}`}>{t('rowNumber')} {row.rowNumber}: {row.message || row.errorCode}</li>)}</ul></div> : null}
     </div> : null}
   </ImportFrame>;

@@ -19,7 +19,11 @@ export async function GET(request: Request) {
     if (!user) return NextResponse.json({ message: 'Not authenticated.' }, { status: 401 });
     requireAccountType(user, ['COLLECTOR', 'COLLECTION_CENTER']);
     const params = new URL(request.url).searchParams;
-    const collectorUserId = user.accountType === 'COLLECTOR' ? String(user.id) : '';
+    // Collectors are always scoped to themselves. A Collection Center may narrow
+    // its owner-wide view to one assigned collector.
+    const collectorUserId = user.accountType === 'COLLECTOR'
+      ? String(user.id)
+      : params.get('collectorUserId') || '';
     const result = await Farmers.listFarmers({
       ownerUserId: user.id,
       search: params.get('search') || params.get('q') || '',

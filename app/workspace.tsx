@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import { usePathname, useSearchParams } from 'next/navigation';
 import {
@@ -13,10 +13,12 @@ import {
 import { motion, AnimatePresence, useReducedMotion } from 'framer-motion';
 import { flushOfflineWrites, getOfflineWrites, queueOfflineWrite } from '@/lib/offline-queue';
 import { buildFarmerListQuery } from '@/lib/farmer-list-query';
+import { formatFarmerNumber } from '@/lib/farmer-delivery';
 import { BrandLockup } from '@/components/brand-lockup';
 import { Modal } from '@/components/ui/modal';
 import { FarmerBulkImportModal } from '@/components/imports/farmer-bulk-import';
 import { MilkNotebookImportModal } from '@/components/imports/milk-notebook-import';
+import { defaultFieldConfig, resolveFieldConfig, enabledFields } from '@/lib/imports/farmer-field-config';
 import { getImportCopy } from '@/lib/i18n/import-copy';
 import { AnimatedCounter } from '@/components/ui/animated-counter';
 import { TypingDisplay } from '@/components/ui/typing-display';
@@ -29,10 +31,10 @@ import { calculateMilkDifference, projectOwnerMilkEntry } from '@/lib/milk-recon
 
 type User = { id: number; name: string; email: string; role: string; accountType: string; language?: 'rw' | 'en'; emailVerified?: boolean };
 type AccountProfile = { id: number; name: string; email: string; phone: string | null; nationalId: string | null; accountNumber: string | null; profilePicture: string | null; role: string; accountType: string; accountStatus: string; emailVerified: boolean; language?: 'rw' | 'en' };
-type Farmer = { id: number; name: string; location: string | null; phone: string | null; nationalId: string | null; accountNumber: string | null; collectionCenter: string | null; cowType: string | null; collectorUserId?: number | null };
+type Farmer = { id: number; name: string; location: string | null; phone: string | null; nationalId: string | null; accountNumber: string | null; collectionCenter: string | null; cowType: string | null; collectorUserId?: number | null; farmerNumber?: number | null };
 type Center = { id: number; name: string; owner_user_id?: number; pricePerLiter: number; transportRatePerLiter: number; morning_start: string; morning_end: string; evening_start: string; evening_end: string };
 type Page<T> = { data: T[]; nextCursor: string | null; hasMore: boolean; pageSize: number };
-type DailyRow = { farmerId: number; farmerName: string; phone?: string; nationalId?: string; collectionCenter?: string | null; recordId?: number; volumeMorning: number; volumeEvening: number; totalVolume: number; volumeLiters?: number; amount: number; status?: string; abacundaCount?: number; presentCount?: number };
+type DailyRow = { farmerId: number; farmerName: string; farmerNumber?: number | null; phone?: string; nationalId?: string; collectionCenter?: string | null; collectorUserId?: number | null; collectorName?: string | null; recordId?: number; volumeMorning: number; volumeEvening: number; totalVolume: number; volumeLiters?: number; amount: number; status?: string; delivered?: boolean; deliveryStatus?: 'delivered' | 'missing'; abacundaCount?: number; presentCount?: number };
 type CollectorMilkEntry = { id: number; date: string; volumeLiters: number; pricePerLiter: number; status: string; effectiveVolumeLiters: number };
 type CollectorMilkPrice = { id: number; pricePerLiter: number; effectiveDate: string };
 type OwnerIfishiEntry = { id: number | null; date: string; volumeMorning: number; volumeEvening: number; volumeLiters: number; originalVolumeLiters: number; validVolumeLiters: number; lostVolumeLiters: number; pricePerLiter: number | null; grossAmount: number | null; assignedFarmerLiters: number; surplusLiters: number; differenceLiters: number; status: string; adjustmentReason: string | null; adjustedAt: string | null };
@@ -112,6 +114,20 @@ type AdminPayment = { id: number; account_name: string; account_email: string; s
 type CollectorAssignment = { id: number; collector_user_id: number; collector_name: string; collector_account_number: string | null; collector_national_id: string | null; collector_phone: string | null; abacunda_count: number };
 type AbacundaIfishiEntry = { date: string; morningLiters: number; eveningLiters: number; originalLiters: number; validLiters: number; lostLiters: number; status: string; reason: string | null };
 type AbacundaIfishiHistory = { startDate: string; endDate: string; entries: AbacundaIfishiEntry[]; totals: Omit<AbacundaIfishiEntry, 'date' | 'status' | 'reason'>; collector: { id: number; name: string } };
+type FarmerHistoryDay = { date: string; recordId: number | null; morningLiters: number; eveningLiters: number; totalLiters: number; session: 'morning' | 'evening' | 'morning-evening' | 'none'; status: string; deliveryStatus: 'delivered' | 'missing' };
+type FarmerHistory = {
+  farmer: Farmer & { farmerId: number; farmerNumber: number | null; createdDate?: string | null };
+  startDate: string;
+  endDate: string;
+  requestedStartDate: string;
+  requestedEndDate: string;
+  expectedDays: number;
+  deliveredDays: number;
+  missingDays: number;
+  deliveryRate: number;
+  missedDates: string[];
+  days: FarmerHistoryDay[];
+};
 
 type Tab = 'dashboard' | 'farmers' | 'centers' | 'milk' | 'deductions' | 'transport' | 'ukwezi' | 'settlements' | 'reports' | 'billing' | 'notifications' | 'settings' | 'accounts' | 'audit' | 'config' | 'system-health' | 'notifications-admin';
 type SettlementRecord = { id: number; settlementId?: number; farmer_id?: number; farmerId?: number; farmer_name?: string; farmerName?: string; amount: number; status: string; period_start?: string; period_end?: string; periodStart?: string; periodEnd?: string; payment_method?: string; paymentMethod?: string };
@@ -489,8 +505,33 @@ export default function Workspace() {
   const [farmerSortDirection, setFarmerSortDirection] = useState<'asc' | 'desc'>('asc');
   const [farmerForm, setFarmerForm] = useState({ name: '', collectionCenterId: '', phone: '', nationalId: '', accountNumber: '', cowType: '', collectorUserId: '' });
   const [farmerCreateOpen, setFarmerCreateOpen] = useState(false);
+  const [fieldConfig, setFieldConfig] = useState<{ key: string; enabled: boolean; required: boolean; sortOrder: number; label: { rw: string; en: string } }[] | null>(null);
+  const [fieldConfigLoading, setFieldConfigLoading] = useState(true);
+
+  const visibleFarmerFields = useMemo(() => {
+    const config = fieldConfig ?? defaultFieldConfig();
+    return enabledFields(config).sort((a: { sortOrder: number; key: string }, b: { sortOrder: number; key: string }) => a.sortOrder - b.sortOrder || a.key.localeCompare(b.key));
+  }, [fieldConfig]);
   const [farmerImportOpen, setFarmerImportOpen] = useState(false);
   const [milkImportOpen, setMilkImportOpen] = useState(false);
+
+  useEffect(() => {
+    let active = true;
+    if (!user) return;
+    (async () => {
+      try {
+        const result = await api<{ configurations: Array<{ fieldKey: string; enabled: boolean; required: boolean; sort_order: number }> }>('/api/farmers/field-config', { cache: 'no-store' });
+        if (active) setFieldConfig(resolveFieldConfig(result.configurations));
+      } catch {
+        // No field configuration table yet (or it cannot be read): fall back to
+        // the canonical field definitions instead of failing the form.
+        if (active) setFieldConfig(resolveFieldConfig());
+      } finally {
+        if (active) setFieldConfigLoading(false);
+      }
+    })();
+    return () => { active = false; };
+  }, [user]);
   const [farmerCreateError, setFarmerCreateError] = useState('');
   const farmerCreateSubmittingRef = useRef(false);
   const [editingFarmer, setEditingFarmer] = useState<Farmer | null>(null);
@@ -527,14 +568,21 @@ export default function Workspace() {
   const [dailySearch, setDailySearch] = useState('');
   const [debouncedDailySearch, setDebouncedDailySearch] = useState('');
   const [dailySession, setDailySession] = useState<'all' | 'morning' | 'evening'>('all');
+  const [dailyDeliveryFilter, setDailyDeliveryFilter] = useState<'all' | 'delivered' | 'missing'>('all');
+  const [dailyCollectorFilter, setDailyCollectorFilter] = useState('');
   const [dailySortBy, setDailySortBy] = useState<'' | 'farmerName' | 'totalVolume'>('');
   const [dailySortDirection, setDailySortDirection] = useState<'asc' | 'desc'>('asc');
   const [dailyPageSize, setDailyPageSize] = useState(50);
-  const dailyFilterState = [debouncedDailySearch, dailySession, dailyPageSize];
+  const dailyFilterState = [debouncedDailySearch, dailySession, dailyDeliveryFilter, dailyCollectorFilter, dailyPageSize];
   const dailyRequestRef = useRef(0);
   const [dailySummary, setDailySummary] = useState({
     totalFarmers: 0,
     presentCount: 0,
+    missedCount: 0,
+    expectedCount: 0,
+    deliveredCount: 0,
+    missingCount: 0,
+    deliveryRate: 0,
     totalMorning: 0,
     totalEvening: 0,
     totalVolume: 0,
@@ -592,6 +640,14 @@ const [report, setReport] = useState<Report | null>(null);
   const [ifishiRecords, setIfishiRecords] = useState<MilkRecord[]>([]);
   const [ifishiSaveError, setIfishiSaveError] = useState('');
   const [ifishiSaveStatus, setIfishiSaveStatus] = useState('');
+  const [farmerHistoryOpen, setFarmerHistoryOpen] = useState(false);
+  const [farmerHistory, setFarmerHistory] = useState<FarmerHistory | null>(null);
+  const [farmerHistoryFarmer, setFarmerHistoryFarmer] = useState<Pick<Farmer, 'id' | 'name' | 'phone' | 'farmerNumber'> | null>(null);
+  const [farmerHistoryMonth, setFarmerHistoryMonth] = useState(today().slice(0, 7));
+  const [farmerHistorySession, setFarmerHistorySession] = useState<'all' | 'morning' | 'evening'>('all');
+  const [farmerHistoryLoading, setFarmerHistoryLoading] = useState(false);
+  const [farmerHistoryError, setFarmerHistoryError] = useState('');
+  const farmerHistoryRequestRef = useRef(0);
   const [ownerIfishiHistory, setOwnerIfishiHistory] = useState<OwnerIfishiHistory | null>(null);
   const [ownerIfishiReport, setOwnerIfishiReport] = useState<Report | null>(null);
   const [ownerIfishiReportError, setOwnerIfishiReportError] = useState('');
@@ -1037,12 +1093,15 @@ const visibleTabs = (isAdmin
     const milkEntryView = tab === 'milk';
     const search = milkEntryView ? debouncedDailySearch : '';
     const session = milkEntryView ? dailySession : 'all';
+    const deliveryStatus = milkEntryView ? dailyDeliveryFilter : 'all';
     const limit = milkEntryView ? dailyPageSize : 50;
     const params = new URLSearchParams({ date: collectionDate, limit: String(limit) });
     if (user?.accountType === 'COLLECTOR') params.set('collectorUserId', String(user.id));
     if (selectedCenter) params.set('centerId', selectedCenter);
     if (search) params.set('search', search);
     if (session !== 'all') params.set('session', session);
+    if (deliveryStatus !== 'all') params.set('deliveryStatus', deliveryStatus);
+    if (milkEntryView && isDairy && dailyCollectorFilter) params.set('collectorUserId', dailyCollectorFilter);
     if (milkEntryView && dailySortBy) {
       params.set('sortBy', dailySortBy);
       params.set('sortDirection', dailySortDirection);
@@ -1068,6 +1127,54 @@ const visibleTabs = (isAdmin
     } finally {
       if (requestId === dailyRequestRef.current) setDailyLoading(false);
     }
+  };
+
+  const loadFarmerHistory = async () => {
+    const farmer = farmerHistoryFarmer;
+    if (!farmer) return;
+    const requestId = ++farmerHistoryRequestRef.current;
+    const { startDate, endDate } = getMonthBounds(farmerHistoryMonth);
+    const params = new URLSearchParams({ startDate, endDate });
+    if (farmerHistorySession !== 'all') params.set('session', farmerHistorySession);
+    setFarmerHistoryLoading(true);
+    setFarmerHistoryError('');
+    try {
+      const result = await api<FarmerHistory>(`/api/farmers/${farmer.id}/delivery-history?${params}`, { cache: 'no-store' });
+      if (requestId !== farmerHistoryRequestRef.current) return;
+      setFarmerHistory(result);
+      setFarmerHistoryFarmer({
+        id: result.farmer.farmerId ?? result.farmer.id,
+        name: result.farmer.name,
+        phone: result.farmer.phone,
+        farmerNumber: result.farmer.farmerNumber,
+      });
+    } catch (reason) {
+      if (requestId === farmerHistoryRequestRef.current) {
+        setFarmerHistory(null);
+        setFarmerHistoryError(reason instanceof Error ? reason.message : publicLanguage.t('farmerHistoryError'));
+      }
+    } finally {
+      if (requestId === farmerHistoryRequestRef.current) setFarmerHistoryLoading(false);
+    }
+  };
+
+  const openFarmerHistory = (
+    row: { farmerId?: number; id?: number; farmerName?: string; name?: string; farmerNumber?: number | null; phone?: string | null },
+    monthValue = collectionDate,
+  ) => {
+    const farmerId = Number(row.farmerId ?? row.id);
+    if (!Number.isSafeInteger(farmerId) || farmerId <= 0) return;
+    setFarmerHistory(null);
+    setFarmerHistoryError('');
+    setFarmerHistoryFarmer({
+      id: farmerId,
+      name: row.farmerName ?? row.name ?? '',
+      phone: row.phone ?? null,
+      farmerNumber: row.farmerNumber ?? null,
+    });
+    setFarmerHistoryMonth((monthValue || today()).slice(0, 7));
+    setFarmerHistorySession('all');
+    setFarmerHistoryOpen(true);
   };
 
   const loadDeductions = async (cursor?: string | null, append = false, overrides: { search?: string; type?: string; status?: string; sortBy?: typeof deductionSortBy; sortDirection?: typeof deductionSortDirection } = {}) => {
@@ -1615,6 +1722,15 @@ const visibleTabs = (isAdmin
   useEffect(() => {
     if (user && tab === 'milk' && (!isDairy || selectedCenter)) loadDaily().catch((reason) => setError(reason.message));
   }, [user, tab, isDairy, selectedCenter, collectionDate, ...dailyFilterState, dailySortBy, dailySortDirection]);
+  useEffect(() => {
+    if (user && !isCollector && (tab === 'farmers' || tab === 'milk')) {
+      loadCollectorAssignments().catch((reason) => setCollectorAssignmentsError(reason instanceof Error ? reason.message : 'Failed to load collector assignments.'));
+    }
+  }, [user?.id, tab, isCollector, selectedCenter]);
+  useEffect(() => {
+    if (!user || !farmerHistoryOpen || !farmerHistoryFarmer) return;
+    loadFarmerHistory().catch(() => undefined);
+  }, [user, farmerHistoryOpen, farmerHistoryFarmer?.id, farmerHistoryMonth, farmerHistorySession]);
   useEffect(() => {
     const timer = window.setTimeout(() => setDebouncedIfishiFarmerSearch(ifishiFarmerSearch.trim()), 200);
     return () => window.clearTimeout(timer);
@@ -2331,15 +2447,16 @@ const visibleTabs = (isAdmin
           </Modal> : null}
         </div> : null}
         <div className="table-scroll farmers-desktop-table"><table><thead><tr>
+          <th className="farmer-number-column">{publicLanguage.t('farmerNumberShort')}</th>
           {([
             ['name', publicLanguage.t('columnName')],
-            ['location', publicLanguage.t('columnLocation')],
             ['phone', publicLanguage.t('columnPhone')],
-            ['nationalId', publicLanguage.t('accountNationalId')],
+            ['collector', publicLanguage.t('assignedCollector')],
+            ['status', publicLanguage.t('statusLabel')],
             ['collectionCenter', publicLanguage.t('columnCenter')],
           ] as const).map(([field, label]) => {
-            const sortable = field === 'name' || field === 'nationalId' || field === 'collectionCenter';
-            const active = farmerSortBy === field;
+            const sortable = field === 'name' || field === 'collectionCenter';
+            const active = sortable && farmerSortBy === field;
             const SortIcon = active ? farmerSortDirection === 'asc' ? ArrowUp : ArrowDown : ArrowUpDown;
             return <th key={field} aria-sort={active ? farmerSortDirection === 'asc' ? 'ascending' : 'descending' : 'none'}>
               {sortable ? <button type="button" className="farmer-sort-button" onClick={() => {
@@ -2350,37 +2467,72 @@ const visibleTabs = (isAdmin
           })}
           <th>{publicLanguage.t('actions')}</th>
         </tr></thead><tbody>
-          {(farmers?.data || []).map((farmer, index) => <tr key={farmer.id}><td>{index + 1}</td><td className="strong-cell">{farmer.name}</td><td>{farmer.location || '—'}</td><td>{farmer.phone || '—'}</td><td>{farmer.nationalId || '—'}</td><td>{farmer.collectionCenter || '—'}</td><td className="actions-cell"><button className="text-button" onClick={() => editFarmerStart(farmer)}>{publicLanguage.t('edit')}</button><button className="text-button danger-text" onClick={() => deleteFarmer(farmer)}>{publicLanguage.t('delete')}</button></td></tr>)}
+          {(farmers?.data || []).map((farmer) => {
+            const assigned = Boolean(farmer.collectorUserId);
+            return <tr key={farmer.id}>
+              <td className="farmer-number-cell"><span className="farmer-number-badge">{formatFarmerNumber(farmer.farmerNumber) || '—'}</span></td>
+              <td className="strong-cell"><b>{farmer.name}</b><small className="farmer-row-detail">{[farmer.nationalId ? `ID ${farmer.nationalId}` : null, farmer.location].filter(Boolean).join(' · ') || '—'}</small></td>
+              <td>{farmer.phone || '—'}</td>
+              <td>{getFarmerCollectorName(farmer.collectorUserId)}</td>
+              <td><span className={`delivery-status-pill ${assigned ? 'is-assigned' : 'is-unassigned'}`}>{publicLanguage.t(assigned ? 'statusAssigned' : 'statusUnassigned')}</span></td>
+              <td>{farmer.collectionCenter || '—'}</td>
+              <td className="actions-cell"><button type="button" className="text-button" onClick={() => openFarmerHistory(farmer)}>{publicLanguage.t('viewFarmerHistory')}</button><button type="button" className="text-button" onClick={() => editFarmerStart(farmer)}>{publicLanguage.t('edit')}</button><button type="button" className="text-button danger-text" onClick={() => deleteFarmer(farmer)}>{publicLanguage.t('delete')}</button></td>
+            </tr>;
+          })}
         </tbody></table></div>
-        {farmers ? farmers.data.length ? <div className="farmer-mobile-list">{farmers.data.map((farmer) => <article className="farmer-mobile-card" key={farmer.id}><header><b>{farmer.name}</b><span>{farmer.collectionCenter || farmer.location || '—'}</span></header><dl><div><dt>{publicLanguage.t('columnLocation')}</dt><dd>{farmer.location || '—'}</dd></div><div><dt>{publicLanguage.t('columnPhone')}</dt><dd>{farmer.phone || '—'}</dd></div><div><dt>{publicLanguage.t('columnNationalId')}</dt><dd>{farmer.nationalId || '—'}</dd></div><div><dt>{publicLanguage.t('columnCenter')}</dt><dd>{farmer.collectionCenter || '—'}</dd></div>{!isDairy ? <div><dt>{publicLanguage.t('assignedCollector')}</dt><dd>{getFarmerCollectorName(farmer.collectorUserId)}</dd></div> : null}</dl><footer><button type="button" className="button button-secondary small-button" onClick={() => openIfishiForFarmer(farmer.id, farmer.name)}><BookOpen size={15} />{publicLanguage.t('navIfishi')}</button><button className="button button-secondary small-button" onClick={() => editFarmerStart(farmer)}>{publicLanguage.t('edit')}</button><button className="button button-secondary small-button danger-text" onClick={() => deleteFarmer(farmer)}>{publicLanguage.t('delete')}</button></footer></article>)}</div> : <div className="workspace-empty" role="status"><span className="workspace-empty-icon"><Users size={21} aria-hidden="true" /></span><div><b>{publicLanguage.t('farmersEmptyTitle')}</b><p>{publicLanguage.t('farmersEmptyBody')}</p></div>{farmerSearch || farmerCenter || farmerCollectorFilter ? <button type="button" className="button button-secondary small-button" onClick={() => { setFarmerSearch(''); setFarmerQuery(''); setFarmerCenter(''); setFarmerCollectorFilter(''); }}>{publicLanguage.t('milkClearSearch')}</button> : <button type="button" className="button button-primary small-button" onClick={() => { setFarmerCreateError(''); setFarmerCreateOpen(true); }}><Plus size={15} />{publicLanguage.t('farmersAdd')}</button>}</div> : <div className="workspace-empty workspace-loading" role="status"><span className="loading-indicator" />{publicLanguage.t('dashboardLoading')}</div>}
+        {farmers ? farmers.data.length ? <div className="farmer-mobile-list">{farmers.data.map((farmer) => <article className="farmer-mobile-card" key={farmer.id}><header><div className="farmer-card-identity"><span className="farmer-number-badge">{formatFarmerNumber(farmer.farmerNumber) || '—'}</span><b>{farmer.name}</b></div><span className={`delivery-status-pill ${farmer.collectorUserId ? 'is-assigned' : 'is-unassigned'}`}>{publicLanguage.t(farmer.collectorUserId ? 'statusAssigned' : 'statusUnassigned')}</span></header><dl><div><dt>{publicLanguage.t('columnLocation')}</dt><dd>{farmer.location || '—'}</dd></div><div><dt>{publicLanguage.t('columnPhone')}</dt><dd>{farmer.phone || '—'}</dd></div><div><dt>{publicLanguage.t('columnNationalId')}</dt><dd>{farmer.nationalId || '—'}</dd></div><div><dt>{publicLanguage.t('columnCenter')}</dt><dd>{farmer.collectionCenter || '—'}</dd></div><div><dt>{publicLanguage.t('assignedCollector')}</dt><dd>{getFarmerCollectorName(farmer.collectorUserId)}</dd></div><div><dt>{publicLanguage.t('statusLabel')}</dt><dd><span className={`delivery-status-pill ${farmer.collectorUserId ? 'is-assigned' : 'is-unassigned'}`}>{publicLanguage.t(farmer.collectorUserId ? 'statusAssigned' : 'statusUnassigned')}</span></dd></div></dl><footer><button type="button" className="button button-secondary small-button" onClick={() => openFarmerHistory(farmer)}><History size={15} />{publicLanguage.t('viewFarmerHistory')}</button><button type="button" className="button button-secondary small-button" onClick={() => openIfishiForFarmer(farmer.id, farmer.name)}><BookOpen size={15} />{publicLanguage.t('navIfishi')}</button><button className="button button-secondary small-button" onClick={() => editFarmerStart(farmer)}>{publicLanguage.t('edit')}</button><button className="button button-secondary small-button danger-text" onClick={() => deleteFarmer(farmer)}>{publicLanguage.t('delete')}</button></footer></article>)}</div> : <div className="workspace-empty" role="status"><span className="workspace-empty-icon"><Users size={21} aria-hidden="true" /></span><div><b>{publicLanguage.t('farmersEmptyTitle')}</b><p>{publicLanguage.t('farmersEmptyBody')}</p></div>{farmerSearch || farmerCenter || farmerCollectorFilter ? <button type="button" className="button button-secondary small-button" onClick={() => { setFarmerSearch(''); setFarmerQuery(''); setFarmerCenter(''); setFarmerCollectorFilter(''); }}>{publicLanguage.t('milkClearSearch')}</button> : <button type="button" className="button button-primary small-button" onClick={() => { setFarmerCreateError(''); setFarmerCreateOpen(true); }}><Plus size={15} />{publicLanguage.t('farmersAdd')}</button>}</div> : <div className="workspace-empty workspace-loading" role="status"><span className="loading-indicator" />{publicLanguage.t('dashboardLoading')}</div>}
         {farmers?.hasMore ? <div className="panel-footer"><button className="button button-secondary" onClick={() => loadFarmers(farmers.nextCursor, true)}>{publicLanguage.t('milkLoadMore')} <ChevronDown size={16} /></button></div> : null}
       </section>
       {farmerCreateOpen ? <Modal ariaLabel={publicLanguage.t('farmersAdd')} onClose={() => setFarmerCreateOpen(false)} dismissible={!busy}>
         <div className="panel-heading"><div><span className="eyebrow">{publicLanguage.t('newRecord')}</span><h2>{publicLanguage.t('farmersAdd')}</h2></div><button type="button" className="icon-button" onClick={() => setFarmerCreateOpen(false)} disabled={busy} aria-label={publicLanguage.t('cancel')}><X size={18} aria-hidden="true" /></button></div>
         <form className="form-stack compact" onSubmit={createFarmer}>
-          <label>{publicLanguage.t('fullName')}<input id="new-farmer-name" autoComplete="name" required value={farmerForm.name} onChange={(event) => setFarmerForm({ ...farmerForm, name: event.target.value })} /></label>
-          {isCollector ? <>
-            <label>{publicLanguage.t('columnLocation')}<select aria-label={publicLanguage.t('columnLocation')} value={farmerForm.collectionCenterId} onChange={(event) => setFarmerForm({ ...farmerForm, collectionCenterId: event.target.value })} required disabled={!collectorOwnedCenters.length}><option value="">{publicLanguage.t('selectCenter')}</option>{collectorOwnedCenters.map((center) => <option key={center.id} value={String(center.id)}>{center.name}</option>)}</select></label>
-            {!collectorOwnedCenters.length ? <p className="muted-note" role="status">{publicLanguage.t('farmerNoCenters')}</p> : null}
-          </> : isDairy ? <><label>Active Ikigo<input readOnly value={centers.find((center) => String(center.id) === selectedCenter)?.name || ''} required /></label>{!centers.length ? <p className="muted-note" role="status">{publicLanguage.t('farmerNoCenters')}</p> : null}</> : <label>{publicLanguage.t('columnCenter')}<select value={farmerForm.collectionCenterId} onChange={(event) => setFarmerForm({ ...farmerForm, collectionCenterId: event.target.value })} required><option value="">{publicLanguage.t('selectCenter')}</option>{centers.map((center) => <option key={center.id} value={String(center.id)}>{center.name}</option>)}</select></label>}
-          <label>{publicLanguage.t('columnPhone')}<input type="tel" inputMode="tel" autoComplete="tel" maxLength={50} value={farmerForm.phone} onChange={(event) => setFarmerForm({ ...farmerForm, phone: event.target.value })} /></label>
-          <label>{publicLanguage.t('columnNationalId')}<input value={farmerForm.nationalId} onChange={(event) => setFarmerForm({ ...farmerForm, nationalId: event.target.value })} /></label>
-          <label>{publicLanguage.t('accountNumber')}<input value={farmerForm.accountNumber} onChange={(event) => setFarmerForm({ ...farmerForm, accountNumber: event.target.value })} /></label>
-          <label>{publicLanguage.t('cowType')}<input value={farmerForm.cowType} onChange={(event) => setFarmerForm({ ...farmerForm, cowType: event.target.value })} /></label>
+          {visibleFarmerFields.map((field: { key: string; required: boolean }) => {
+            switch (field.key) {
+              case 'name':
+                return <label key="name">{publicLanguage.t('fullName')}<input id="new-farmer-name" autoComplete="name" required={field.required} value={farmerForm.name} onChange={(event) => setFarmerForm({ ...farmerForm, name: event.target.value })} /></label>;
+              case 'phone':
+                return <label key="phone">{publicLanguage.t('columnPhone')}<input type="tel" inputMode="tel" autoComplete="tel" maxLength={50} required={field.required} value={farmerForm.phone} onChange={(event) => setFarmerForm({ ...farmerForm, phone: event.target.value })} /></label>;
+              case 'nationalId':
+                return <label key="nationalId">{publicLanguage.t('columnNationalId')}<input required={field.required} value={farmerForm.nationalId} onChange={(event) => setFarmerForm({ ...farmerForm, nationalId: event.target.value })} /></label>;
+              case 'accountNumber':
+                return <label key="accountNumber">{publicLanguage.t('accountNumber')}<input required={field.required} value={farmerForm.accountNumber} onChange={(event) => setFarmerForm({ ...farmerForm, accountNumber: event.target.value })} /></label>;
+              case 'cowType':
+                return <label key="cowType">{publicLanguage.t('cowType')}<input required={field.required} value={farmerForm.cowType} onChange={(event) => setFarmerForm({ ...farmerForm, cowType: event.target.value })} /></label>;
+              case 'collectionCenter':
+                return <>{isCollector ? <>
+                  <label>{publicLanguage.t('columnLocation')}<select aria-label={publicLanguage.t('columnLocation')} value={farmerForm.collectionCenterId} onChange={(event) => setFarmerForm({ ...farmerForm, collectionCenterId: event.target.value })} required={field.required} disabled={!collectorOwnedCenters.length}><option value="">{publicLanguage.t('selectCenter')}</option>{collectorOwnedCenters.map((center) => <option key={center.id} value={String(center.id)}>{center.name}</option>)}</select></label>
+                  {!collectorOwnedCenters.length ? <p className="muted-note" role="status">{publicLanguage.t('farmerNoCenters')}</p> : null}
+                </> : isDairy ? <><label>Active Ikigo<input readOnly value={centers.find((center) => String(center.id) === selectedCenter)?.name || ''} required={field.required} /></label>{!centers.length ? <p className="muted-note" role="status">{publicLanguage.t('farmerNoCenters')}</p> : null}</> : <label>{publicLanguage.t('columnCenter')}<select value={farmerForm.collectionCenterId} onChange={(event) => setFarmerForm({ ...farmerForm, collectionCenterId: event.target.value })} required={field.required}><option value="">{publicLanguage.t('selectCenter')}</option>{centers.map((center) => <option key={center.id} value={String(center.id)}>{center.name}</option>)}</select></label>}</>;
+              default:
+                return null;
+            }
+          })}
           {!isCollector && !isDairy ? <label>{publicLanguage.t('assignedCollector')}<select value={farmerForm.collectorUserId} onChange={(event) => setFarmerForm({ ...farmerForm, collectorUserId: event.target.value })}><option value="">{publicLanguage.t('noCollector')}</option>{collectorAssignments.map((assignment) => <option key={assignment.collector_user_id} value={assignment.collector_user_id}>{assignment.collector_name}</option>)}</select></label> : null}
           {farmerCreateError ? <p className="form-error" role="alert">{farmerCreateError}</p> : null}
           <div className="form-actions"><button type="button" className="button button-secondary" onClick={() => setFarmerCreateOpen(false)} disabled={busy}>{publicLanguage.t('cancel')}</button><button className="button button-primary" disabled={busy || ((isCollector || isDairy) && !selectedCenter)}><Plus size={16} aria-hidden="true" />{busy ? publicLanguage.t('wait') : publicLanguage.t('farmersAdd')}</button></div>
         </form>
       </Modal> : null}
       {editingFarmer ? <Modal ariaLabel={`${publicLanguage.t('edit')} ${editingFarmer.name}`} onClose={() => setEditingFarmer(null)} dismissible={!busy}><div className="panel-heading"><h2 id="edit-farmer-title">{publicLanguage.t('edit')} {editingFarmer.name}</h2><button type="button" className="icon-button" onClick={() => setEditingFarmer(null)} disabled={busy} aria-label={publicLanguage.t('cancel')}><X size={18} /></button></div><form className="form-stack" onSubmit={saveFarmer}>
-        <label>{publicLanguage.t('fullName')}<input required value={farmerEdit.name} onChange={(event) => setFarmerEdit({ ...farmerEdit, name: event.target.value })} /></label>
-        {isCollector ? <>
-          <label>{publicLanguage.t('columnLocation')}<select aria-label={publicLanguage.t('columnLocation')} value={farmerEdit.collectionCenterId} onChange={(event) => setFarmerEdit({ ...farmerEdit, collectionCenterId: event.target.value })} disabled={!collectorOwnedCenters.length}><option value="">{publicLanguage.t('selectCenter')}</option>{collectorOwnedCenters.map((center) => <option key={center.id} value={String(center.id)}>{center.name}</option>)}</select></label>
-        </> : isDairy ? <><label>Active Ikigo<input readOnly value={centers.find((center) => String(center.id) === selectedCenter)?.name || ''} required /></label></> : <label>{publicLanguage.t('columnCenter')}<select value={farmerEdit.collectionCenterId} onChange={(event) => setFarmerEdit({ ...farmerEdit, collectionCenterId: event.target.value })} required><option value="">{publicLanguage.t('selectCenter')}</option>{centers.map((center) => <option key={center.id} value={String(center.id)}>{center.name}</option>)}</select></label>}
-        <label>{publicLanguage.t('columnPhone')}<input inputMode="tel" value={farmerEdit.phone} onChange={(event) => setFarmerEdit({ ...farmerEdit, phone: event.target.value })} /></label>
-        <label>{publicLanguage.t('columnNationalId')}<input value={farmerEdit.nationalId} onChange={(event) => setFarmerEdit({ ...farmerEdit, nationalId: event.target.value })} /></label>
-        <label>{publicLanguage.t('accountNumber')}<input value={farmerEdit.accountNumber} onChange={(event) => setFarmerEdit({ ...farmerEdit, accountNumber: event.target.value })} /></label>
-        <label>{publicLanguage.t('cowType')}<input value={farmerEdit.cowType} onChange={(event) => setFarmerEdit({ ...farmerEdit, cowType: event.target.value })} /></label>
+        {visibleFarmerFields.map((field: { key: string; required: boolean }) => {
+          switch (field.key) {
+            case 'name':
+              return <label key="name">{publicLanguage.t('fullName')}<input required={field.required} value={farmerEdit.name} onChange={(event) => setFarmerEdit({ ...farmerEdit, name: event.target.value })} /></label>;
+            case 'phone':
+              return <label key="phone">{publicLanguage.t('columnPhone')}<input inputMode="tel" required={field.required} value={farmerEdit.phone} onChange={(event) => setFarmerEdit({ ...farmerEdit, phone: event.target.value })} /></label>;
+            case 'nationalId':
+              return <label key="nationalId">{publicLanguage.t('columnNationalId')}<input required={field.required} value={farmerEdit.nationalId} onChange={(event) => setFarmerEdit({ ...farmerEdit, nationalId: event.target.value })} /></label>;
+            case 'accountNumber':
+              return <label key="accountNumber">{publicLanguage.t('accountNumber')}<input required={field.required} value={farmerEdit.accountNumber} onChange={(event) => setFarmerEdit({ ...farmerEdit, accountNumber: event.target.value })} /></label>;
+            case 'cowType':
+              return <label key="cowType">{publicLanguage.t('cowType')}<input required={field.required} value={farmerEdit.cowType} onChange={(event) => setFarmerEdit({ ...farmerEdit, cowType: event.target.value })} /></label>;
+            case 'collectionCenter':
+              return <>{isCollector ? <>
+                <label>{publicLanguage.t('columnLocation')}<select aria-label={publicLanguage.t('columnLocation')} value={farmerEdit.collectionCenterId} onChange={(event) => setFarmerEdit({ ...farmerEdit, collectionCenterId: event.target.value })} disabled={!collectorOwnedCenters.length}><option value="">{publicLanguage.t('selectCenter')}</option>{collectorOwnedCenters.map((center) => <option key={center.id} value={String(center.id)}>{center.name}</option>)}</select></label>
+              </> : isDairy ? <><label>Active Ikigo<input readOnly value={centers.find((center) => String(center.id) === selectedCenter)?.name || ''} required={field.required} /></label></> : <label>{publicLanguage.t('columnCenter')}<select value={farmerEdit.collectionCenterId} onChange={(event) => setFarmerEdit({ ...farmerEdit, collectionCenterId: event.target.value })}><option value="">{publicLanguage.t('selectCenter')}</option>{centers.map((center) => <option key={center.id} value={String(center.id)}>{center.name}</option>)}</select></label>}</>;
+            default:
+              return null;
+          }
+        })}
         {!isCollector && !isDairy ? <label>{publicLanguage.t('assignedCollector')}<select value={farmerEdit.collectorUserId} onChange={(event) => setFarmerEdit({ ...farmerEdit, collectorUserId: event.target.value })}><option value="">{publicLanguage.t('noCollector')}</option>{collectorAssignments.map((assignment) => <option key={assignment.collector_user_id} value={assignment.collector_user_id}>{assignment.collector_name}</option>)}</select></label> : null}
         <div className="form-actions"><button type="button" className="button button-secondary" onClick={() => setEditingFarmer(null)}>{publicLanguage.t('cancel')}</button><button className="button button-primary" disabled={busy}>{publicLanguage.t('saveChanges')}</button></div>
       </form></Modal> : null}
@@ -2417,12 +2569,89 @@ const visibleTabs = (isAdmin
     );
   };
 
+  const renderFarmerHistory = () => {
+    const historyFarmer = farmerHistory?.farmer || null;
+    const farmerId = historyFarmer?.farmerId ?? historyFarmer?.id ?? farmerHistoryFarmer?.id ?? null;
+    const farmerName = historyFarmer?.name || farmerHistoryFarmer?.name || '';
+    const farmerNumber = formatFarmerNumber(historyFarmer?.farmerNumber ?? farmerHistoryFarmer?.farmerNumber) || '—';
+    const collectorLabel = getFarmerCollectorName(historyFarmer?.collectorUserId ?? null);
+    const dateLabel = (value: string) => formatDateLabel(value, publicLanguage.language, { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' }) || value;
+    const shortDateLabel = (value: string) => formatDateLabel(value, publicLanguage.language, { day: 'numeric', month: 'short', year: 'numeric' }) || value;
+    const sessionLabel = (session: FarmerHistoryDay['session']) => session === 'morning'
+      ? publicLanguage.t('dashboardMorning')
+      : session === 'evening'
+        ? publicLanguage.t('dashboardEvening')
+        : session === 'morning-evening'
+          ? publicLanguage.t('farmerHistoryMorningEvening')
+          : '—';
+    const statusLabel = (day: FarmerHistoryDay) => day.deliveryStatus === 'delivered'
+      ? publicLanguage.t('deliveryStatusDelivered')
+      : day.status === 'cancelled'
+        ? publicLanguage.t('deliveryStatusCancelled')
+        : publicLanguage.t('deliveryStatusMissing');
+    const statusClass = (day: FarmerHistoryDay) => day.deliveryStatus === 'delivered'
+      ? 'is-delivered'
+      : day.status === 'cancelled'
+        ? 'is-cancelled'
+        : 'is-missing';
+
+    return <div className="farmer-history-view">
+      <div className="panel-heading"><div><span className="eyebrow">{publicLanguage.t('viewFarmerHistory')}</span><h2 id="farmer-history-title">{publicLanguage.t('farmerHistoryTitle')}</h2><p className="muted-note">{publicLanguage.t('farmerHistorySubtitle')}</p></div><button type="button" className="icon-button" onClick={() => setFarmerHistoryOpen(false)} aria-label={publicLanguage.t('cancel')}><X size={18} aria-hidden="true" /></button></div>
+      <section className="farmer-history-identity">
+        <div className="farmer-history-person"><span className="farmer-number-badge">{farmerNumber}</span><div><b>{farmerName || '—'}</b><small>{[historyFarmer?.phone, collectorLabel, historyFarmer?.collectionCenter].filter(Boolean).join(' · ') || '—'}</small></div></div>
+        {historyFarmer?.createdDate ? <span className="farmer-history-created">{publicLanguage.t('accountCreated')}: {shortDateLabel(historyFarmer.createdDate)}</span> : null}
+      </section>
+      <div className="toolbar farmer-history-controls">
+        <label>{publicLanguage.t('farmerHistoryRange')}<input type="month" max={today().slice(0, 7)} value={farmerHistoryMonth} onChange={(event) => { if (event.target.value) setFarmerHistoryMonth(event.target.value); }} /></label>
+        <label>{publicLanguage.t('farmerHistorySession')}<select value={farmerHistorySession} onChange={(event) => setFarmerHistorySession(event.target.value as typeof farmerHistorySession)}><option value="all">{publicLanguage.t('milkSessionAll')}</option><option value="morning">{publicLanguage.t('milkSessionMorning')}</option><option value="evening">{publicLanguage.t('milkSessionEvening')}</option></select></label>
+      </div>
+      {farmerHistoryLoading ? <div className="workspace-empty workspace-loading" role="status"><span className="loading-indicator" />{publicLanguage.t('farmerHistoryLoading')}</div> : null}
+      {farmerHistoryError ? <div className="workspace-empty" role="alert"><b>{farmerHistoryError}</b><button type="button" className="button button-secondary small-button" onClick={() => loadFarmerHistory().catch(() => undefined)}>{publicLanguage.t('tryAgain')}</button></div> : null}
+      {!farmerHistoryLoading && farmerHistory ? <>
+        <p className="muted-note farmer-history-period">{shortDateLabel(farmerHistory.startDate)} – {shortDateLabel(farmerHistory.endDate)}{farmerHistory.requestedEndDate !== farmerHistory.endDate ? ` · ${publicLanguage.t('farmerHistoryRange')}: ${shortDateLabel(farmerHistory.requestedStartDate)} – ${shortDateLabel(farmerHistory.requestedEndDate)}` : ''}</p>
+        <div className="metric-strip farmer-history-summary" aria-label={publicLanguage.t('farmerHistoryTitle')}>
+          <div><span>{publicLanguage.t('farmerHistoryExpectedDays')}</span><b>{farmerHistory.expectedDays}</b></div>
+          <div><span>{publicLanguage.t('farmerHistoryDeliveredDays')}</span><b>{farmerHistory.deliveredDays}</b></div>
+          <div><span>{publicLanguage.t('farmerHistoryMissingDays')}</span><b>{farmerHistory.missingDays}</b></div>
+          <div><span>{publicLanguage.t('farmerHistoryRate')}</span><b>{farmerHistory.deliveryRate}%</b></div>
+        </div>
+        <div className="farmer-history-grid">
+          <section className="farmer-history-missed" aria-labelledby="farmer-history-missed-title">
+            <div className="panel-heading"><div><span className="eyebrow">{publicLanguage.t('deliveryMissingFarmers')}</span><h3 id="farmer-history-missed-title">{publicLanguage.t('farmerHistoryMissedDates')}</h3></div><span className="count-label">{farmerHistory.missingDays}</span></div>
+            {farmerHistory.missedDates.length ? <ul>{farmerHistory.missedDates.map((date) => <li key={date}><span className="farmer-history-missed-date">{shortDateLabel(date)}</span><span className="delivery-status-pill is-missing">{publicLanguage.t('deliveryStatusMissing')}</span></li>)}</ul> : <p className="muted-note">{publicLanguage.t('farmerHistoryNoMissedDates')}</p>}
+          </section>
+          <section className="farmer-history-days" aria-labelledby="farmer-history-days-title">
+            <div className="panel-heading"><div><span className="eyebrow">{publicLanguage.t('navMilk')}</span><h3 id="farmer-history-days-title">{publicLanguage.t('farmerHistoryDay')}</h3></div><span className="count-label">{farmerHistory.days.length}</span></div>
+            {farmerHistory.days.length ? <>
+              <div className="table-scroll farmer-history-desktop-list"><table><thead><tr><th>{publicLanguage.t('farmerHistoryDay')}</th><th>{publicLanguage.t('farmerHistorySession')}</th><th>{publicLanguage.t('dashboardMorning')} · L</th><th>{publicLanguage.t('dashboardEvening')} · L</th><th>{publicLanguage.t('farmerHistoryLiters')}</th><th>{publicLanguage.t('farmerHistoryStatus')}</th></tr></thead><tbody>{farmerHistory.days.map((day) => <tr key={day.date}><td>{dateLabel(day.date)}</td><td>{sessionLabel(day.session)}</td><td>{liters(day.morningLiters)}</td><td>{liters(day.eveningLiters)}</td><td><b>{liters(day.totalLiters)}</b></td><td><span className={`delivery-status-pill ${statusClass(day)}`}>{statusLabel(day)}</span></td></tr>)}</tbody></table></div>
+              <div className="farmer-history-mobile-list">{farmerHistory.days.map((day) => <article className="farmer-history-day" key={day.date}><header><b>{dateLabel(day.date)}</b><span className={`delivery-status-pill ${statusClass(day)}`}>{statusLabel(day)}</span></header><dl><div><dt>{publicLanguage.t('farmerHistorySession')}</dt><dd>{sessionLabel(day.session)}</dd></div><div><dt>{publicLanguage.t('farmerHistoryLiters')}</dt><dd>{liters(day.totalLiters)} L</dd></div><div><dt>{publicLanguage.t('dashboardMorning')}</dt><dd>{liters(day.morningLiters)} L</dd></div><div><dt>{publicLanguage.t('dashboardEvening')}</dt><dd>{liters(day.eveningLiters)} L</dd></div></dl></article>)}</div>
+            </> : <div className="workspace-empty" role="status"><b>{publicLanguage.t('farmerHistoryEmpty')}</b></div>}
+          </section>
+        </div>
+        <div className="form-actions"><button type="button" className="button button-secondary" onClick={() => setFarmerHistoryOpen(false)}>{publicLanguage.t('cancel')}</button><button type="button" className="button button-primary" disabled={!farmerId} onClick={() => { if (!farmerId) return; setFarmerHistoryOpen(false); openIfishiForFarmer(farmerId, farmerName, historyFarmer || undefined); }}><BookOpen size={16} aria-hidden="true" />{publicLanguage.t('navIfishi')}</button></div>
+      </> : null}
+    </div>;
+  };
+
   const renderMilk = () => {
     const currentDay = collectionDate ? Number(new Date(`${collectionDate}T00:00:00Z`).getUTCDate()) : 1;
     const currentPeriod = getAccountingHalfForDay(currentDay) === 'first-half' ? publicLanguage.t('milkUkweziFirstHalf') : publicLanguage.t('milkUkweziSecondHalf');
     const visibleRows = daily;
-    const hasDailyFilter = Boolean(debouncedDailySearch) || dailySession !== 'all';
-    const clearDailyFilters = () => { setDailySearch(''); setDailySession('all'); };
+    const hasDailyFilter = Boolean(debouncedDailySearch) || dailySession !== 'all' || dailyDeliveryFilter !== 'all' || Boolean(dailyCollectorFilter);
+    const clearDailyFilters = () => { setDailySearch(''); setDailySession('all'); setDailyDeliveryFilter('all'); setDailyCollectorFilter(''); };
+    const farmerNumberLabel = (farmerNumber?: number | null) => formatFarmerNumber(farmerNumber) || '—';
+    const rowCollectorLabel = (row: DailyRow) => row.collectorName || getFarmerCollectorName(row.collectorUserId);
+    const deliveryStatusLabel = (row: DailyRow) => row.deliveryStatus === 'delivered'
+      ? publicLanguage.t('deliveryStatusDelivered')
+      : row.status === 'cancelled'
+        ? publicLanguage.t('deliveryStatusCancelled')
+        : publicLanguage.t('deliveryStatusMissing');
+    const deliveryStatusClass = (row: DailyRow) => row.deliveryStatus === 'delivered'
+      ? 'is-delivered'
+      : row.status === 'cancelled'
+        ? 'is-cancelled'
+        : 'is-missing';
+    const missingRows = visibleRows.filter((row) => row.deliveryStatus === 'missing');
     const updateVolume = (farmerId: number, period: 'morning' | 'evening', value: string) => setVolumes((current) => ({
       ...current,
       [farmerId]: { ...(current[farmerId] || { morning: '', evening: '' }), [period]: value },
@@ -2473,6 +2702,8 @@ const visibleTabs = (isAdmin
       <div className="milk-record-tools">
         <label className="milk-search-field"><span>{publicLanguage.t('milkSearchLabel')}</span><span className="milk-search-control"><Search size={16} aria-hidden="true" /><input type="search" aria-label={publicLanguage.t('milkSearchLabel')} placeholder={publicLanguage.t('milkSearchPlaceholder')} value={dailySearch} onChange={(event) => setDailySearch(event.target.value)} />{dailySearch ? <button type="button" className="icon-button milk-search-clear" aria-label={publicLanguage.t('milkClearSearch')} title={publicLanguage.t('milkClearSearch')} onClick={() => setDailySearch('')}><X size={16} aria-hidden="true" /></button> : null}</span></label>
         <label><span>{publicLanguage.t('milkSessionFilter')}</span><select value={dailySession} onChange={(event) => setDailySession(event.target.value as typeof dailySession)}><option value="all">{publicLanguage.t('milkSessionAll')}</option><option value="morning">{publicLanguage.t('milkSessionMorning')}</option><option value="evening">{publicLanguage.t('milkSessionEvening')}</option></select></label>
+        <label><span>{publicLanguage.t('deliveryFilterLabel')}</span><select aria-label={publicLanguage.t('deliveryFilterLabel')} value={dailyDeliveryFilter} onChange={(event) => setDailyDeliveryFilter(event.target.value as typeof dailyDeliveryFilter)}><option value="all">{publicLanguage.t('deliveryFilterAll')}</option><option value="delivered">{publicLanguage.t('deliveryFilterDelivered')}</option><option value="missing">{publicLanguage.t('deliveryFilterMissing')}</option></select></label>
+        {isDairy ? <label><span>{publicLanguage.t('assignedCollector')}</span><select aria-label={publicLanguage.t('assignedCollector')} value={dailyCollectorFilter} onChange={(event) => setDailyCollectorFilter(event.target.value)}><option value="">{publicLanguage.t('allCollectors')}</option>{collectorAssignments.map((assignment) => <option key={assignment.collector_user_id} value={String(assignment.collector_user_id)}>{assignment.collector_name}</option>)}</select></label> : null}
         <label className="milk-sort-mobile"><span>{publicLanguage.t('sort')}</span><select value={dailySortBy ? `${dailySortBy}:${dailySortDirection}` : ''} onChange={(event) => {
           const [field, direction] = event.target.value.split(':');
           if (['farmerName', 'totalVolume'].includes(field) && ['asc', 'desc'].includes(direction)) {
@@ -2496,7 +2727,16 @@ const visibleTabs = (isAdmin
           }}><Plus size={15} aria-hidden="true" />{publicLanguage.t('recordLossEvent')}</button>
         )}
       </div>
-      <div className="metric-strip milk-summary"><div><span>{accountCopy('dashboardFarmers', 'dashboardAbacundaToday')}</span><b>{dailySummary.presentCount} / {dailySummary.totalFarmers}</b></div><div><span>{publicLanguage.t('dashboardCollected')}</span><b>{liters(dailySummary.totalVolume)} L</b></div><div><span>{publicLanguage.t('dashboardMorning')}</span><b>{liters(dailySummary.totalMorning)} L</b></div><div><span>{publicLanguage.t('dashboardEvening')}</span><b>{liters(dailySummary.totalEvening)} L</b></div></div>
+      <div className="metric-strip delivery-reconciliation" aria-label={publicLanguage.t('deliveryFilterLabel')}><div><span>{publicLanguage.t('deliveryExpectedFarmers')}</span><b>{dailySummary.expectedCount}</b></div><div><span>{publicLanguage.t('deliveryDeliveredFarmers')}</span><b>{dailySummary.deliveredCount}</b></div><div><span>{publicLanguage.t('deliveryMissingFarmers')}</span><b>{dailySummary.missingCount}</b></div><div><span>{publicLanguage.t('deliveryRate')}</span><b>{dailySummary.deliveryRate}%</b></div></div>
+      <div className="metric-strip milk-summary"><div><span>{publicLanguage.t('dashboardCollected')}</span><b>{liters(dailySummary.totalVolume)} L</b></div><div><span>{publicLanguage.t('dashboardMorning')}</span><b>{liters(dailySummary.totalMorning)} L</b></div><div><span>{publicLanguage.t('dashboardEvening')}</span><b>{liters(dailySummary.totalEvening)} L</b></div></div>
+      {missingRows.length ? <section className="missing-farmers-panel" aria-label={publicLanguage.t('deliveryMissingTitle')}>
+        <div className="missing-farmers-heading"><div><b>{publicLanguage.t('deliveryMissingTitle')}</b><small>{publicLanguage.t('deliveryMissingHint')}</small></div><span>{dailySummary.missingCount}</span></div>
+        <ul>{missingRows.map((row) => <li key={row.farmerId}>
+          <span><b>{farmerNumberLabel(row.farmerNumber)} — {row.farmerName}</b><small>{[row.phone, rowCollectorLabel(row)].filter(Boolean).join(' · ') || '—'}</small></span>
+          <button type="button" className="text-button" onClick={() => openFarmerHistory(row)}>{publicLanguage.t('viewFarmerHistory')}</button>
+        </li>)}</ul>
+        {dailyDeliveryFilter !== 'missing' ? <button type="button" className="text-button missing-farmers-all" onClick={() => { setDailyDeliveryFilter('missing'); setDailyPageSize(100); }}>{publicLanguage.t('deliveryFilterMissing')} · {dailySummary.missingCount}<ArrowRight size={14} aria-hidden="true" /></button> : null}
+      </section> : null}
       <div className="panel-heading"><div><span className="eyebrow">{isCollector ? 'ABOROZI' : 'ACTIVE IKIGO'}</span><h2>{publicLanguage.t('navFarmers')}</h2></div><span className="count-label">{publicLanguage.t('milkResultsCount')}: {visibleRows.length} / {dailySummary.totalFarmers}</span></div>
       {isDairy && !selectedCenter ? (
         centers.length ? (
@@ -2511,14 +2751,30 @@ const visibleTabs = (isAdmin
         : dailyError ? <div className="workspace-empty" role="alert"><b>{dailyError}</b><button type="button" className="button button-secondary small-button" onClick={() => loadDaily().catch(() => undefined)}>Retry</button></div>
         : visibleRows.length ? <>
         <div className="table-scroll milk-desktop-list"><table><thead><tr>
+          <th className="farmer-number-column">{publicLanguage.t('farmerNumberShort')}</th>
           <th aria-sort={dailySortBy === 'farmerName' ? dailySortDirection === 'asc' ? 'ascending' : 'descending' : 'none'}><button type="button" className="farmer-sort-button" onClick={() => { if (dailySortBy === 'farmerName') setDailySortDirection((direction) => direction === 'asc' ? 'desc' : 'asc'); else { setDailySortBy('farmerName'); setDailySortDirection('asc'); } }}>{accountCopy('milkFarmer', 'milkAbacunda')}{dailySortBy === 'farmerName' ? dailySortDirection === 'asc' ? <ArrowUp size={13} /> : <ArrowDown size={13} /> : <ArrowUpDown size={13} />}</button></th>
+          <th>{publicLanguage.t('columnPhone')}</th><th>{publicLanguage.t('assignedCollector')}</th><th>{publicLanguage.t('statusLabel')}</th>
           <th>{publicLanguage.t('dashboardMorning')} · L</th><th>{publicLanguage.t('dashboardEvening')} · L</th>
           <th aria-sort={dailySortBy === 'totalVolume' ? dailySortDirection === 'asc' ? 'ascending' : 'descending' : 'none'}><button type="button" className="farmer-sort-button" onClick={() => { if (dailySortBy === 'totalVolume') setDailySortDirection((direction) => direction === 'asc' ? 'desc' : 'asc'); else { setDailySortBy('totalVolume'); setDailySortDirection('asc'); } }}>{publicLanguage.t('milkTotal')}{dailySortBy === 'totalVolume' ? dailySortDirection === 'asc' ? <ArrowUp size={13} /> : <ArrowDown size={13} /> : <ArrowUpDown size={13} />}</button></th>
-          <th>{publicLanguage.t('navIfishi')}</th><th>{publicLanguage.t('milkAction')}</th></tr></thead><tbody>{visibleRows.map((row) => <tr key={row.farmerId}><td className="strong-cell">{row.farmerName}{isDairy ? <small>{row.presentCount || 0} / {row.abacundaCount || 0} Abacunda</small> : null}</td><td>{isCollector ? volumeInput(row, 'morning') : liters(row.volumeMorning)}</td><td>{isCollector ? volumeInput(row, 'evening') : liters(row.volumeEvening)}</td><td>{liters(row.totalVolume)}</td><td><button type="button" className="text-button" onClick={() => openIfishiForFarmer(row.farmerId, row.farmerName)}>{publicLanguage.t('navIfishi')}</button></td><td className="milk-table-action">{isCollector ? <><span className={`milk-entry-state ${entryState(row)}`}>{publicLanguage.t(entryState(row) === 'saved' ? 'milkSaved' : 'milkUnsaved')}</span><button className="button button-secondary small-button" onClick={() => saveMilk(row)} disabled={busy}>{publicLanguage.t('milkSave')}</button></> : null}</td></tr>)}</tbody></table></div>
+          <th>{publicLanguage.t('milkAction')}</th></tr></thead><tbody>{visibleRows.map((row) => <tr key={row.farmerId}>
+            <td className="farmer-number-cell"><span className="farmer-number-badge">{farmerNumberLabel(row.farmerNumber)}</span></td>
+            <td className="strong-cell"><b>{row.farmerName}</b>{isDairy ? <small>{row.presentCount || 0} / {row.abacundaCount || 0} Abacunda</small> : null}</td>
+            <td>{row.phone || '—'}</td>
+            <td>{rowCollectorLabel(row)}</td>
+            <td><span className={`delivery-status-pill ${deliveryStatusClass(row)}`}>{deliveryStatusLabel(row)}</span></td>
+            <td>{isCollector ? volumeInput(row, 'morning') : liters(row.volumeMorning)}</td>
+            <td>{isCollector ? volumeInput(row, 'evening') : liters(row.volumeEvening)}</td>
+            <td>{liters(row.totalVolume)}</td>
+            <td className="milk-table-action"><div className="milk-table-action-group"><button type="button" className="text-button" onClick={() => openFarmerHistory(row)}>{publicLanguage.t('viewFarmerHistory')}</button><button type="button" className="text-button" onClick={() => openIfishiForFarmer(row.farmerId, row.farmerName)}>{publicLanguage.t('navIfishi')}</button>{isCollector ? <><span className={`milk-entry-state ${entryState(row)}`}>{publicLanguage.t(entryState(row) === 'saved' ? 'milkSaved' : 'milkUnsaved')}</span><button className="button button-secondary small-button" onClick={() => saveMilk(row)} disabled={busy}>{publicLanguage.t('milkSave')}</button></> : null}</div></td>
+          </tr>)}</tbody></table></div>
         <div className="milk-mobile-list">{visibleRows.map((row) => <article className="milk-entry-card" key={row.farmerId}>
-          <header><div><b>{row.farmerName}</b><small>{isDairy ? `${row.presentCount || 0} / ${row.abacundaCount || 0} Abacunda` : row.collectionCenter || dailyCenter || ''}</small></div>{isCollector ? <span className={`milk-entry-state ${entryState(row)}`}>{publicLanguage.t(entryState(row) === 'saved' ? 'milkSaved' : 'milkUnsaved')}</span> : null}</header>
+          <header>
+            <div className="milk-card-identity"><span className="farmer-number-badge">{farmerNumberLabel(row.farmerNumber)}</span><b>{row.farmerName}</b><small>{[row.phone, rowCollectorLabel(row)].filter(Boolean).join(' · ') || (isDairy ? `${row.presentCount || 0} / ${row.abacundaCount || 0} Abacunda` : row.collectionCenter || dailyCenter || '')}</small></div>
+            <span className={`delivery-status-pill ${deliveryStatusClass(row)}`}>{deliveryStatusLabel(row)}</span>
+          </header>
+          <p className="milk-card-context">{[row.collectionCenter || dailyCenter, isDairy ? `${row.presentCount || 0} / ${row.abacundaCount || 0} Abacunda` : null, isCollector ? (entryState(row) === 'saved' ? publicLanguage.t('milkSaved') : publicLanguage.t('milkUnsaved')) : null].filter(Boolean).join(' · ')}</p>
           <div className="milk-entry-inputs"><label><span>{publicLanguage.t('dashboardMorning')} · L</span>{isCollector ? volumeInput(row, 'morning') : liters(row.volumeMorning)}</label><label><span>{publicLanguage.t('dashboardEvening')} · L</span>{isCollector ? volumeInput(row, 'evening') : liters(row.volumeEvening)}</label></div>
-          <footer><span>{publicLanguage.t('dashboardCollected')} <b>{liters(row.totalVolume)} L</b></span>{isCollector ? <><button type="button" className="button button-secondary small-button" onClick={() => openIfishiForFarmer(row.farmerId, row.farmerName)}><BookOpen size={15} />{publicLanguage.t('navIfishi')}</button><button className="button button-secondary small-button" onClick={() => saveMilk(row)} disabled={busy}>{publicLanguage.t('milkSave')}</button></> : <button type="button" className="button button-secondary small-button" onClick={() => openIfishiForFarmer(row.farmerId, row.farmerName)}><BookOpen size={15} />{publicLanguage.t('navIfishi')}</button>}</footer>
+          <footer><span>{publicLanguage.t('dashboardCollected')} <b>{liters(row.totalVolume)} L</b></span><button type="button" className="button button-secondary small-button" onClick={() => openFarmerHistory(row)}><History size={15} />{publicLanguage.t('viewFarmerHistory')}</button><button type="button" className="button button-secondary small-button" onClick={() => openIfishiForFarmer(row.farmerId, row.farmerName)}><BookOpen size={15} />{publicLanguage.t('navIfishi')}</button>{isCollector ? <button className="button button-secondary small-button" onClick={() => saveMilk(row)} disabled={busy}>{publicLanguage.t('milkSave')}</button> : null}</footer>
         </article>)}</div>
       </> : emptyState}
       {dailyHasMore ? <div className="panel-footer"><button className="button button-secondary" onClick={() => dailyCursor && loadDaily(dailyCursor, true)}>{publicLanguage.t('milkLoadMore')} <ChevronDown size={16} /></button></div> : null}
@@ -2663,7 +2919,7 @@ const visibleTabs = (isAdmin
       }
     };
     const selectedFarmerDetail = selectedFarmer
-      ? [selectedFarmer.collectionCenter, selectedFarmer.nationalId ? `ID ${selectedFarmer.nationalId}` : null, selectedFarmer.phone].filter(Boolean).join(' · ')
+      ? [selectedFarmer.collectionCenter, selectedFarmer.location, selectedFarmer.nationalId ? `ID ${selectedFarmer.nationalId}` : null].filter(Boolean).join(' · ')
       : '';
     const monthlyRows = ifishiRecords.filter((record) => String(record.date).slice(0, 10) >= startDate && String(record.date).slice(0, 10) <= endDate
       && (ifishiRecordSession === 'all' || (ifishiRecordSession === 'morning' ? Number(record.volumeMorning) > 0 : Number(record.volumeEvening) > 0)));
@@ -2719,12 +2975,15 @@ const visibleTabs = (isAdmin
                 onMouseEnter={() => setIfishiActiveResultIndex(index)}
                 onClick={() => chooseIfishiFarmer(farmer, index)}
               >
-                <span className="ifishi-search-result-name">{farmer.name}{String(farmer.id) === ifishiFarmerId ? <Check size={16} aria-hidden="true" /> : null}</span>
-                <small>{[farmer.collectionCenter, farmer.nationalId ? `ID ${farmer.nationalId}` : null, farmer.phone].filter(Boolean).join(' · ') || farmer.location || '—'}</small>
+                <span className="ifishi-search-result-name">
+                  <span className="ifishi-search-result-identity"><span className="farmer-number-badge">{formatFarmerNumber(farmer.farmerNumber) || '—'}</span><span>{farmer.name}</span></span>
+                  <span className="ifishi-search-result-meta">{String(farmer.id) === ifishiFarmerId ? <Check size={16} aria-hidden="true" /> : null}<span className={`delivery-status-pill ${farmer.collectorUserId ? 'is-assigned' : 'is-unassigned'}`}>{publicLanguage.t(farmer.collectorUserId ? 'statusAssigned' : 'statusUnassigned')}</span></span>
+                </span>
+                <small>{[farmer.phone, getFarmerCollectorName(farmer.collectorUserId), farmer.collectionCenter, farmer.nationalId ? `ID ${farmer.nationalId}` : null].filter(Boolean).join(' · ') || farmer.location || '—'}</small>
               </button>) : <p className="ifishi-search-state" role="status">{publicLanguage.t('ifishiNoPeople')}</p>}
             </div> : null}
           </div>
-          {selectedFarmer ? <div className="ifishi-selected-person" role="status"><Check size={18} aria-hidden="true" /><div><span>{publicLanguage.t('ifishiSelectedFarmer')}</span><b>{selectedFarmer.name}</b><small>{[selectedCenterName, selectedFarmerDetail].filter(Boolean).join(' · ')}</small></div></div> : null}
+          {selectedFarmer ? <div className="ifishi-selected-person" role="status"><Check size={18} aria-hidden="true" /><div><span>{publicLanguage.t('ifishiSelectedFarmer')}</span><b><span className="farmer-number-badge">{formatFarmerNumber(selectedFarmer.farmerNumber) || '—'}</span> {selectedFarmer.name}</b><small>{[selectedCenterName, selectedFarmer.phone, getFarmerCollectorName(selectedFarmer.collectorUserId), selectedFarmerDetail].filter(Boolean).join(' · ')}</small></div><button type="button" className="text-button ifishi-selected-history" onClick={() => { setIfishiOpen(false); openFarmerHistory(selectedFarmer); }}>{publicLanguage.t('viewFarmerHistory')}</button></div> : null}
           <label>{publicLanguage.t('milkCollectionDate')}<input type="date" min={startDate} max={endDate} value={ifishiDate} onChange={(event) => setIfishiDate(event.target.value)} /></label>
           <label>{publicLanguage.t('milkSessionFilter')}<select value={ifishiRecordSession} onChange={(event) => setIfishiRecordSession(event.target.value as typeof ifishiRecordSession)}><option value="all">{publicLanguage.t('milkSessionAll')}</option><option value="morning">{publicLanguage.t('milkSessionMorning')}</option><option value="evening">{publicLanguage.t('milkSessionEvening')}</option></select></label>
           <label>{publicLanguage.t('sort')}<select value={`${ifishiRecordSortBy}:${ifishiRecordSortDirection}`} onChange={(event) => { const [field, direction] = event.target.value.split(':'); if (['date', 'volume', 'amount'].includes(field) && ['asc', 'desc'].includes(direction)) { setIfishiRecordSortBy(field as typeof ifishiRecordSortBy); setIfishiRecordSortDirection(direction as typeof ifishiRecordSortDirection); } }}>
@@ -4106,6 +4365,7 @@ const visibleTabs = (isAdmin
         </AnimatePresence>
         {adminAccountDetailsOpen ? renderAdminAccountDetailsModal() : null}
       </section></div>
+      {farmerHistoryOpen && farmerHistoryFarmer ? <Modal ariaLabel={publicLanguage.t('farmerHistoryTitle')} className="modal-panel-wide farmer-history-modal" onClose={() => setFarmerHistoryOpen(false)} dismissible={!farmerHistoryLoading}>{renderFarmerHistory()}</Modal> : null}
       {lossEventOpen && (
         <Modal ariaLabel={publicLanguage.t('recordLossEvent')} className="loss-event-modal" onClose={() => setLossEventOpen(false)} dismissible={!lossEventLoading}>
           <div className="panel-heading"><div><span className="eyebrow">{publicLanguage.t('recordLossEvent')}</span><h2>{publicLanguage.t('lossEventTitle')}</h2></div><button type="button" className="icon-button" onClick={() => setLossEventOpen(false)} disabled={lossEventLoading} aria-label={publicLanguage.t('cancel')}><X size={18} aria-hidden="true" /></button></div>

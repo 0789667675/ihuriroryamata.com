@@ -219,7 +219,7 @@ test('daily collection returns directly owned Collector farmers when no Dairy as
     if (text.includes('FROM collector_assignments')) return { rows: [] };
     if (text.includes('FROM collection_centers')) return { rows: [{ id: 5, name: 'North Site', owner_user_id: 99, pricePerLiter: 400, transportRatePerLiter: 0 }] };
     if (text.includes('SELECT DISTINCT')) return { rows: [{ name: 'North Site' }] };
-    if (text.includes('COUNT(f.id)')) return { rows: [{ totalFarmers: 1, presentCount: 0, totalMorning: 0, totalEvening: 0, totalVolume: 0, totalAmount: 0 }] };
+    if (text.includes('COUNT(DISTINCT f.id)')) return { rows: [{ totalFarmers: 1, presentCount: 0, totalMorning: 0, totalEvening: 0, totalVolume: 0, totalAmount: 0 }] };
     if (text.includes('SELECT f.id AS "farmerId"')) return { rows: [{ farmerId: 7, farmerName: 'A Farmer', collectionCenter: 'North Site', volumeMorning: 0, volumeEvening: 0, totalVolume: 0, amount: 0 }] };
     if (text.includes('FROM collection_center_prices')) return { rows: [{ pricePerLiter: 400 }] };
     throw new Error(`Unexpected daily collection query: ${text}`);
@@ -581,7 +581,9 @@ test('Dairy daily collection selects owner-owned Abacunda directly without Colle
   assert.match(query.text, /mr\.owner_user_id = f\.owner_user_id/);
   assert.match(query.text, /SELECT id, name, owner_user_id FROM collection_centers WHERE id = \$3 AND owner_user_id = \$1/);
   assert.match(query.text, /summary AS/);
-  assert.doesNotMatch(query.text, /collector_assignments|collector_user_id/);
+  assert.match(query.text, /LEFT JOIN users cu ON cu\.id = f\.collector_user_id/);
+  assert.doesNotMatch(query.text, /collector_assignments/);
+  assert.doesNotMatch(query.text, /WHERE f\.owner_user_id = \$1 AND f\.collector_user_id/);
   assert.deepEqual(query.values, [77, '2026-10-07', 8, 900, 26]);
 });
 
@@ -595,13 +597,14 @@ test('Dairy daily search filters farmer identity and session within the owner-se
     session: 'evening',
   });
 
-  assert.deepEqual(query.values, [77, '2026-10-07', 8, null, 11, '%Aline%']);
+  assert.deepEqual(query.values, [77, '2026-10-07', 8, '%Aline%', 11]);
   assert.match(query.text, /SELECT id, name, owner_user_id FROM collection_centers WHERE id = \$3 AND owner_user_id = \$1/);
   assert.match(query.text, /f\.owner_user_id = \$1/);
-  assert.match(query.text, /f\.name ILIKE \$6/);
-  assert.match(query.text, /f\.phone, ''\) ILIKE \$6/);
-  assert.match(query.text, /f\.national_id, ''\) ILIKE \$6/);
-  assert.match(query.text, /f\.id::text ILIKE \$6 OR mr\.id::text ILIKE \$6/);
+  assert.match(query.text, /"farmerName" ILIKE \$4/);
+  assert.match(query.text, /"phone", ''\) ILIKE \$4/);
+  assert.match(query.text, /"nationalId", ''\) ILIKE \$4/);
+  assert.match(query.text, /"farmerId"::text ILIKE \$4 OR "recordId"::text ILIKE \$4/);
+  assert.match(query.text, /"farmerNumber"::text ILIKE \$4/);
   assert.match(query.text, /COALESCE\(mr\.valid_volume_evening, mr\.volume_evening, 0\) > 0/);
 });
 
@@ -646,21 +649,24 @@ test('Collector daily search applies the same owner, center, identity, and sessi
   }, async (text, values) => {
     captured.push({ text, values });
     if (text.includes('FROM collection_centers WHERE id =')) return { rows: [{ id: 5, name: 'North Site', owner_user_id: ownerUserId, pricePerLiter: 400, transportRatePerLiter: 0 }] };
-    if (text.includes('SELECT COUNT(f.id)')) return { rows: [{ totalFarmers: 1, presentCount: 0, totalMorning: 0, totalEvening: 0, totalVolume: 0, totalAmount: 0 }] };
+    if (text.includes('COUNT(DISTINCT f.id)')) return { rows: [{ totalFarmers: 1, presentCount: 0, totalMorning: 0, totalEvening: 0, totalVolume: 0, totalAmount: 0 }] };
     return { rows: [] };
   }, async () => []);
 
-  const filteredQueries = captured.filter(({ text }) => text.includes('SELECT COUNT(f.id)') || text.includes('SELECT f.id AS "farmerId"'));
+  const filteredQueries = captured.filter(({ text }) => text.includes('COUNT(DISTINCT f.id)') || text.includes('SELECT f.id AS "farmerId"'));
   assert.equal(filteredQueries.length, 2);
-  for (const { text, values } of filteredQueries) {
-    assert.deepEqual(values.slice(0, 4), ['2026-10-07', ownerUserId, 'North Site', '%0788%']);
-    assert.equal(values.length, text.includes('SELECT f.id AS "farmerId"') ? 5 : 4);
+  const summaryQuery = filteredQueries.find(({ text }) => text.includes('COUNT(DISTINCT f.id)'));
+  const listQuery = filteredQueries.find(({ text }) => text.includes('SELECT f.id AS "farmerId"'));
+  assert.deepEqual(summaryQuery.values, ['2026-10-07', ownerUserId, 'North Site']);
+  assert.deepEqual(listQuery.values, ['2026-10-07', ownerUserId, 'North Site', 788, '%0788%', 26]);
+  for (const { text } of filteredQueries) {
     assert.match(text, /f\.owner_user_id = \$2/);
-    assert.match(text, /f\.name ILIKE \$4/);
-    assert.match(text, /f\.phone, ''\) ILIKE \$4/);
-    assert.match(text, /f\.id::text ILIKE \$4 OR mr\.id::text ILIKE \$4/);
     assert.match(text, /COALESCE\(mr\.valid_volume_morning, mr\.volume_morning, 0\) > 0/);
   }
+  assert.match(summaryQuery.text, /COUNT\(DISTINCT f\.id\)/);
+  assert.match(listQuery.text, /f\.name ILIKE \$5/);
+  assert.match(listQuery.text, /f\.phone, ''\) ILIKE \$5/);
+  assert.match(listQuery.text, /f\.id::text ILIKE \$5 OR mr\.id::text ILIKE \$5/);
 });
 
 test('Dairy daily summary counts directly owned Abacunda, not linked collectors', async () => {
@@ -717,7 +723,7 @@ test('Dairy daily service returns Abacunda aggregates without farmer rows or own
     },
   });
 
-  assert.deepEqual(received, { dairyUserId: 77, date: '2026-10-07', centerId: 8, cursor: null, limit: 10, search: '', session: 'all' });
+  assert.deepEqual(received, { dairyUserId: 77, date: '2026-10-07', centerId: 8, cursor: null, limit: 10, search: '', session: 'all', deliveryStatus: 'all', collectorUserId: null });
   assert.equal(result.farmers[0].farmerName, 'Abacunda A');
   assert.equal(result.farmers[0].abacundaCount, 4);
   assert.equal(result.summary.totalFarmers, 4);
