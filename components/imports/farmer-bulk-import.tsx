@@ -82,6 +82,8 @@ type ImportRow = {
   warnings: Array<{ field: string; code: string; message: string }>;
   detail: string;
   lockedDuplicate: boolean;
+  saveOutcome?: 'created' | 'failed';
+  saveErrorMessage?: string;
 };
 
 type Step = 0 | 1 | 2 | 3 | 4;
@@ -568,6 +570,9 @@ export function FarmerBulkImportModal({
     });
     setRows(assessRows(nextRows));
     setServerResults([]);
+    setSaveAttempted(false);
+    setCompletedSummary(null);
+    batchKeyRef.current = '';
     setConfirmed(false);
     setPage(0);
     setIssuesOnly(false);
@@ -675,10 +680,10 @@ export function FarmerBulkImportModal({
   }, { total: 0, ready: 0, needsReview: 0, possible: 0, duplicate: 0, invalid: 0, excluded: 0 }), [assessedRows]);
 
   const includableRows = useMemo(() => assessedRows.filter((row) =>
-    row.include && row.status !== 'invalid' && !row.lockedDuplicate), [assessedRows]);
+    row.include && row.saveOutcome !== 'created' && row.status !== 'invalid' && !row.lockedDuplicate), [assessedRows]);
 
   const blockingIncluded = useMemo(() => assessedRows.filter((row) =>
-    row.include && (row.status === 'invalid' || row.lockedDuplicate)), [assessedRows]);
+    row.include && row.saveOutcome !== 'created' && (row.status === 'invalid' || row.lockedDuplicate)), [assessedRows]);
 
   const canSave = Boolean(confirmed
     && includableRows.length
@@ -689,31 +694,41 @@ export function FarmerBulkImportModal({
     && !farmersError);
 
   const updateRowValue = (uid: number, fieldKey: string, value: string) => {
-    if (saveAttempted) return;
+    if (saveRunning) return;
     setConfirmed(false);
-    setRows((current) => current.map((row) => row.uid === uid ? { ...row, values: { ...row.values, [fieldKey]: value }, edited: true } : row));
+    batchKeyRef.current = '';
+    setRows((current) => current.map((row) => row.uid === uid && row.saveOutcome !== 'created'
+      ? { ...row, values: { ...row.values, [fieldKey]: value }, edited: true, saveErrorMessage: undefined }
+      : row));
   };
 
   const updateRowCenter = (uid: number, centerId: string) => {
-    if (saveAttempted) return;
+    if (saveRunning) return;
     setConfirmed(false);
-    setRows((current) => current.map((row) => row.uid === uid ? { ...row, centerId } : row));
+    batchKeyRef.current = '';
+    setRows((current) => current.map((row) => row.uid === uid && row.saveOutcome !== 'created'
+      ? { ...row, centerId, saveErrorMessage: undefined }
+      : row));
   };
 
   const updateRowCenterText = (uid: number, centerText: string) => {
-    if (saveAttempted) return;
+    if (saveRunning) return;
     setConfirmed(false);
+    batchKeyRef.current = '';
     const centerByName = new Map(availableCenters.map((center) => [center.name.trim().toLowerCase(), center]));
     const matched = centerText ? centerByName.get(centerText.trim().toLowerCase()) : null;
-    setRows((current) => current.map((row) => row.uid === uid
-      ? { ...row, centerText, centerId: matched ? centerIdOf(matched) : (!centerText ? defaultCenterId : '') }
+    setRows((current) => current.map((row) => row.uid === uid && row.saveOutcome !== 'created'
+      ? { ...row, centerText, centerId: matched ? centerIdOf(matched) : (!centerText ? defaultCenterId : ''), saveErrorMessage: undefined }
       : row));
   };
 
   const toggleInclude = (uid: number, include: boolean) => {
-    if (saveAttempted) return;
+    if (saveRunning) return;
     setConfirmed(false);
-    setRows((current) => current.map((row) => row.uid === uid ? { ...row, include } : row));
+    batchKeyRef.current = '';
+    setRows((current) => current.map((row) => row.uid === uid && row.saveOutcome !== 'created'
+      ? { ...row, include }
+      : row));
   };
 
   const misalignmentFlags = useMemo(() => detectColumnMisalignment(
@@ -789,6 +804,29 @@ export function FarmerBulkImportModal({
         created += chunkResults.filter((row) => row.status === 'created').length;
         failed += chunkResults.filter((row) => row.status !== 'created').length;
         setSavedProcessed(Math.min(includableRows.length, offset + chunk.length));
+      }
+      const outcomeByRow = new Map(collected.map((item) => [item.rowNumber, item]));
+      setRows((current) => current.map((row) => {
+        const outcome = outcomeByRow.get(row.rowNumber);
+        if (!outcome) return row;
+        if (outcome.status === 'created') {
+          return {
+            ...row,
+            saveOutcome: 'created',
+            saveErrorMessage: undefined,
+            include: false,
+          };
+        }
+        return {
+          ...row,
+          saveOutcome: 'failed',
+          saveErrorMessage: outcome.message || outcome.errorCode || t('failed'),
+          include: true,
+        };
+      }));
+      if (failed > 0) {
+        batchKeyRef.current = '';
+        setConfirmed(false);
       }
       setCompletedSummary({ created, failed, skipped: counts.excluded + counts.invalid + counts.duplicate });
       setStep(4);
@@ -875,8 +913,8 @@ export function FarmerBulkImportModal({
         <span className="muted-note">{t('confirmHint')}</span>
       </div>
       <div className="import-footer-right">
-        <button type="button" className="button button-secondary" onClick={() => setStep(0)} disabled={saveRunning || saveAttempted}>{t('backToSource')}</button>
-        <button type="button" className="button button-primary" onClick={buildRows} disabled={!mappingValid() || saveRunning || saveAttempted || farmersLoading || Boolean(farmersError)}>
+        <button type="button" className="button button-secondary" onClick={() => setStep(0)} disabled={saveRunning}>{t('backToSource')}</button>
+        <button type="button" className="button button-primary" onClick={buildRows} disabled={!mappingValid() || saveRunning || farmersLoading || Boolean(farmersError)}>
           <Check size={16} aria-hidden="true" />{t('continueReview')}
         </button>
       </div>
@@ -886,7 +924,7 @@ export function FarmerBulkImportModal({
         <span className="muted-note">{t('confirmHint')}</span>
       </div>
       <div className="import-footer-right">
-        <button type="button" className="button button-secondary" onClick={() => setStep(2)} disabled={saveRunning || saveAttempted}>{t('backToSource')}</button>
+        <button type="button" className="button button-secondary" onClick={() => setStep(2)} disabled={saveRunning}>{t('backToSource')}</button>
         <button type="button" className="button button-primary" onClick={startSave} disabled={!canSave}>
           <Check size={16} aria-hidden="true" />{saveRunning ? t('importing') : t('importRows')}
         </button>
@@ -894,6 +932,7 @@ export function FarmerBulkImportModal({
     </div> : step === 4 ? <div className="import-footer-actions">
       <span className="muted-note">{t('doneBody')}</span>
       <div className="import-footer-right">
+        {completedSummary && completedSummary.failed > 0 ? <button type="button" className="button button-secondary" onClick={() => { setStep(3); setIssuesOnly(false); }}>Review failed rows</button> : null}
         <button type="button" className="button button-secondary" onClick={reset}>{t('startOver')}</button>
         <button type="button" className="button button-primary" onClick={onClose}>{t('close')}</button>
       </div>
@@ -989,7 +1028,7 @@ export function FarmerBulkImportModal({
       <p className="muted-note">{t('noFieldNote')}</p>
       <div className="import-footer-actions import-inline-actions">
         <button type="button" className="button button-secondary" onClick={() => setStep(0)}>{t('backToSource')}</button>
-        <button type="button" className="button button-primary" onClick={buildRows} disabled={!mappingValid() || saveRunning || saveAttempted || farmersLoading || Boolean(farmersError)}>{t('continueReview')}</button>
+        <button type="button" className="button button-primary" onClick={buildRows} disabled={!mappingValid() || saveRunning || farmersLoading || Boolean(farmersError)}>{t('continueReview')}</button>
       </div>
     </div> : null}
 
@@ -1030,7 +1069,7 @@ export function FarmerBulkImportModal({
           <tbody>
             {draftConfig.filter((field) => !field.system).map((field) => <tr key={field.key}>
               <td>{fieldLabel(language, field.key)}</td>
-              <td><label className="import-check"><input type="checkbox" checked={field.enabled} onChange={() => toggleDraftEnabled(field.key)} />{field.enabled ? t('enabledLabel') : t('excludedCount')}</label></td>
+              <td><label className="import-check"><input type="checkbox" checked={field.enabled} onChange={() => toggleDraftEnabled(field.key)} />{field.enabled ? t('enabledLabel') : t('notRequired')}</label></td>
               <td><label className="import-check"><input type="checkbox" checked={field.required} onChange={() => toggleDraftRequired(field.key)} disabled={!field.enabled} />{field.required ? t('requiredLabel') : t('notRequired')}</label></td>
               <td><input type="number" min="0" value={field.sortOrder} onChange={(event) => changeDraftOrder(field.key, Number(event.target.value || 0))} /></td>
             </tr>)}
@@ -1044,13 +1083,13 @@ export function FarmerBulkImportModal({
       </div>
       <div className="import-footer-actions import-inline-actions">
         <button type="button" className="button button-secondary" onClick={() => setStep(1)}>{t('backToSource')}</button>
-        <button type="button" className="button button-primary" onClick={buildRows} disabled={!mappingValid() || saveRunning || saveAttempted || farmersLoading || Boolean(farmersError)}>{t('continueReview')}</button>
+        <button type="button" className="button button-primary" onClick={buildRows} disabled={!mappingValid() || saveRunning || farmersLoading || Boolean(farmersError)}>{t('continueReview')}</button>
       </div>
     </div> : null}
 
     {step === 3 ? <div className="import-review">
       {saveRunning ? <ImportProgress value={savedProcessed} max={saveTotal} label={t('progress', { done: savedProcessed, total: saveTotal })} /> : null}
-      {saveAttempted && !saveRunning && saveError ? <ImportNotice tone="warning">{t('reviewHint')} You can correct and retry failed rows in this session.</ImportNotice> : null}
+      {saveAttempted && !saveRunning && (saveError || (completedSummary && completedSummary.failed > 0)) ? <ImportNotice tone="warning">{t('reviewHint')} You can correct and retry failed rows in this session.</ImportNotice> : null}
       <div className="import-review-toolbar">
         <div className="import-counts">
           <span><b>{counts.total}</b> {t('allRows')}</span>
@@ -1071,27 +1110,29 @@ export function FarmerBulkImportModal({
         <tbody>
           {visibleRows.map((row) => <tr key={row.uid} className={row.status === 'duplicate' || row.status === 'invalid' ? 'import-row-blocked' : row.status === 'needs-review' || row.status === 'possible-duplicate' ? 'import-row-warning' : ''}>
             <td><input type="checkbox" aria-label={`${t('include')} ${row.rowNumber}`} checked={row.include}
-              disabled={saveRunning || saveAttempted || row.status === 'invalid' || row.lockedDuplicate}
+              disabled={saveRunning || row.saveOutcome === 'created' || row.status === 'invalid' || row.lockedDuplicate}
               onChange={(event) => toggleInclude(row.uid, event.target.checked)} /></td>
             <td>{row.rowNumber}</td>
             {reviewEnabledFields.map((field) => <td key={field.key}>
               <input value={row.values[field.key] ?? ''} maxLength={MAX_LENGTHS[field.key as keyof typeof MAX_LENGTHS] || 255}
-                disabled={saveRunning || saveAttempted}
+                disabled={saveRunning || row.saveOutcome === 'created'}
                 onChange={(event) => updateRowValue(row.uid, field.key, event.target.value)} />
               {row.warnings.filter((w) => w.field === field.key).map((w) => <div key={w.code} className="import-field-warning">{w.message}</div>)}
             </td>)}
             <td>
-              <select value={row.centerId} disabled={saveRunning || saveAttempted || !availableCenters.length} onChange={(event) => updateRowCenter(row.uid, event.target.value)}>
+              <select value={row.centerId} disabled={saveRunning || row.saveOutcome === 'created' || !availableCenters.length} onChange={(event) => updateRowCenter(row.uid, event.target.value)}>
                 <option value="">{t('selectCenterOption')}</option>
                 {availableCenters.map((center) => <option key={center.id} value={centerIdOf(center)}>{center.name}</option>)}
               </select>
             </td>
             <td className="import-status-cell"><ImportStatus status={row.status} label={statusLabel(row)} />
               {row.detail ? <small>{row.detail}</small> : null}
+              {row.saveErrorMessage ? <small className="import-field-warning">{row.saveErrorMessage}</small> : null}
               {row.status === 'possible-duplicate' ? <small>{t('include')} / {t('excludeRow')}: {t('possibleMatch')}</small> : null}
             </td>
             <td>
-              {row.status === 'excluded' ? <span className="muted-note">{t('excluded')}</span>
+              {row.saveOutcome === 'created' ? <span className="muted-note">{t('created')}</span>
+               : row.status === 'excluded' ? <span className="muted-note">{t('excluded')}</span>
                : row.status === 'invalid' || row.lockedDuplicate ? <span className="muted-note">{t('fixAndRetry')}</span>
                : <button type="button" className="text-button" onClick={() => toggleInclude(row.uid, false)}>{t('excludeRow')}</button>}
             </td>
@@ -1101,7 +1142,7 @@ export function FarmerBulkImportModal({
       {!visibleRows.length ? <p className="muted-note">{t('errorNoRows')}</p> : null}
       <ImportPager page={safePage} pages={totalPages} onChange={setPage} previousLabel={t('previous')} nextLabel={t('next')} />
       <div className="import-confirm">
-        <label className="import-check"><input type="checkbox" checked={confirmed} disabled={saveRunning || saveAttempted} onChange={(event) => setConfirmed(event.target.checked)} />{t('confirmReview')}</label>
+        <label className="import-check"><input type="checkbox" checked={confirmed} disabled={saveRunning} onChange={(event) => setConfirmed(event.target.checked)} />{t('confirmReview')}</label>
         {blockingIncluded.length ? <ImportNotice tone="warning">{t('resolveDuplicate')} {blockingIncluded.length}</ImportNotice> : null}
         {counts.invalid ? <p className="muted-note">{t('reviewHint')}</p> : null}
       </div>
@@ -1118,6 +1159,7 @@ export function FarmerBulkImportModal({
         <div><b>{completedSummary.skipped}</b><span>{t('skipped')}</span></div>
       </div>
       <div className="import-note">{t('keepEditable')}</div>
+      {completedSummary.failed > 0 ? <div className="import-actions"><button type="button" className="button button-secondary" onClick={() => { setStep(3); setIssuesOnly(false); }}>Review failed rows</button></div> : null}
       {serverResults.some((row) => row.status !== 'created') ? <div className="import-results"><h4>{t('batchSummary')}</h4><ul>{serverResults.filter((row) => row.status !== 'created').map((row) => <li key={`${row.rowNumber}-${row.errorCode}`}>{t('rowNumber')} {row.rowNumber}: {row.message || row.errorCode}</li>)}</ul></div> : null}
     </div> : null}
   </ImportFrame>;

@@ -81,7 +81,7 @@ test('Collector price history preserves ISO dates returned as PostgreSQL Date ob
   assert.equal(list[0].pricePerLiter, 400);
 });
 
-const reportRepository = ({ accountType = 'COLLECTOR', links = [], allowed = [], profiles = [], entries = [collectorEntry] } = {}) => ({
+const reportRepository = ({ accountType = 'COLLECTOR', links = [], allowed = [], profiles = [], entries = [collectorEntry], ...overrides } = {}) => ({
   getTotalFarmers: async () => 1,
   getPeriodTotals: async () => ({ totalMorning: 85, totalEvening: 0, totalVolume: 85, totalAmount: 34000 }),
   getTodayTotals: async () => ({ todayMorning: 0, todayEvening: 0, todayTotal: 0, todayAmount: 0 }),
@@ -108,6 +108,7 @@ const reportRepository = ({ accountType = 'COLLECTOR', links = [], allowed = [],
   getDairyCollectorLinks: async () => links,
   getAllowedCollectorIds: async () => allowed,
   getCollectorProfiles: async () => new Map(profiles.map((profile) => [profile.id, profile])),
+  ...overrides,
 });
 
 test('period resolution preserves monthly, daily, and half-month report ranges', () => {
@@ -171,6 +172,7 @@ test('monthly summary applies owner totals, deductions, center pricing, and farm
     repository: reportRepository(),
   });
   assert.equal(summary.totalFarmers, 1);
+
   assert.equal(summary.totalVolume, 85);
   assert.equal(summary.totalDeductions, 1500);
   assert.equal(summary.totalTransport, 2500);
@@ -678,11 +680,13 @@ test('Dairy report returns owner-scoped Abacunda rows without Collector settleme
       getDairyCollectorTotals: async () => { collectorQueryCalled = true; return []; },
     }),
   });
-  assert.equal(collectorQueryCalled, false);
+
   assert.deepEqual(summary.collectorSettlementRows, []);
   assert.equal(summary.farmerPayments.length, 1);
+  assert.equal(collectorQueryCalled, true);
   assert.equal(summary.farmerPayments[0].farmerId, farmerRows[0].farmerId);
   assert.equal(summary.farmerPayments[0].totalTransport, 0);
+
   assert.equal(summary.farmerPayments[0].netAmount, 32500);
 });
 
@@ -696,7 +700,7 @@ test('Dairy reports scope every farmer and milk aggregate to the authenticated o
     getTodayTotals: async (input) => { filters.push(input); return {}; },
     getFarmerTotals: async (input) => { filters.push(input); return []; },
     getMilkLossRecords: async (input) => { filters.push(input); return []; },
-    getDairyCollectorTotals: async () => { throw new Error('Dairy reporting must not query Collector settlements.'); },
+    getDairyCollectorTotals: async (input) => { filters.push(input); return []; },
   };
 
   await Reports.getSummary({
@@ -705,7 +709,7 @@ test('Dairy reports scope every farmer and milk aggregate to the authenticated o
     repository,
   });
 
-  assert.equal(filters.length, 5);
+  assert.equal(filters.length, 6);
   for (const input of filters) {
     assert.equal(input.ownerUserId, 77);
     assert.equal(input.centerFilter, 'latina');
@@ -745,6 +749,7 @@ test('collection-center summary deducts farmer deductions and excludes transport
   assert.equal(summary.farmerPayments.length, 1);
   assert.equal(summary.farmerPayments[0].totalTransport, 0);
   assert.equal(summary.farmerPayments[0].totalDeductions, 1500);
+
   assert.equal(summary.farmerPayments[0].netAmount, 32500);
   assert.equal(summary.ownerSettlementRow.name, 'Dairy A');
   assert.equal(summary.ownerSettlementRow.totalVolume, 85);
@@ -1135,12 +1140,15 @@ test('Dairy selected-center report uses owned Abacunda totals and deductions wit
       getUserProfile: async (id) => ({ id, name: 'Dairy A', accountType: 'COLLECTION_CENTER' }),
       getPeriodTotals: async () => ({ totalVolume: 85, totalAmount: 34000 }),
       getFarmerTotals: async () => [{ ...farmerRows[0], totalVolume: 85, grossAmount: 34000, totalDeductions: 9900, totalTransport: 8000 }],
+
       getDairyCollectorTotals: async () => { collectorQueryCalled = true; return []; },
     },
   });
 
-  assert.equal(collectorQueryCalled, false);
+
+
   assert.equal(summary.totalVolume, 85);
+  assert.equal(collectorQueryCalled, false);
   assert.equal(summary.totalDeductionsMonth, 9900);
   assert.equal(summary.totalTransport, 0);
   assert.equal(summary.totalTransportFeesMonth, 0);

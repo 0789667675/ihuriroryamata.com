@@ -23,7 +23,9 @@ export function usePublicLanguage() {
   useEffect(() => {
     const syncLanguage = (event: StorageEvent) => {
       if (event.key !== LANGUAGE_STORAGE_KEY) return;
-      setLanguageState(normalizePublicLanguage(event.newValue));
+      const normalized = normalizePublicLanguage(event.newValue);
+      setLanguageState(normalized);
+      document.documentElement.lang = normalized;
     };
     window.addEventListener('storage', syncLanguage);
     return () => window.removeEventListener('storage', syncLanguage);

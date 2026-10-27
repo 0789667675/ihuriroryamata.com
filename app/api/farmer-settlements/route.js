@@ -136,7 +136,7 @@ export async function POST(request) {
       const record = await createSettlementRecord({
         repo: settlementRepository, farmerId, ownerUserId, collectorUserId: Number(user.id), amount, paymentMethod: 'CASH', paymentType: 'CASH',
         periodStart, periodEnd, reason: 'NO_SACCO_ACCOUNT', notes: body.notes || null,
-        approvedBy: Number(user.id), paymentReference: `cash-${ownerUserId}-${idempotencyKey}`,
+        approvedBy: Number(user.id), paymentReference: `cash-${ownerUserId}-${idempotencyKey}`, maxPayable: payable,
       });
       return NextResponse.json({ ok: true, record });
     }

@@ -20,7 +20,7 @@ export async function GET(request) {
     const farmerId = params.get('farmerId');
     const month = params.get('month');
     const year = params.get('year');
-    const rows = await Milk.getMilkTemplate({ ownerUserId: user.id, farmerId, month, year });
+    const rows = await Milk.getMilkTemplate({ ownerUserId: user.id, collectorUserId: user.id, farmerId, month, year });
     if (!rows) return NextResponse.json({ message: 'Farmer not found.' }, { status: 404 });
     return NextResponse.json({ farmerId: Number(farmerId), month: Number(month) || new Date().getMonth() + 1, year: Number(year) || new Date().getFullYear(), rows });
   } catch (error) {

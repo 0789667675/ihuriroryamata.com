@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 
 const { getAuthenticatedUser } = require('@/lib/security/authenticate.js');
 const { requireAccountType } = require('@/lib/security/account-access.js');
+const { requireActiveSubscription } = require('@/lib/security/subscription-access.js');
 const Deductions = require('@/lib/services/deduction-service.js');
 
 export const runtime = 'nodejs';
@@ -15,7 +16,7 @@ export async function GET(request, { params }) {
     const user = await getAuthenticatedUser(request);
     if (!user) return NextResponse.json({ message: 'Not authenticated.' }, { status: 401 });
     requireAccountType(user, 'COLLECTOR');
-    const deduction = await Deductions.getDeduction({ id: params.id, ownerUserId: user.id });
+    const deduction = await Deductions.getDeduction({ id: params.id, ownerUserId: user.id, collectorUserId: user.id });
     if (!deduction) return NextResponse.json({ message: 'Deduction not found.' }, { status: 404 });
     return NextResponse.json(deduction);
   } catch (error) {
@@ -32,6 +33,7 @@ export async function PUT(request, { params }) {
     const deduction = await Deductions.updateDeduction({
       id: params.id,
       ownerUserId: user.id,
+      collectorUserId: user.id,
       actorId: user.id,
       input: await request.json(),
     });
@@ -48,7 +50,7 @@ export async function DELETE(request, { params }) {
     if (!user) return NextResponse.json({ message: 'Not authenticated.' }, { status: 401 });
     requireAccountType(user, 'COLLECTOR');
     await requireActiveSubscription(user);
-    const deleted = await Deductions.deleteDeduction({ id: params.id, ownerUserId: user.id, actorId: user.id });
+    const deleted = await Deductions.deleteDeduction({ id: params.id, ownerUserId: user.id, collectorUserId: user.id, actorId: user.id });
     if (!deleted) return NextResponse.json({ message: 'Deduction not found.' }, { status: 404 });
     return new Response(null, { status: 204 });
   } catch (error) {

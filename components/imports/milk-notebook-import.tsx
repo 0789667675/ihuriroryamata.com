@@ -10,6 +10,7 @@ import { loadImportFarmers, loadRecordedFarmerIds, postJson, type ImportFarmer }
 import { buildFarmerIndex, farmerLabel, matchFarmer } from '@/lib/imports/farmer-matching';
 import { parseNotebookPage } from '@/lib/imports/notebook';
 import { detectHeader, normalizeHeader, parseTextRows } from '@/lib/imports/text-parsing';
+import { getAccountingDate } from '@/lib/utils/accounting-period.js';
 
 type MilkDraft = {
   uid: number;
@@ -52,11 +53,7 @@ type ServerMilkRow = {
 
 const isAbort = (error: unknown) => error instanceof DOMException && error.name === 'AbortError';
 
-const todayIso = () => {
-  const date = new Date();
-  const pad = (value: number) => String(value).padStart(2, '0');
-  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
-};
+const todayIso = () => getAccountingDate();
 
 const parseVolume = (value: string) => {
   const text = String(value ?? '').replace(',', '.').trim();

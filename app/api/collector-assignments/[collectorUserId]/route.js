@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 
-const { getAuthenticatedUser } = require('@/lib/security/authenticate.js');
+const { getAuthenticatedUser, requireAccountType } = require('@/lib/security/authenticate.js');
+const { requireActiveSubscription } = require('@/lib/security/subscription-access.js');
 const Assignments = require('@/lib/services/collector-assignment-service.js');
 
 export const runtime = 'nodejs';
@@ -9,7 +10,7 @@ export async function DELETE(request, { params }) {
   try {
     const user = await getAuthenticatedUser(request);
     if (!user) return NextResponse.json({ message: 'Not authenticated.' }, { status: 401 });
-    requireAccountType(user, ['COLLECTOR', 'COLLECTION_CENTER']);
+    requireAccountType(user, 'COLLECTION_CENTER');
     await requireActiveSubscription(user);
     const removed = await Assignments.revokeAssignment({ dairyUserId: user.id, actorId: user.id, collectorUserId: params.collectorUserId });
     if (!removed) return NextResponse.json({ message: 'That collector is not linked to this collection center.' }, { status: 404 });

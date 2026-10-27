@@ -19,6 +19,7 @@ export async function GET(request) {
     const params = new URL(request.url).searchParams;
     return NextResponse.json(await Deductions.listDeductions({
       ownerUserId: user.id,
+      collectorUserId: user.id,
       farmerId: params.get('farmerId'),
       type: params.get('type'),
       status: params.get('status'),
@@ -41,6 +42,7 @@ export async function POST(request) {
     await requireActiveSubscription(user);
     const deduction = await Deductions.createDeduction({
       ownerUserId: user.id,
+      collectorUserId: user.id,
       actorId: user.id,
       input: await request.json(),
     });

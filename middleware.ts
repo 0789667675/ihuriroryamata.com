@@ -1,4 +1,4 @@
-﻿import { NextResponse, type NextRequest } from 'next/server';
+import { NextResponse, type NextRequest } from 'next/server';
 
 const AUTH_PAGES = new Set(['/login', '/register', '/forgot-password']);
 const PUBLIC_API_PREFIXES = ['/api/auth', '/api/health', '/api/cron'];
@@ -55,7 +55,12 @@ async function verifySessionToken(token: string | undefined) {
 export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
-  if (pathname.startsWith('/_next') || pathname.startsWith('/favicon') || pathname.startsWith('/manifest') || pathname.includes('.')) {
+  if (
+    pathname.startsWith('/_next') ||
+    pathname.startsWith('/favicon') ||
+    pathname.startsWith('/manifest') ||
+    (!pathname.startsWith('/api') && /\.(?:svg|png|jpg|jpeg|gif|webp|ico|css|js|map|txt|xml|webmanifest|woff2?)$/i.test(pathname))
+  ) {
     return NextResponse.next();
   }
 

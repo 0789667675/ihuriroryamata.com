@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 
 const { getAuthenticatedUser } = require('@/lib/security/authenticate.js');
 const { requireAccountType } = require('@/lib/security/account-access.js');
+const { requireActiveSubscription } = require('@/lib/security/subscription-access.js');
 const Milk = require('@/lib/services/milk-service.js');
 
 export const runtime = 'nodejs';
@@ -18,7 +19,7 @@ export async function GET(request, { params }) {
     const user = await getAuthenticatedUser(request);
     if (!user) return NextResponse.json({ message: 'Not authenticated.' }, { status: 401 });
     requireAccountType(user, 'COLLECTOR');
-    const record = await Milk.getMilkRecord({ id: params.id, ownerUserId: user.id });
+    const record = await Milk.getMilkRecord({ id: params.id, ownerUserId: user.id, collectorUserId: user.id });
     if (!record) return NextResponse.json({ message: 'Milk record not found.' }, { status: 404 });
     return NextResponse.json(record);
   } catch (error) {
@@ -36,6 +37,7 @@ export async function PUT(request, { params }) {
     const record = await Milk.updateMilkRecord({
       id: params.id,
       ownerUserId: user.id,
+      collectorUserId: user.id,
       actorId: user.id,
       date: input.date,
       volumeMorning: input.volumeMorning,
@@ -55,7 +57,7 @@ export async function DELETE(request, { params }) {
     requireAccountType(user, 'COLLECTOR');
     await requireActiveSubscription(user);
     const input = await request.json().catch(() => ({}));
-    const voided = await Milk.voidMilkRecord({ id: params.id, ownerUserId: user.id, actorId: user.id, reason: input.reason });
+    const voided = await Milk.voidMilkRecord({ id: params.id, ownerUserId: user.id, collectorUserId: user.id, actorId: user.id, reason: input.reason });
     if (!voided) return NextResponse.json({ message: 'Milk record not found.' }, { status: 404 });
     return NextResponse.json(voided);
   } catch (error) {

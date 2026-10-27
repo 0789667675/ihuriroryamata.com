@@ -1,3 +1,12 @@
+if (!process.env.DATABASE_URL) {
+  try {
+    const { loadEnvConfig } = require('@next/env');
+    loadEnvConfig(process.cwd());
+  } catch (err) {
+    // Fallback if @next/env is unavailable
+  }
+}
+
 const { getPool, query } = require('../lib/postgres.js');
 
 (async () => {

@@ -5,6 +5,7 @@ node_modules/
 .next/
 .next-playwright/
 .next-build-verify/
+.next-build-verify
 out/
 playwright-report/
 test-results/
@@ -22,6 +23,7 @@ supabase/.temp/
 
 # Local verification/cache
 .next-ui-verify/
+.next-ui-verify
 
 # Local safety backups
 *.BEFORE-AUTH-MOCK-FIX-*

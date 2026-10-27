@@ -73,7 +73,7 @@ test('jobs still run before migration 020 is applied and failures are recorded w
     run: async () => { throw Object.assign(new Error('boom'), { code: 'JOB_FAILED' }); },
     poolProvider: failure.poolProvider,
   }), /boom/);
-  assert.ok(failure.calls.some(({ text, values }) => text.includes("status = 'failed'") && values[0] === 'JOB_FAILED' && values[1] === 31));
+  assert.ok(failure.calls.some(({ text, values }) => text.includes("status = 'failed'") && values[0] === 'JOB_FAILED' && values[2] === 31));
   assert.ok(failure.calls.some(({ text }) => text.includes('pg_advisory_unlock')));
 });
 

@@ -30,7 +30,7 @@ export async function POST(request) {
       jobId: 'notification_evaluation',
       trigger: vercelCron ? 'vercel_cron' : 'external',
       run: async () => {
-        const users = await UserRepository.repository.getActiveUsers();
+        const users = await UserRepository.getActiveUsers();
         let evaluated = 0;
         let createdCount = 0;
         let reopenedCount = 0;

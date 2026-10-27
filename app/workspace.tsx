@@ -837,7 +837,7 @@ const visibleTabs = (isAdmin
           } catch { sessionStorage.removeItem('milk-session-user'); }
         } else if (!(reason instanceof Error && 'status' in reason && reason.status === 401)) {
           if (!isAuthRoute) {
-            setAuthError('Unable to start Milk System. Check your connection or try again.');
+            setAuthError(publicLanguage.t('connectionError') || 'Unable to start Milk System. Check your connection or try again.');
           }
         }
       })
@@ -891,7 +891,7 @@ const visibleTabs = (isAdmin
       }
       const synced = await flushOfflineWrites(user.id).catch(() => ({ synced: 0, remaining: pendingWrites }));
       setPendingWrites(synced.remaining);
-      if (synced.synced > 0) setNotice(`${synced.synced} offline milk entr${synced.synced === 1 ? 'y' : 'ies'} synced.`);
+      if (synced.synced > 0) setNotice(formatPublicCopy(publicLanguage.language, 'offlineEntriesSynced', '{count} offline milk entries synced.', { count: synced.synced }));
     };
     const handleOnline = () => { void refreshConnection(); };
     const handleOffline = () => setOnline(false);
@@ -1808,7 +1808,7 @@ const visibleTabs = (isAdmin
 
   if (!user && isAuthRoute) return <Login {...publicLanguage} onLogin={handleLogin} />;
   if (authLoading) return <main className="boot-screen"><BrandLockup imageSize={44} /><small className="boot-company">Milk System Technologies Ltd.</small><div className="loading-status" role="status" aria-live="polite"><span className="loading-indicator" aria-hidden="true" />{publicLanguage.t('loading')}</div></main>;
-  if (authError) return <main className="boot-screen boot-screen-error"><BrandLockup imageSize={44} /><small className="boot-company">Milk System Technologies Ltd.</small><section className="boot-error-panel" role="alert"><h1>Unable to start Milk System.</h1><p>Please check your connection and try again.</p><button type="button" className="button button-primary" onClick={() => { setAuthError(''); setAuthLoading(true); setAuthAttempt((attempt) => attempt + 1); }}>Retry</button></section></main>;
+  if (authError) return <main className="boot-screen boot-screen-error"><BrandLockup imageSize={44} /><small className="boot-company">Milk System Technologies Ltd.</small><section className="boot-error-panel" role="alert"><h1>{publicLanguage.t('errorTitle')}</h1><p>{publicLanguage.t('connectionError')}</p><button type="button" className="button button-primary" onClick={() => { setAuthError(''); setAuthLoading(true); setAuthAttempt((attempt) => attempt + 1); }}>{publicLanguage.t('retry')}</button></section></main>;
   if (!user) return <Login {...publicLanguage} onLogin={handleLogin} />;
 
   const openIfishiForFarmer = (farmerId: number | null, farmerName?: string, farmerDetails?: Farmer) => {
@@ -1945,7 +1945,7 @@ const visibleTabs = (isAdmin
     await api(`/api/collector-assignments/${collectorId}`, { method: 'DELETE' });
     await loadCollectorAssignments();
     await loadFarmers();
-    setNotice('Collector unlinked; farmer assignments were cleared.');
+    setNotice(publicLanguage.t('collectorUnlinkedNotice'));
   });
 
   const editFarmerStart = (farmer: Farmer) => {
@@ -1969,16 +1969,16 @@ const visibleTabs = (isAdmin
       setEditingFarmer(null);
       await loadFarmers();
       openIfishiForFarmer(editingFarmer.id, editingFarmer.name);
-      setNotice('Farmer details saved.');
+      setNotice(publicLanguage.t('farmerSavedNotice'));
     });
   };
 
   const deleteFarmer = async (farmer: Farmer) => {
-    if (!window.confirm(`Delete ${farmer.name}? This also removes linked milk history.`)) return;
+    if (!window.confirm(formatPublicCopy(publicLanguage.language, 'farmerDeleteConfirm', 'Delete {name}? This also removes linked milk history.', { name: farmer.name }))) return;
     await run(async () => {
       await api(`/api/farmers/${farmer.id}`, { method: 'DELETE' });
       await loadFarmers();
-      setNotice('Farmer deleted.');
+      setNotice(publicLanguage.t('farmerDeletedNotice'));
     });
   };
 
@@ -1992,14 +1992,14 @@ const visibleTabs = (isAdmin
       }));
       setCenterForm({ name: '', pricePerLiter: '', transportRatePerLiter: '0', morningStart: '06:30', morningEnd: '09:00', eveningStart: '17:30', eveningEnd: '19:00' });
       await loadCenters();
-      setNotice('Collection center added.');
+      setNotice(publicLanguage.t('centerAddedNotice'));
     });
   };
   const saveCenter = async (center: Center) => run(async () => {
     await api(`/api/collection-centers/${center.id}`, json('PUT', centerEdits[center.id] || {}));
     setCenterEdits((current) => { const next = { ...current }; delete next[center.id]; return next; });
     await loadCenters();
-    setNotice('Center settings saved.');
+    setNotice(publicLanguage.t('centerSavedNotice'));
   });
 
   const saveMilk = async (row: DailyRow) => run(async () => {
@@ -2012,10 +2012,10 @@ const visibleTabs = (isAdmin
       if (navigator.onLine && !(reason instanceof TypeError)) throw reason;
       await queueOfflineWrite({ ownerId: user!.id, url: '/api/milk', method: 'POST', body: payload });
       setPendingWrites((count) => count + 1);
-      setNotice(`Entry queued offline for ${row.farmerName}.`);
+      setNotice(formatPublicCopy(publicLanguage.language, 'milkOfflineQueuedNotice', 'Entry queued offline for {name}.', { name: row.farmerName }));
       return;
     }
-    setNotice(`Saved ${row.farmerName}'s collection.`);
+    setNotice(formatPublicCopy(publicLanguage.language, 'milkSavedNotice', "Saved {name}'s collection.", { name: row.farmerName }));
     if (result) await loadDaily();
   });
   const saveIfishiEntry = async (event: React.FormEvent) => {
@@ -2377,11 +2377,11 @@ const visibleTabs = (isAdmin
     const assignedAbacundaCount = collectorAssignments.reduce((total, assignment) => total + Number(assignment.abacunda_count || 0), 0);
     return <>
       <section className="panel panel-wide abacunda-directory">
-        <div className="panel-heading"><div><span className="eyebrow">Active Ikigo</span><h2>{activeCenterName}</h2></div><Building2 size={19} aria-hidden="true" /></div>
+        <div className="panel-heading"><div><span className="eyebrow">{publicLanguage.t('activeIkigo')}</span><h2>{activeCenterName}</h2></div><Building2 size={19} aria-hidden="true" /></div>
         <div className="panel-heading"><div><span className="eyebrow">{publicLanguage.t('directory')}</span><h2>{publicLanguage.t('navAbacunda')}</h2></div><div className="panel-heading-actions"><span className="count-label">{assignedAbacundaCount}</span><label className="collector-sort-mobile">{publicLanguage.t('sort')}<select value={collectorAssignmentSortDirection} onChange={(event) => { const direction = event.target.value as typeof collectorAssignmentSortDirection; setCollectorAssignmentSortDirection(direction); void loadCollectorAssignments(direction).catch((reason) => setError(reason.message)); }}><option value="asc">{publicLanguage.t('milkFarmer')} ↑</option><option value="desc">{publicLanguage.t('milkFarmer')} ↓</option></select></label></div></div>
-        {collectorAssignmentsLoading ? <div className="workspace-empty workspace-loading" role="status"><span className="loading-indicator" />Loading assigned Abacunda…</div>
-          : collectorAssignmentsError ? <div className="workspace-empty" role="alert"><b>{collectorAssignmentsError}</b><button type="button" className="button button-secondary small-button" onClick={() => loadCollectorAssignments().catch(() => undefined)}>Retry</button></div>
-          : !selectedCenter ? <div className="workspace-empty" role="status"><b>No active Ikigo is available for this account.</b></div>
+        {collectorAssignmentsLoading ? <div className="workspace-empty workspace-loading" role="status"><span className="loading-indicator" />{publicLanguage.t('loadingAssignedAbacunda')}</div>
+          : collectorAssignmentsError ? <div className="workspace-empty" role="alert"><b>{collectorAssignmentsError}</b><button type="button" className="button button-secondary small-button" onClick={() => loadCollectorAssignments().catch(() => undefined)}>{publicLanguage.t('retry') || 'Retry'}</button></div>
+          : !selectedCenter ? <div className="workspace-empty" role="status"><b>{publicLanguage.t('noActiveIkigo')}</b></div>
           : collectorAssignments.length ? <>
           <div className="table-scroll abacunda-desktop-list"><table><thead><tr><th aria-sort={collectorAssignmentSortDirection === 'asc' ? 'ascending' : 'descending'}><button type="button" className="farmer-sort-button" onClick={() => { const direction = collectorAssignmentSortDirection === 'asc' ? 'desc' : 'asc'; setCollectorAssignmentSortDirection(direction); void loadCollectorAssignments(direction).catch((reason) => setError(reason.message)); }}>{publicLanguage.t('assignedCollectors')}{collectorAssignmentSortDirection === 'asc' ? <ArrowUp size={13} /> : <ArrowDown size={13} />}</button></th><th>{publicLanguage.t('accountNationalId')}</th><th>{publicLanguage.t('accountPhone')} / {publicLanguage.t('accountNumber')}</th><th>{publicLanguage.t('navAbacunda')}</th><th>{publicLanguage.t('navIfishi')}</th></tr></thead><tbody>{collectorAssignments.map((assignment, index) => <tr key={assignment.collector_user_id}><td>{index + 1}</td><td className="strong-cell">{assignment.collector_name}</td><td>{assignment.collector_national_id || '—'}</td><td>{[assignment.collector_phone, assignment.collector_account_number].filter(Boolean).join(' / ') || '—'}</td><td>{assignment.abacunda_count}</td><td><button type="button" className="text-button" onClick={() => openAbacundaIfishi(assignment)}>{publicLanguage.t('navIfishi')}</button></td></tr>)}</tbody></table></div>
           <div className="abacunda-mobile-list">{collectorAssignments.map((assignment) => <article className="abacunda-mobile-card" key={assignment.collector_user_id}><header><b>{assignment.collector_name}</b><span>{assignment.abacunda_count} {publicLanguage.t('navAbacunda').toLowerCase()}</span></header><p>{[assignment.collector_phone, assignment.collector_account_number].filter(Boolean).join(' / ') || '—'}</p><button type="button" className="button button-secondary small-button" onClick={() => openAbacundaIfishi(assignment)}><BookOpen size={15} />{publicLanguage.t('navIfishi')}</button></article>)}</div>
@@ -2415,7 +2415,7 @@ const visibleTabs = (isAdmin
         <div className="panel-heading"><div><span className="eyebrow">{isDairy ? publicLanguage.t('dashboardCenter') : publicLanguage.t('directory')}</span><h2>{publicLanguage.t('navFarmers')}</h2></div><div className="panel-heading-actions"><span className="count-label">{farmers ? formatPublicCopy(publicLanguage.language, 'farmersFound', 'Farmers found: {count}', { count: farmers.data.length }) : '…'}{isDairy && selectedCenter ? ` · ${centers.find((center) => String(center.id) === selectedCenter)?.name || ''}` : !isDairy ? ` · ${publicLanguage.t('pageSize')}` : ''}{collectorAssignments.length > 0 ? ` · ${formatPublicCopy(publicLanguage.language, 'collectorsFound', 'Collectors found: {count}', { count: collectorAssignments.length })}` : ''}</span>{isCollector || isDairy ? <button type="button" className="button button-secondary small-button" onClick={() => setFarmerImportOpen(true)} disabled={!centers.length}><Upload size={15} aria-hidden="true" />{getImportCopy(publicLanguage.language, 'openFarmerImport')}</button> : null}<button type="button" className="button button-primary small-button" onClick={() => { setFarmerCreateError(''); setFarmerCreateOpen(true); }} disabled={Boolean((isCollector || isDairy) && !selectedCenter)}><Plus size={15} aria-hidden="true" />{publicLanguage.t('farmersAdd')}</button></div></div>
         <div className="toolbar farmers-toolbar">
           <form className={['search', 'form'].join('-')} onSubmit={(event) => { event.preventDefault(); setFarmerSearch(farmerQuery.trim()); }}><Search size={17} /><input aria-label={publicLanguage.t('farmersSearchPlaceholder')} placeholder={publicLanguage.t('farmersSearchPlaceholder')} value={farmerQuery} onChange={(event) => setFarmerQuery(event.target.value)} /><button className="button button-secondary">{publicLanguage.t('search')}</button></form>
-          {isDairy ? centers.length > 1 ? <select aria-label="Active Ikigo" value={selectedCenter} onChange={(event) => setSelectedCenter(event.target.value)}>{centers.map((center) => <option key={center.id} value={String(center.id)}>{center.name}</option>)}</select> : null : <select aria-label={publicLanguage.t('allCenters')} value={farmerCenter} onChange={(event) => setFarmerCenter(event.target.value)}><option value="">{publicLanguage.t('allCenters')}</option>{centers.map((center) => <option key={center.id} value={center.name}>{center.name}</option>)}</select>}
+          {isDairy ? centers.length > 1 ? <select aria-label={publicLanguage.t('activeIkigo')} value={selectedCenter} onChange={(event) => setSelectedCenter(event.target.value)}>{centers.map((center) => <option key={center.id} value={String(center.id)}>{center.name}</option>)}</select> : null : <select aria-label={publicLanguage.t('allCenters')} value={farmerCenter} onChange={(event) => setFarmerCenter(event.target.value)}><option value="">{publicLanguage.t('allCenters')}</option>{centers.map((center) => <option key={center.id} value={center.name}>{center.name}</option>)}</select>}
           {!isDairy && user?.accountType === 'COLLECTION_CENTER' ? <select aria-label={publicLanguage.t('assignedCollector')} value={farmerCollectorFilter} onChange={(event) => setFarmerCollectorFilter(event.target.value)}><option value="">{publicLanguage.t('allCollectors')}</option>{collectorAssignments.map((assignment) => <option key={assignment.collector_user_id} value={String(assignment.collector_user_id)}>{assignment.collector_name}</option>)}</select> : null}
           <select className="farmer-sort-mobile" aria-label={publicLanguage.t('sort')} value={farmerSortBy ? `${farmerSortBy}:${farmerSortDirection}` : ''} onChange={(event) => {
             const [field, direction] = event.target.value.split(':');
@@ -2502,7 +2502,7 @@ const visibleTabs = (isAdmin
                 return <>{isCollector ? <>
                   <label>{publicLanguage.t('columnLocation')}<select aria-label={publicLanguage.t('columnLocation')} value={farmerForm.collectionCenterId} onChange={(event) => setFarmerForm({ ...farmerForm, collectionCenterId: event.target.value })} required={field.required} disabled={!collectorOwnedCenters.length}><option value="">{publicLanguage.t('selectCenter')}</option>{collectorOwnedCenters.map((center) => <option key={center.id} value={String(center.id)}>{center.name}</option>)}</select></label>
                   {!collectorOwnedCenters.length ? <p className="muted-note" role="status">{publicLanguage.t('farmerNoCenters')}</p> : null}
-                </> : isDairy ? <><label>Active Ikigo<input readOnly value={centers.find((center) => String(center.id) === selectedCenter)?.name || ''} required={field.required} /></label>{!centers.length ? <p className="muted-note" role="status">{publicLanguage.t('farmerNoCenters')}</p> : null}</> : <label>{publicLanguage.t('columnCenter')}<select value={farmerForm.collectionCenterId} onChange={(event) => setFarmerForm({ ...farmerForm, collectionCenterId: event.target.value })} required={field.required}><option value="">{publicLanguage.t('selectCenter')}</option>{centers.map((center) => <option key={center.id} value={String(center.id)}>{center.name}</option>)}</select></label>}</>;
+                </> : isDairy ? <><label>{publicLanguage.t('activeIkigo')}<input readOnly value={centers.find((center) => String(center.id) === selectedCenter)?.name || ''} required={field.required} /></label>{!centers.length ? <p className="muted-note" role="status">{publicLanguage.t('farmerNoCenters')}</p> : null}</> : <label>{publicLanguage.t('columnCenter')}<select value={farmerForm.collectionCenterId} onChange={(event) => setFarmerForm({ ...farmerForm, collectionCenterId: event.target.value })} required={field.required}><option value="">{publicLanguage.t('selectCenter')}</option>{centers.map((center) => <option key={center.id} value={String(center.id)}>{center.name}</option>)}</select></label>}</>;
               default:
                 return null;
             }
@@ -2528,7 +2528,7 @@ const visibleTabs = (isAdmin
             case 'collectionCenter':
               return <>{isCollector ? <>
                 <label>{publicLanguage.t('columnLocation')}<select aria-label={publicLanguage.t('columnLocation')} value={farmerEdit.collectionCenterId} onChange={(event) => setFarmerEdit({ ...farmerEdit, collectionCenterId: event.target.value })} disabled={!collectorOwnedCenters.length}><option value="">{publicLanguage.t('selectCenter')}</option>{collectorOwnedCenters.map((center) => <option key={center.id} value={String(center.id)}>{center.name}</option>)}</select></label>
-              </> : isDairy ? <><label>Active Ikigo<input readOnly value={centers.find((center) => String(center.id) === selectedCenter)?.name || ''} required={field.required} /></label></> : <label>{publicLanguage.t('columnCenter')}<select value={farmerEdit.collectionCenterId} onChange={(event) => setFarmerEdit({ ...farmerEdit, collectionCenterId: event.target.value })}><option value="">{publicLanguage.t('selectCenter')}</option>{centers.map((center) => <option key={center.id} value={String(center.id)}>{center.name}</option>)}</select></label>}</>;
+              </> : isDairy ? <><label>{publicLanguage.t('activeIkigo')}<input readOnly value={centers.find((center) => String(center.id) === selectedCenter)?.name || ''} required={field.required} /></label></> : <label>{publicLanguage.t('columnCenter')}<select value={farmerEdit.collectionCenterId} onChange={(event) => setFarmerEdit({ ...farmerEdit, collectionCenterId: event.target.value })}><option value="">{publicLanguage.t('selectCenter')}</option>{centers.map((center) => <option key={center.id} value={String(center.id)}>{center.name}</option>)}</select></label>}</>;
             default:
               return null;
           }
@@ -2695,7 +2695,7 @@ const visibleTabs = (isAdmin
       <div className="milk-entry-controls">
         <div className="milk-toolbar">
           <label><span>{publicLanguage.t('milkCollectionDate')}</span><input type="date" value={collectionDate} onChange={(event) => setCollectionDate(event.target.value)} /></label>
-          {centers.length ? <label><span>{isDairy ? 'Active Ikigo' : publicLanguage.t('dashboardCenter')}</span><select value={selectedCenter} onChange={(event) => setSelectedCenter(event.target.value)}>{centers.map((center) => <option key={center.id} value={String(center.id)}>{center.name}</option>)}</select></label> : null}
+          {centers.length ? <label><span>{isDairy ? publicLanguage.t('activeIkigo') : publicLanguage.t('dashboardCenter')}</span><select value={selectedCenter} onChange={(event) => setSelectedCenter(event.target.value)}>{centers.map((center) => <option key={center.id} value={String(center.id)}>{center.name}</option>)}</select></label> : null}
         </div>
         <div className="milk-session-context"><span>{publicLanguage.t('milkCollectionWindow')}</span><b>{publicLanguage.t('dashboardMorning')} <i /> {publicLanguage.t('dashboardEvening')}</b></div>
       </div>
@@ -2737,7 +2737,7 @@ const visibleTabs = (isAdmin
         </li>)}</ul>
         {dailyDeliveryFilter !== 'missing' ? <button type="button" className="text-button missing-farmers-all" onClick={() => { setDailyDeliveryFilter('missing'); setDailyPageSize(100); }}>{publicLanguage.t('deliveryFilterMissing')} · {dailySummary.missingCount}<ArrowRight size={14} aria-hidden="true" /></button> : null}
       </section> : null}
-      <div className="panel-heading"><div><span className="eyebrow">{isCollector ? 'ABOROZI' : 'ACTIVE IKIGO'}</span><h2>{publicLanguage.t('navFarmers')}</h2></div><span className="count-label">{publicLanguage.t('milkResultsCount')}: {visibleRows.length} / {dailySummary.totalFarmers}</span></div>
+      <div className="panel-heading"><div><span className="eyebrow">{isCollector ? publicLanguage.t('navFarmers') : publicLanguage.t('activeIkigo')}</span><h2>{publicLanguage.t('navFarmers')}</h2></div><span className="count-label">{publicLanguage.t('milkResultsCount')}: {visibleRows.length} / {dailySummary.totalFarmers}</span></div>
       {isDairy && !selectedCenter ? (
         centers.length ? (
           <div className="workspace-empty" role="status">
@@ -2745,10 +2745,10 @@ const visibleTabs = (isAdmin
             <p>{publicLanguage.t('selectCenterToViewHint')}</p>
           </div>
         ) : (
-          <div className="workspace-empty" role="status"><b>No active Ikigo is available for this account.</b></div>
+          <div className="workspace-empty" role="status"><b>{publicLanguage.t('noActiveIkigo')}</b></div>
         )
-      ) : dailyLoading ? <div className="workspace-empty workspace-loading" role="status"><span className="loading-indicator" />Loading daily milk…</div>
-        : dailyError ? <div className="workspace-empty" role="alert"><b>{dailyError}</b><button type="button" className="button button-secondary small-button" onClick={() => loadDaily().catch(() => undefined)}>Retry</button></div>
+      ) : dailyLoading ? <div className="workspace-empty workspace-loading" role="status"><span className="loading-indicator" />{publicLanguage.t('loadingDailyMilk')}</div>
+        : dailyError ? <div className="workspace-empty" role="alert"><b>{dailyError}</b><button type="button" className="button button-secondary small-button" onClick={() => loadDaily().catch(() => undefined)}>{publicLanguage.t('retry') || 'Retry'}</button></div>
         : visibleRows.length ? <>
         <div className="table-scroll milk-desktop-list"><table><thead><tr>
           <th className="farmer-number-column">{publicLanguage.t('farmerNumberShort')}</th>
@@ -4216,6 +4216,12 @@ const visibleTabs = (isAdmin
       if (check.status === 'not_configured') return publicLanguage.t('healthNotConfigured');
       return publicLanguage.t('healthUnavailable');
     };
+    const statusBadgeClass = (check?: SystemHealthCheck) => {
+      if (!check) return 'status-pill';
+      if (check.status === 'healthy') return 'status-pill is-active';
+      if (check.status === 'warning' || check.status === 'not_configured') return 'status-pill is-pending';
+      return 'status-pill is-suspended';
+    };
     return <section className="panel panel-wide">
       <div className="panel-heading">
         <div><span className="eyebrow">{publicLanguage.t('systemHealth')}</span><h2>{publicLanguage.t('systemOverview')}</h2></div>
@@ -4225,13 +4231,13 @@ const visibleTabs = (isAdmin
         </div>
       </div>
       <div className="metric-strip">
-        <div><span>{publicLanguage.t('databaseStatus')}</span><b>{statusLabel(systemHealth?.database)}</b></div>
-        <div><span>{publicLanguage.t('databaseMigrations')}</span><b>{statusLabel(systemHealth?.migrations)}</b></div>
-        <div><span>{publicLanguage.t('emailProviderStatus')}</span><b>{statusLabel(systemHealth?.email)}</b></div>
-        <div><span>{publicLanguage.t('emailOutboxStatus')}</span><b>{statusLabel(systemHealth?.emailOutbox)}</b></div>
-        <div><span>{publicLanguage.t('paymentHealthStatus')}</span><b>{statusLabel(systemHealth?.payments)}</b></div>
-        <div><span>{publicLanguage.t('schedulerStatus')}</span><b>{statusLabel(systemHealth?.scheduler)}</b></div>
-        <div><span>{publicLanguage.t('notificationEvaluationStatus')}</span><b>{statusLabel(systemHealth?.notificationEvaluation)}</b></div>
+        <div><span>{publicLanguage.t('databaseStatus')}</span><b><span className={statusBadgeClass(systemHealth?.database)}>{statusLabel(systemHealth?.database)}</span></b></div>
+        <div><span>{publicLanguage.t('databaseMigrations')}</span><b><span className={statusBadgeClass(systemHealth?.migrations)}>{statusLabel(systemHealth?.migrations)}</span> {systemHealth?.migrations ? <small>({systemHealth.migrations.appliedCount}/{systemHealth.migrations.requiredCount})</small> : null}</b></div>
+        <div><span>{publicLanguage.t('emailProviderStatus')}</span><b><span className={statusBadgeClass(systemHealth?.email)}>{statusLabel(systemHealth?.email)}</span></b></div>
+        <div><span>{publicLanguage.t('emailOutboxStatus')}</span><b><span className={statusBadgeClass(systemHealth?.emailOutbox)}>{statusLabel(systemHealth?.emailOutbox)}</span> {systemHealth?.emailOutbox ? <small>({systemHealth.emailOutbox.pending})</small> : null}</b></div>
+        <div><span>{publicLanguage.t('paymentHealthStatus')}</span><b><span className={statusBadgeClass(systemHealth?.payments)}>{statusLabel(systemHealth?.payments)}</span> {systemHealth?.payments ? <small>({systemHealth.payments.stalePending})</small> : null}</b></div>
+        <div><span>{publicLanguage.t('schedulerStatus')}</span><b><span className={statusBadgeClass(systemHealth?.scheduler)}>{statusLabel(systemHealth?.scheduler)}</span></b></div>
+        <div><span>{publicLanguage.t('notificationEvaluationStatus')}</span><b><span className={statusBadgeClass(systemHealth?.notificationEvaluation)}>{statusLabel(systemHealth?.notificationEvaluation)}</span></b></div>
       </div>
       {!systemHealth ? <div className="workspace-empty workspace-loading" role="status"><span className="loading-indicator" />{publicLanguage.t('dashboardLoading')}</div> : <>
         <dl className="payment-readiness-list">
@@ -4258,6 +4264,19 @@ const visibleTabs = (isAdmin
           <div><dt>{publicLanguage.t('healthLastRun')} · {publicLanguage.t('notificationEvaluationStatus')}</dt><dd>{systemHealth.notificationEvaluation.lastRunAt ? formatDateLabel(systemHealth.notificationEvaluation.lastRunAt, publicLanguage.language, { day: 'numeric', month: 'short', time: 'short' }) : publicLanguage.t('healthNotRecorded')} · {systemHealth.notificationEvaluation.lastResult || publicLanguage.t('healthNotRecorded')}{systemHealth.notificationEvaluation.lastErrorCode ? ` (${systemHealth.notificationEvaluation.lastErrorCode})` : ''}</dd></div>
           <div><dt>{publicLanguage.t('healthRoutes')}</dt><dd>{systemHealth.scheduler.routes.join(' · ')}</dd></div>
         </dl>
+        {systemHealth.scheduler.jobs.length ? <div className="table-scroll"><table><thead><tr><th>{publicLanguage.t('healthRoutes')}</th><th>{publicLanguage.t('healthTriggerType')}</th><th>{publicLanguage.t('statusLabel')}</th><th>{publicLanguage.t('healthExecutionAge')}</th><th>{publicLanguage.t('details')}</th></tr></thead><tbody>{systemHealth.scheduler.jobs.map((job) => <tr key={job.id}><td>{job.route}</td><td>{job.lastTrigger || (job.scheduled ? publicLanguage.t('healthScheduled') : publicLanguage.t('healthNotScheduled'))}</td><td><span className={statusBadgeClass(job)}>{statusLabel(job)}</span></td><td>{job.lastRunAgeHours === null ? publicLanguage.t('healthNotRecorded') : `${job.lastRunAgeHours}h`}</td><td>{`Processed: ${job.lastResult || publicLanguage.t('healthNotRecorded')} · Errors: ${job.failedRecent}`}</td></tr>)}</tbody></table></div> : null}
+        <details className="payment-config-notes">
+          <summary>{publicLanguage.t('healthDiagnosticDetails')}</summary>
+          <dl className="payment-readiness-list">
+            <div><dt>{publicLanguage.t('databaseStatus')}</dt><dd>{systemHealth.database.detail}</dd></div>
+            <div><dt>{publicLanguage.t('databaseMigrations')}</dt><dd>{systemHealth.migrations.detail}</dd></div>
+            <div><dt>{publicLanguage.t('emailProviderStatus')}</dt><dd>{systemHealth.email.detail}</dd></div>
+            <div><dt>{publicLanguage.t('emailOutboxStatus')}</dt><dd>{systemHealth.emailOutbox.detail}</dd></div>
+            <div><dt>{publicLanguage.t('paymentHealthStatus')}</dt><dd>{systemHealth.payments.detail}</dd></div>
+            <div><dt>{publicLanguage.t('schedulerStatus')}</dt><dd>{systemHealth.scheduler.detail}</dd></div>
+            <div><dt>{publicLanguage.t('notificationEvaluationStatus')}</dt><dd>{systemHealth.notificationEvaluation.detail}</dd></div>
+          </dl>
+        </details>
         {systemHealth.migrations.missing.length ? <p className="form-error" role="alert">{publicLanguage.t('healthMissing')}: {systemHealth.migrations.missing.join(', ')}</p> : null}
         <p className="block-muted">{publicLanguage.t(systemHealth.email.configured ? 'healthEmailConfiguredDetail' : 'healthEmailNotConfiguredDetail')}</p>
         <p className="block-muted">{publicLanguage.t('healthSchedulerDetail')}</p>
@@ -4286,7 +4305,7 @@ const visibleTabs = (isAdmin
             <button type="button" aria-label={publicLanguage.t('languageKinyarwanda')} aria-pressed={publicLanguage.language === 'rw'} onClick={() => void changeLanguage('rw')}>RW</button>
             <button type="button" aria-label={publicLanguage.t('languageEnglish')} aria-pressed={publicLanguage.language === 'en'} onClick={() => void changeLanguage('en')}>EN</button>
           </div>
-          <span className={`account-tag${online ? '' : ' offline-tag'}`}><span className={`status-dot${online ? '' : ' offline-dot'}`} />{online ? isAdmin ? publicLanguage.t('platformAdmin') : user.accountType.replace('_', ' ') : `Offline · ${pendingWrites} queued`}</span>
+          <span className={`account-tag${online ? '' : ' offline-tag'}`}><span className={`status-dot${online ? '' : ' offline-dot'}`} />{online ? isAdmin ? publicLanguage.t('platformAdmin') : user.accountType.replace('_', ' ') : formatPublicCopy(publicLanguage.language, 'offlineQueuedBadge', 'Offline · {count} queued', { count: pendingWrites })}</span>
           <div className="notification-menu" ref={notificationMenuRef}>
             <button type="button" className="icon-button notification-trigger" aria-label={`${publicLanguage.t('navAlerts')}: ${unreadCount ?? 0}`} aria-expanded={notificationPanelOpen} onClick={toggleNotificationPanel}>
               <Bell size={19} aria-hidden="true" />

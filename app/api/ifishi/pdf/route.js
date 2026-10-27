@@ -29,7 +29,7 @@ export async function GET(request) {
       return NextResponse.json({ message: 'A valid farmer, month, and year are required.' }, { status: 400 });
     }
 
-    const records = await Milk.getMilkTemplate({ ownerUserId: user.id, farmerId, month, year });
+    const records = await Milk.getMilkTemplate({ ownerUserId: user.id, collectorUserId: user.id, farmerId, month, year });
     const rows = buildIfishiVolumeRows(records || []);
     if (!rows.length) return NextResponse.json({ message: 'Farmer or Ifishi records not found.' }, { status: 404 });
     const accountingReport = await Reports.getSummary({

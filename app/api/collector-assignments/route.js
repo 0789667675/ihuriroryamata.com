@@ -30,7 +30,7 @@ export async function POST(request) {
   try {
     const user = await getAuthenticatedUser(request);
     if (!user) return NextResponse.json({ message: 'Not authenticated.' }, { status: 401 });
-    requireAccountType(user, ['COLLECTOR', 'COLLECTION_CENTER']);
+    requireAccountType(user, 'COLLECTION_CENTER');
     await requireActiveSubscription(user);
     const input = await request.json();
     const assignment = await Assignments.assignCollector({ dairyUserId: user.id, actorId: user.id, collectorUserId: input.collectorUserId });
