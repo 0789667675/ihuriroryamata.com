@@ -5,8 +5,8 @@ import Link from 'next/link';
 import { usePathname, useSearchParams } from 'next/navigation';
 import {
   Activity, ArrowDown, ArrowRight, ArrowUp, ArrowUpDown, ArrowUpRight, BadgeDollarSign, Bell, BellRing,
-  Building2, CalendarDays, ChartNoAxesCombined, Check, ChevronDown, ChevronLeft, ChevronRight,
-  BookOpen, CircleDollarSign, ClipboardList, ContactRound, CreditCard, Eye, EyeOff, FileBarChart2, Gauge,
+  Building2, CalendarDays, ChartNoAxesCombined, Check, CheckCircle2, ChevronDown, ChevronLeft, ChevronRight,
+  BookOpen, CircleDollarSign, ClipboardList, ContactRound, CreditCard, Edit3, Eye, EyeOff, FileBarChart2, Gauge,
   HandCoins, History, LayoutDashboard, LogOut, Milk, Plus, ReceiptText, RotateCcw, Search, Settings, Shield, Truck, UserRound,
   Users, UsersRound, Wallet, Warehouse, X, Upload,
 } from 'lucide-react';
@@ -25,9 +25,25 @@ import { TypingDisplay } from '@/components/ui/typing-display';
 import { usePublicLanguage } from '@/hooks/use-public-language';
 import { formatPublicCopy, type PublicCopyKey } from '@/lib/i18n/public-copy';
 import { formatDateLabel, getMonthNames } from '@/lib/i18n/date-format';
-import { getAccountingDate, getAccountingHalfForDay, getCurrentAccountingPeriod, getHalfMonthDateRange, getMonthDateRange } from '@/lib/utils/accounting-period';
+import {
+  getAccountingDate,
+  getAccountingHalfForDay,
+  getCurrentAccountingPeriod,
+  getHalfMonthDateRange,
+  getMonthDateRange,
+  getAccountingYears as getAccountingYearsUtil,
+  getBilingualMonthNames,
+  BILINGUAL_MONTHS,
+} from '@/lib/utils/accounting-period';
 import { resolveWorkspaceTab } from '@/lib/workspace-navigation';
 import { calculateMilkDifference, projectOwnerMilkEntry } from '@/lib/milk-reconciliation';
+
+const sanitizeQueryParam = (val: unknown): string => {
+  if (val === null || val === undefined) return '';
+  const str = String(val).trim();
+  if (str === '' || str === 'undefined' || str === 'null' || str === '[object Object]') return '';
+  return str;
+};
 
 type User = { id: number; name: string; email: string; role: string; accountType: string; language?: 'rw' | 'en'; emailVerified?: boolean };
 type AccountProfile = { id: number; name: string; email: string; phone: string | null; nationalId: string | null; accountNumber: string | null; profilePicture: string | null; role: string; accountType: string; accountStatus: string; emailVerified: boolean; language?: 'rw' | 'en' };
@@ -157,8 +173,9 @@ const synchronizeCurrentAccountingHalf = (month: string, year: string, setPeriod
   if (month === current.month && year === current.year) setPeriod(current.periodType as AccountingHalf);
 };
 const getAccountingYears = () => {
-  const currentYear = Number(getCurrentAccountingPeriod().year);
-  return Array.from({ length: currentYear - 1999 }, (_, index) => String(currentYear - index));
+  return typeof getAccountingYearsUtil === 'function'
+    ? getAccountingYearsUtil()
+    : ['2031', '2030', '2029', '2028', '2027', '2026', '2025', '2024'];
 };
 const getMonthBounds = (monthValue: string) => {
   const [yearText, monthText] = monthValue.split('-');
@@ -567,6 +584,7 @@ export default function Workspace() {
   const [centerEdits, setCenterEdits] = useState<Record<number, Partial<Center> & { morningStart?: string; morningEnd?: string; eveningStart?: string; eveningEnd?: string }>>({});
   const [selectedCenter, setSelectedCenter] = useState('');
   const [centersLoading, setCentersLoading] = useState(false);
+  const centersPromiseRef = useRef<Promise<Center[]> | null>(null);
   const dailyAbortControllerRef = useRef<AbortController | null>(null);
   const [recentlySavedRows, setRecentlySavedRows] = useState<Set<number>>(new Set());
   const [dailyCenter, setDailyCenter] = useState<string | null>(null);
@@ -627,6 +645,7 @@ const [report, setReport] = useState<Report | null>(null);
   const [reportError, setReportError] = useState('');
   const [settlementMonth, setSettlementMonth] = useState(today().slice(0, 7));
   const [settlementHalf, setSettlementHalf] = useState<AccountingHalf>(getCurrentAccountingHalf);
+  const [settlementTab, setSettlementTab] = useState<'accounts' | 'cash'>('accounts');
   const [settlementData, setSettlementData] = useState<SettlementData | null>(null);
   const [settlementReport, setSettlementReport] = useState<Report | null>(null);
   const [settlementDebts, setSettlementDebts] = useState<any[]>([]);
@@ -657,6 +676,45 @@ const [report, setReport] = useState<Report | null>(null);
   const [ifishiRecords, setIfishiRecords] = useState<MilkRecord[]>([]);
   const [ifishiSaveError, setIfishiSaveError] = useState('');
   const [ifishiSaveStatus, setIfishiSaveStatus] = useState('');
+  const [selectedFarmerIds, setSelectedFarmerIds] = useState<Set<number>>(new Set());
+  const toggleFarmerSelect = (id: number) => {
+    setSelectedFarmerIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+  const clearSelectedFarmers = () => setSelectedFarmerIds(new Set());
+  const [undoToast, setUndoToast] = useState<{ message: string; onUndo: () => void } | null>(null);
+  const [inlineEditingFarmerId, setInlineEditingFarmerId] = useState<number | null>(null);
+  const [inlineFarmerPhone, setInlineFarmerPhone] = useState('');
+  const [reportTimelinePeriod, setReportTimelinePeriod] = useState<'daily' | 'first-half' | 'second-half' | 'monthly'>('monthly');
+
+  useEffect(() => {
+    if (undoToast) {
+      const timer = setTimeout(() => setUndoToast(null), 4000);
+      return () => clearTimeout(timer);
+    }
+  }, [undoToast]);
+
+  useEffect(() => {
+    const handleGlobalKeyDown = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') {
+        e.preventDefault();
+        const searchInput = document.querySelector<HTMLInputElement>(
+          'input[type="search"], .milk-search-field input, .farmers-search-field input, .ifishi-search-input'
+        );
+        if (searchInput) {
+          searchInput.focus();
+          searchInput.select?.();
+        }
+      }
+    };
+    window.addEventListener('keydown', handleGlobalKeyDown);
+    return () => window.removeEventListener('keydown', handleGlobalKeyDown);
+  }, []);
+
   const [farmerHistoryOpen, setFarmerHistoryOpen] = useState(false);
   const [farmerHistory, setFarmerHistory] = useState<FarmerHistory | null>(null);
   const [farmerHistoryFarmer, setFarmerHistoryFarmer] = useState<Pick<Farmer, 'id' | 'name' | 'phone' | 'farmerNumber'> | null>(null);
@@ -939,16 +997,20 @@ const visibleTabs = (isAdmin
 
   const loadCenters = async () => {
     setCentersLoading(true);
+    const promise = api<Center[]>('/api/collection-centers');
+    centersPromiseRef.current = promise;
     try {
-      const data = await api<Center[]>('/api/collection-centers');
+      const data = await promise;
       setCenters(data);
       setSelectedCenter((current) => {
         if (!data.length) return '';
         const currentCenterStillExists = current && data.some((center) => String(center.id) === String(current));
         return currentCenterStillExists ? current : String(data[0].id);
       });
+      return data;
     } finally {
       setCentersLoading(false);
+      centersPromiseRef.current = null;
     }
   };
 
@@ -979,26 +1041,36 @@ const visibleTabs = (isAdmin
   };
 
   const loadFarmers = async (cursor?: string | null, append = false) => {
+    if (isDairy && (centersLoading || !centers.length)) {
+      if (centersPromiseRef.current) {
+        try {
+          await centersPromiseRef.current;
+        } catch {
+          // ignore
+        }
+      }
+    }
+    const cleanCursor = sanitizeQueryParam(cursor);
     const activeCenter = centers.find((center) => String(center.id) === selectedCenter)?.name || '';
-    const scopedFarmerCenter = isDairy ? activeCenter : farmerCenter;
+    const scopedFarmerCenter = sanitizeQueryParam(isDairy ? activeCenter : farmerCenter);
     const params = buildFarmerListQuery({
       userAccountType: user?.accountType || '',
       userId: user?.id || 0,
-      selectedCollectorId: farmerCollectorFilter,
-      farmerSearch,
-      farmerCenter: scopedFarmerCenter,
+      selectedCollectorId: sanitizeQueryParam(farmerCollectorFilter) || undefined,
+      farmerSearch: sanitizeQueryParam(farmerSearch) || undefined,
+      farmerCenter: scopedFarmerCenter || undefined,
       sortBy: farmerSortBy || undefined,
       sortDirection: farmerSortBy ? farmerSortDirection : undefined,
-      cursor: cursor || undefined,
+      cursor: cleanCursor || undefined,
       limit: 50,
     });
     const cacheKey = `milk-farmers-${user?.id}-${user?.accountType}-${scopedFarmerCenter}-${farmerSearch}-${farmerCollectorFilter}-${farmerSortBy}-${farmerSortDirection}`;
     try {
       const result = await api<Page<Farmer>>(`/api/farmers?${params}`, { cache: 'no-store' });
       setFarmers((previous) => append && previous ? { ...result, data: [...previous.data, ...result.data] } : result);
-      if (!append && !cursor) localStorage.setItem(cacheKey, JSON.stringify(result));
+      if (!append && !cleanCursor) localStorage.setItem(cacheKey, JSON.stringify(result));
     } catch (reason) {
-      const cached = !append && !cursor ? localStorage.getItem(cacheKey) : null;
+      const cached = !append && !cleanCursor ? localStorage.getItem(cacheKey) : null;
       if (!cached) throw reason;
       setFarmers(JSON.parse(cached) as Page<Farmer>);
     }
@@ -1109,36 +1181,48 @@ const visibleTabs = (isAdmin
 
     setDailyLoading(true);
     setDailyError('');
-    if (isDairy && !selectedCenter) {
+    if (isDairy && (!selectedCenter || centersLoading || !centers.length)) {
+      if (centersPromiseRef.current) {
+        try {
+          await centersPromiseRef.current;
+        } catch {
+          // ignore
+        }
+      }
       if (centersLoading || !centers.length) {
         setDailyLoading(false);
         return;
       }
-      setDailyError('No collection center selected. Please choose an active center.');
-      setDailyLoading(false);
-      return;
+      if (!selectedCenter && centers.length > 0) {
+        setSelectedCenter(String(centers[0].id));
+      }
     }
     if (!append) {
       setDailyCursor(null);
       setDailyHasMore(false);
     }
     const milkEntryView = tab === 'milk';
-    const search = milkEntryView ? debouncedDailySearch : '';
+    const search = milkEntryView ? sanitizeQueryParam(debouncedDailySearch) : '';
     const session = milkEntryView ? dailySession : 'all';
     const deliveryStatus = milkEntryView ? dailyDeliveryFilter : 'all';
     const limit = milkEntryView ? dailyPageSize : 50;
+    const cleanCenterId = sanitizeQueryParam(selectedCenter);
+    const cleanCursor = sanitizeQueryParam(cursor);
     const params = new URLSearchParams({ date: collectionDate, limit: String(limit) });
     if (user?.accountType === 'COLLECTOR') params.set('collectorUserId', String(user.id));
-    if (selectedCenter) params.set('centerId', selectedCenter);
+    if (cleanCenterId) params.set('centerId', cleanCenterId);
     if (search) params.set('search', search);
     if (session !== 'all') params.set('session', session);
     if (deliveryStatus !== 'all') params.set('deliveryStatus', deliveryStatus);
-    if (milkEntryView && isDairy && dailyCollectorFilter) params.set('collectorUserId', dailyCollectorFilter);
+    if (milkEntryView && isDairy && dailyCollectorFilter) {
+      const cleanCollector = sanitizeQueryParam(dailyCollectorFilter);
+      if (cleanCollector) params.set('collectorUserId', cleanCollector);
+    }
     if (milkEntryView && dailySortBy) {
       params.set('sortBy', dailySortBy);
       params.set('sortDirection', dailySortDirection);
     }
-    if (cursor) params.set('cursor', cursor);
+    if (cleanCursor) params.set('cursor', cleanCursor);
 
     const fetchDailyWithRetry = async (attempt = 1): Promise<{ farmers: DailyRow[]; summary: typeof dailySummary; farmerPagination: { nextCursor: string | null; hasMore: boolean }; center?: string | null; centers?: string[]; collectorMilk?: CollectorMilkEntry[] }> => {
       try {
@@ -2562,9 +2646,62 @@ const visibleTabs = (isAdmin
           {(farmers?.data || []).map((farmer) => {
             const assigned = Boolean(farmer.collectorUserId);
             return <tr key={farmer.id}>
-              <td className="farmer-number-cell"><span className="farmer-number-badge">{formatFarmerNumber(farmer.farmerNumber) || '—'}</span></td>
+              <td className="farmer-number-cell">
+                <input
+                  type="checkbox"
+                  className="farmer-row-checkbox"
+                  checked={selectedFarmerIds.has(farmer.id)}
+                  onChange={() => toggleFarmerSelect(farmer.id)}
+                  aria-label={`Select ${farmer.name}`}
+                  style={{ marginRight: 6 }}
+                />
+                <span className="farmer-number-badge">{formatFarmerNumber(farmer.farmerNumber) || '—'}</span>
+              </td>
               <td className="strong-cell"><b>{farmer.name}</b><small className="farmer-row-detail">{[farmer.nationalId ? `ID ${farmer.nationalId}` : null, farmer.location].filter(Boolean).join(' · ') || '—'}</small></td>
-              <td>{farmer.phone || '—'}</td>
+              <td onDoubleClick={() => { setInlineEditingFarmerId(farmer.id); setInlineFarmerPhone(farmer.phone || ''); }} title={publicLanguage.language === 'en' ? 'Double-click to edit' : 'Kanda kabiri uhindure'}>
+                {inlineEditingFarmerId === farmer.id ? (
+                  <input
+                    type="text"
+                    className="table-input"
+                    style={{ width: 130, padding: '2px 6px', fontSize: '0.8125rem' }}
+                    autoFocus
+                    value={inlineFarmerPhone}
+                    onChange={(e) => setInlineFarmerPhone(e.target.value)}
+                    onBlur={async () => {
+                      if (inlineFarmerPhone !== farmer.phone) {
+                        const oldPhone = farmer.phone;
+                        const newPhone = inlineFarmerPhone;
+                        setInlineEditingFarmerId(null);
+                        try {
+                          await api(`/api/farmers/${farmer.id}`, json('PUT', { ...farmer, phone: newPhone }));
+                          setFarmers((prev) => prev ? { ...prev, data: prev.data.map((f) => f.id === farmer.id ? { ...f, phone: newPhone } : f) } : prev);
+                          setUndoToast({
+                            message: `${farmer.name}: ${publicLanguage.language === 'en' ? 'Phone updated' : 'Nimero yahinduwe'}`,
+                            onUndo: async () => {
+                              try {
+                                await api(`/api/farmers/${farmer.id}`, json('PUT', { ...farmer, phone: oldPhone }));
+                                setFarmers((prev) => prev ? { ...prev, data: prev.data.map((f) => f.id === farmer.id ? { ...f, phone: oldPhone } : f) } : prev);
+                              } catch {
+                                // ignore
+                              }
+                            }
+                          });
+                        } catch {
+                          // ignore
+                        }
+                      } else {
+                        setInlineEditingFarmerId(null);
+                      }
+                    }}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') (e.target as HTMLInputElement).blur();
+                      if (e.key === 'Escape') setInlineEditingFarmerId(null);
+                    }}
+                  />
+                ) : (
+                  <span>{farmer.phone || '—'}</span>
+                )}
+              </td>
               <td><span className={`delivery-status-pill ${assigned ? 'is-assigned' : 'is-unassigned'}`}>{publicLanguage.t(assigned ? 'statusAssigned' : 'statusUnassigned')}</span></td>
               <td>{farmer.collectionCenter || '—'}</td>
               <td className="actions-cell"><button type="button" className="text-button" onClick={() => openFarmerHistory(farmer)}>{publicLanguage.t('viewFarmerHistory')}</button><button type="button" className="text-button" onClick={() => editFarmerStart(farmer)}>{publicLanguage.t('edit')}</button><button type="button" className="text-button danger-text" onClick={() => deleteFarmer(farmer)}>{publicLanguage.t('delete')}</button></td>
@@ -2689,12 +2826,36 @@ const visibleTabs = (isAdmin
         ? 'is-cancelled'
         : 'is-missing';
 
+    const matchingFarmerObj = (farmers?.data || []).find((f) => f.id === farmerId) || historyFarmer || farmerHistoryFarmer;
+    const matchingReportFarmer = (ukweziReport?.farmerPayments || report?.farmerPayments || settlementReport?.settlementAccounting?.farmers || []).find((f: any) => f.farmerId === farmerId);
+    const matchingSettlementFarmer = settlementReport?.settlementAccounting?.farmers?.find((f: any) => f.farmerId === farmerId);
+    const farmerDebt = settlementDebts.find((d: any) => Number(d.farmer_id) === Number(farmerId));
+    const carriedDebt = Number(farmerDebt?.remaining_balance ?? matchingSettlementFarmer?.settlement?.outstandingDebt ?? 0);
+    const farmerAccountNumber = (matchingFarmerObj as any)?.accountNumber;
+    const hasAccount = Boolean(
+      farmerAccountNumber &&
+      String(farmerAccountNumber).trim() &&
+      !['N/A', 'NA'].includes(String(farmerAccountNumber).trim().toUpperCase()) &&
+      String(farmerAccountNumber).trim().length >= 4
+    );
+    const historyTotalLiters = matchingReportFarmer?.totalVolume ?? (farmerHistory?.days || []).reduce((sum: number, d: any) => sum + Number(d.totalLiters || 0), 0);
+
     return <div className="farmer-history-view">
       <div className="panel-heading"><div><span className="eyebrow">{publicLanguage.t('viewFarmerHistory')}</span><h2 id="farmer-history-title">{publicLanguage.t('farmerHistoryTitle')}</h2><p className="muted-note">{publicLanguage.t('farmerHistorySubtitle')}</p></div><button type="button" className="icon-button" onClick={() => setFarmerHistoryOpen(false)} aria-label={publicLanguage.t('cancel')}><X size={18} aria-hidden="true" /></button></div>
       <section className="farmer-history-identity">
-        <div className="farmer-history-person"><span className="farmer-number-badge">{farmerNumber}</span><div><b>{farmerName || '—'}</b><small>{[historyFarmer?.phone, collectorLabel, historyFarmer?.collectionCenter].filter(Boolean).join(' · ') || '—'}</small></div></div>
+        <div className="farmer-history-person"><span className="farmer-number-badge">{farmerNumber}</span><div><div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}><b>{farmerName || '—'}</b>{hasAccount ? <span className="badge badge-success" style={{ background: 'rgba(21, 127, 80, 0.12)', color: '#157f50', border: '1px solid rgba(21, 127, 80, 0.25)', padding: '2px 8px', borderRadius: 999, fontSize: '0.75rem', fontWeight: 600 }}>Bafite Konti</span> : <span className="badge badge-warning" style={{ background: 'rgba(184, 102, 20, 0.12)', color: '#b86614', border: '1px solid rgba(184, 102, 20, 0.25)', padding: '2px 8px', borderRadius: 999, fontSize: '0.75rem', fontWeight: 600 }}>Kuri Konti ya Nyirayo</span>}</div><small>{[historyFarmer?.phone, collectorLabel, historyFarmer?.collectionCenter].filter(Boolean).join(' · ') || '—'}</small></div></div>
         {historyFarmer?.createdDate ? <span className="farmer-history-created">{publicLanguage.t('accountCreated')}: {shortDateLabel(historyFarmer.createdDate)}</span> : null}
       </section>
+      <div className="inspector-quick-actions">
+        <button type="button" className="button button-secondary small-button" disabled={!farmerId} onClick={() => { setDeductionForm((prev) => ({ ...prev, farmerId: String(farmerId), date: today() })); setDeductionCreateOpen(true); }}><Plus size={14} aria-hidden="true" />{publicLanguage.language === 'en' ? 'Add Deduction' : 'Ongera Ikurwaho'}</button>
+        <button type="button" className="button button-secondary small-button" disabled={!matchingFarmerObj} onClick={() => { if (matchingFarmerObj) { setFarmerHistoryOpen(false); editFarmerStart(matchingFarmerObj as Farmer); } }}><Edit3 size={14} aria-hidden="true" />{publicLanguage.language === 'en' ? 'Edit Details' : 'Hindura Amakuru'}</button>
+        <button type="button" className="button button-primary small-button" disabled={!farmerId} onClick={() => { if (!farmerId) return; setFarmerHistoryOpen(false); openIfishiForFarmer(farmerId, farmerName, historyFarmer || undefined); }}><BookOpen size={14} aria-hidden="true" />{publicLanguage.t('navIfishi')}</button>
+      </div>
+      <div className="inspector-mini-kpi">
+        <div className="inspector-mini-kpi-card"><span>{publicLanguage.language === 'en' ? 'Total Volume' : 'Litiro Zose'}</span><b>{liters(historyTotalLiters)} L</b></div>
+        <div className="inspector-mini-kpi-card"><span>{publicLanguage.language === 'en' ? 'Net Payable' : 'Ayishyurwa'}</span><b>{matchingReportFarmer?.netAmount != null ? `${money(matchingReportFarmer.netAmount)} RWF` : '—'}</b></div>
+        <div className="inspector-mini-kpi-card"><span>{publicLanguage.language === 'en' ? 'Carried Debt' : 'Umwenda'}</span><b style={{ color: carriedDebt > 0 ? '#b86614' : '#112430' }}>{money(carriedDebt)} RWF</b></div>
+      </div>
       <div className="toolbar farmer-history-controls">
         <label>{publicLanguage.t('farmerHistoryRange')}<input type="month" max={today().slice(0, 7)} value={farmerHistoryMonth} onChange={(event) => { if (event.target.value) setFarmerHistoryMonth(event.target.value); }} /></label>
         <label>{publicLanguage.t('farmerHistorySession')}<select value={farmerHistorySession} onChange={(event) => setFarmerHistorySession(event.target.value as typeof farmerHistorySession)}><option value="all">{publicLanguage.t('milkSessionAll')}</option><option value="morning">{publicLanguage.t('milkSessionMorning')}</option><option value="evening">{publicLanguage.t('milkSessionEvening')}</option></select></label>
@@ -2751,6 +2912,7 @@ const visibleTabs = (isAdmin
       [farmerId]: { ...(current[farmerId] || { morning: '', evening: '' }), [period]: value },
     }));
     const volumeInput = (row: DailyRow, period: 'morning' | 'evening') => <input
+      id={`milk-input-${row.farmerId}-${period}`}
       className="table-input"
       type="number"
       min="0"
@@ -2758,6 +2920,20 @@ const visibleTabs = (isAdmin
       aria-label={`${row.farmerName} ${publicLanguage.t(period === 'morning' ? 'dashboardMorning' : 'dashboardEvening').toLocaleLowerCase()} volume`}
       value={volumes[row.farmerId]?.[period] ?? ''}
       onChange={(event) => updateVolume(row.farmerId, period, event.target.value)}
+      onKeyDown={(event) => {
+        if (event.key === 'Enter') {
+          event.preventDefault();
+          if (period === 'morning') {
+            document.getElementById(`milk-input-${row.farmerId}-evening`)?.focus();
+          } else {
+            const currentIdx = visibleRows.findIndex((r) => r.farmerId === row.farmerId);
+            if (currentIdx !== -1 && currentIdx + 1 < visibleRows.length) {
+              const nextRow = visibleRows[currentIdx + 1];
+              document.getElementById(`milk-input-${nextRow.farmerId}-morning`)?.focus();
+            }
+          }
+        }
+      }}
     />;
     const entryState = (row: DailyRow) => {
       const volume = volumes[row.farmerId] || { morning: '', evening: '' };
@@ -2829,7 +3005,7 @@ const visibleTabs = (isAdmin
         <div className="milk-session-context"><span>{publicLanguage.t('milkCollectionWindow')}</span><b>{publicLanguage.t('dashboardMorning')} <i /> {publicLanguage.t('dashboardEvening')}</b></div>
       </div>
       <div className="milk-record-tools">
-        <label className="milk-search-field"><span>{publicLanguage.t('milkSearchLabel')}</span><span className="milk-search-control"><Search size={16} aria-hidden="true" /><input type="search" aria-label={publicLanguage.t('milkSearchLabel')} placeholder={publicLanguage.t('milkSearchPlaceholder')} value={dailySearch} onChange={(event) => setDailySearch(event.target.value)} />{dailySearch ? <button type="button" className="icon-button milk-search-clear" aria-label={publicLanguage.t('milkClearSearch')} title={publicLanguage.t('milkClearSearch')} onClick={() => setDailySearch('')}><X size={16} aria-hidden="true" /></button> : null}</span></label>
+        <label className="milk-search-field"><span>{publicLanguage.t('milkSearchLabel')}</span><span className="milk-search-control"><Search size={16} aria-hidden="true" /><input type="search" aria-label={publicLanguage.t('milkSearchLabel')} placeholder={publicLanguage.t('milkSearchPlaceholder')} value={dailySearch} onChange={(event) => setDailySearch(event.target.value)} /><kbd className="search-shortcut">⌘K</kbd>{dailySearch ? <button type="button" className="icon-button milk-search-clear" aria-label={publicLanguage.t('milkClearSearch')} title={publicLanguage.t('milkClearSearch')} onClick={() => setDailySearch('')}><X size={16} aria-hidden="true" /></button> : null}</span></label>
         <label><span>{publicLanguage.t('milkSessionFilter')}</span><select value={dailySession} onChange={(event) => setDailySession(event.target.value as typeof dailySession)}><option value="all">{publicLanguage.t('milkSessionAll')}</option><option value="morning">{publicLanguage.t('milkSessionMorning')}</option><option value="evening">{publicLanguage.t('milkSessionEvening')}</option></select></label>
         <label><span>{publicLanguage.t('deliveryFilterLabel')}</span><select aria-label={publicLanguage.t('deliveryFilterLabel')} value={dailyDeliveryFilter} onChange={(event) => setDailyDeliveryFilter(event.target.value as typeof dailyDeliveryFilter)}><option value="all">{publicLanguage.t('deliveryFilterAll')}</option><option value="delivered">{publicLanguage.t('deliveryFilterDelivered')}</option><option value="missing">{publicLanguage.t('deliveryFilterMissing')}</option></select></label>
         {isDairy ? <label><span>{publicLanguage.t('assignedCollector')}</span><select aria-label={publicLanguage.t('assignedCollector')} value={dailyCollectorFilter} onChange={(event) => setDailyCollectorFilter(event.target.value)}><option value="">{publicLanguage.t('allCollectors')}</option>{collectorAssignments.map((assignment) => <option key={assignment.collector_user_id} value={String(assignment.collector_user_id)}>{assignment.collector_name}</option>)}</select></label> : null}
@@ -2855,6 +3031,19 @@ const visibleTabs = (isAdmin
             setLossEventOpen(true);
           }}><Plus size={15} aria-hidden="true" />{publicLanguage.t('recordLossEvent')}</button>
         )}
+      </div>
+      <div className="delivery-progress-ring-card">
+        <div className="delivery-progress-header">
+          <div className="delivery-progress-title">
+            <span className="delivery-progress-dot" />
+            <b>{dailySummary.deliveryRate || 0}% {publicLanguage.language === 'en' ? 'Delivered milk' : 'Yagejeje amata'}</b>
+            <span className="delivery-progress-remaining">· {dailySummary.missingCount || 0} {publicLanguage.language === 'en' ? 'Remaining' : 'Basigaye'}</span>
+          </div>
+          <span className="delivery-progress-fraction">{dailySummary.deliveredCount || 0} / {dailySummary.expectedCount || 0}</span>
+        </div>
+        <div className="delivery-progress-track">
+          <div className="delivery-progress-bar" style={{ width: `${Math.min(100, Math.max(0, dailySummary.deliveryRate || 0))}%` }} />
+        </div>
       </div>
       <div className="metric-strip delivery-reconciliation" aria-label={publicLanguage.t('deliveryFilterLabel')}><div><span>{publicLanguage.t('deliveryExpectedFarmers')}</span><b><AnimatedCounter value={dailySummary.expectedCount} className="tabular-nums" /></b></div><div><span>{publicLanguage.t('deliveryDeliveredFarmers')}</span><b><AnimatedCounter value={dailySummary.deliveredCount} className="tabular-nums" /></b></div><div><span>{publicLanguage.t('deliveryMissingFarmers')}</span><b><AnimatedCounter value={dailySummary.missingCount} className="tabular-nums" /></b></div><div><span>{publicLanguage.t('deliveryRate')}</span><b><AnimatedCounter value={dailySummary.deliveryRate} suffix="%" className="tabular-nums" /></b></div></div>
       <div className="metric-strip milk-summary"><div><span>{publicLanguage.t('dashboardCollected')}</span><b><AnimatedCounter value={dailySummary.totalVolume} formatter={liters} suffix=" L" className="tabular-nums" /></b></div><div><span>{publicLanguage.t('dashboardMorning')}</span><b><AnimatedCounter value={dailySummary.totalMorning} formatter={liters} suffix=" L" className="tabular-nums" /></b></div><div><span>{publicLanguage.t('dashboardEvening')}</span><b><AnimatedCounter value={dailySummary.totalEvening} formatter={liters} suffix=" L" className="tabular-nums" /></b></div></div>
@@ -3374,6 +3563,9 @@ const visibleTabs = (isAdmin
     const { startDate, endDate } = getSettlementPeriodBounds(settlementMonth, settlementHalf);
     const reconciliation = settlementReport?.settlementAccounting || null;
     const farmerRows = reconciliation?.farmers || [];
+    const accountsFarmers = farmerRows.filter((farmer) => Boolean(farmer.settlement?.saccoEligible));
+    const cashFarmers = farmerRows.filter((farmer) => !farmer.settlement?.saccoEligible);
+    const remainingCashFarmers = cashFarmers.filter((farmer) => Number(farmer.settlement?.retainedUnpaidAmount || 0) > 0);
     const retainedRows = farmerRows.filter((farmer) => !farmer.settlement.saccoEligible && Number(farmer.settlement.retainedUnpaidAmount || 0) > 0);
     const settlementRecords = settlementData?.data || [];
     const settlementNumber = new Intl.NumberFormat(publicLanguage.language === 'rw' ? 'rw-RW' : 'en-GB', { maximumFractionDigits: 2 });
@@ -3405,6 +3597,49 @@ const visibleTabs = (isAdmin
       setNotice(publicLanguage.t('settlementsCashApproved'));
       await loadSettlementData();
       delete settlementRequestKeys.current[keyScope];
+    };
+
+    const settleSingleCash = async (farmerId: number, amount: number) => {
+      const keyScope = `cash-${farmerId}-${startDate}`;
+      const res = await api<any>('/api/farmer-settlements', json('POST', {
+        action: 'cash', farmerId, amount, periodStart: startDate, periodEnd: endDate, requestKey: requestKey(keyScope),
+      }));
+      if (res?.record?.id) {
+        await api('/api/farmer-settlements', json('POST', {
+          action: 'confirm', settlementId: res.record.id, farmerId, periodStart: startDate, periodEnd: endDate,
+        }));
+      }
+      setNotice(publicLanguage.t('settlementsPaymentConfirmed'));
+      delete settlementRequestKeys.current[keyScope];
+      await loadSettlementData();
+    };
+
+    const confirmAllCashPayments = async () => {
+      const eligible = cashFarmers.filter((f) => Number(f.settlement?.retainedUnpaidAmount || 0) > 0);
+      if (!eligible.length) return;
+      if (!window.confirm(`Waba wizeye ko ushaka kwemeza ubwishyu bwo mu ntoki ku borozi ${eligible.length}?`)) return;
+      try {
+        setBusy(true);
+        for (const farmer of eligible) {
+          const amount = Number(farmer.settlement.retainedUnpaidAmount);
+          const keyScope = `cash-${farmer.farmerId}-${startDate}`;
+          const res = await api<any>('/api/farmer-settlements', json('POST', {
+            action: 'cash', farmerId: farmer.farmerId, amount, periodStart: startDate, periodEnd: endDate, requestKey: requestKey(keyScope),
+          }));
+          if (res?.record?.id) {
+            await api('/api/farmer-settlements', json('POST', {
+              action: 'confirm', settlementId: res.record.id, farmerId: farmer.farmerId, periodStart: startDate, periodEnd: endDate,
+            }));
+          }
+          delete settlementRequestKeys.current[keyScope];
+        }
+        setNotice(`Aborozi ${eligible.length} bishyuwe mu ntoki kandi baremejwe neza.`);
+        await loadSettlementData();
+      } catch (err: any) {
+        setNotice(err?.message || 'Ntibyashobotse kwemeza ubwishyu bose.');
+      } finally {
+        setBusy(false);
+      }
     };
 
     const addFarmerDebt = async (event: React.FormEvent) => {
@@ -3461,10 +3696,84 @@ const visibleTabs = (isAdmin
       ? `${formatDateLabel(settlementReport.rangeStart, publicLanguage.language, { day: 'numeric', month: 'long', year: 'numeric' })} – ${formatDateLabel(settlementReport.rangeEnd, publicLanguage.language, { day: 'numeric', month: 'long', year: 'numeric' })}`
       : `${startDate} – ${endDate}`;
 
+    const years = getAccountingYears();
+    const bilingualMonths = getBilingualMonthNames();
+    const settlementYear = settlementMonth.slice(0, 4);
+    const settlementMonthPart = settlementMonth.slice(5, 7);
+
+    const selectSettlementYear = (year: string) => {
+      const newMonthVal = `${year}-${settlementMonthPart}`;
+      setSettlementMonth(newMonthVal);
+      synchronizeCurrentAccountingHalf(settlementMonthPart, year, setSettlementHalf);
+    };
+
+    const selectSettlementMonthPart = (month: string) => {
+      const newMonthVal = `${settlementYear}-${month}`;
+      setSettlementMonth(newMonthVal);
+      synchronizeCurrentAccountingHalf(month, settlementYear, setSettlementHalf);
+    };
+
+    const totalSettledSoFar = (reconciliation?.saccoConfirmedAmount || 0) + (reconciliation?.cashConfirmedAmount || 0) + (reconciliation?.debtRepaymentAmount || 0);
+
     return <div className="ukwezi-view">
       <section className="panel">
-        <div className="panel-heading"><div><span className="eyebrow">{publicLanguage.t('dashboardPeriod')}</span><h2>{publicLanguage.t('settlementsTitle')}</h2></div><Wallet size={20} aria-hidden="true" /></div>
-        <div className="toolbar"><label>{publicLanguage.t('ukweziMonth')}<input type="month" value={settlementMonth} onChange={(event) => selectSettlementMonth(event.target.value)} /></label><label>{publicLanguage.t('ukweziPeriod')}<select value={settlementHalf} onChange={(event) => setSettlementHalf(event.target.value as typeof settlementHalf)}><option value="first-half">1–15</option><option value="second-half">16–{getMonthBounds(settlementMonth).endDate.slice(-2)}</option></select></label><button type="button" className="button button-secondary" onClick={() => run(() => loadSettlementData())} disabled={busy || settlementLoading}>{publicLanguage.t('reportsRefresh')}</button></div>
+        <div className="panel-heading">
+          <div>
+            <span className="eyebrow">{publicLanguage.t('dashboardPeriod')}</span>
+            <h2>{publicLanguage.t('settlementsTitle')}</h2>
+          </div>
+          <Wallet size={20} aria-hidden="true" />
+        </div>
+
+        <div className="toolbar ukwezi-period-controls">
+          <label>
+            {publicLanguage.t('ukweziMonth')}
+            <select value={settlementMonthPart} onChange={(event) => selectSettlementMonthPart(event.target.value)}>
+              {bilingualMonths.map(({ value, label }) => (
+                <option key={value} value={value}>{label}</option>
+              ))}
+            </select>
+          </label>
+          <label>
+            {publicLanguage.t('ukweziYear')}
+            <select value={settlementYear} onChange={(event) => selectSettlementYear(event.target.value)}>
+              {years.map((year) => (
+                <option key={year} value={year}>{year}</option>
+              ))}
+            </select>
+          </label>
+          <div className="timeline-scrubber" role="radiogroup" aria-label={publicLanguage.t('ukweziPeriod')}>
+            <button
+              type="button"
+              className={`timeline-scrubber-pill${settlementHalf === 'first-half' ? ' is-active' : ''}`}
+              onClick={() => setSettlementHalf('first-half')}
+            >
+              1–15
+            </button>
+            <button
+              type="button"
+              className={`timeline-scrubber-pill${settlementHalf === 'second-half' ? ' is-active' : ''}`}
+              onClick={() => setSettlementHalf('second-half')}
+            >
+              16–{getMonthBounds(settlementMonth).endDate.slice(-2)}
+            </button>
+          </div>
+          <label style={{ display: 'none' }}>
+            {publicLanguage.t('ukweziPeriod')}
+            <select value={settlementHalf} onChange={(event) => setSettlementHalf(event.target.value as typeof settlementHalf)}>
+              <option value="first-half">1–15</option>
+              <option value="second-half">16–{getMonthBounds(settlementMonth).endDate.slice(-2)}</option>
+            </select>
+          </label>
+          <label style={{ display: 'none' }}>
+            {publicLanguage.t('ukweziMonth')}
+            <input type="month" value={settlementMonth} onChange={(event) => selectSettlementMonth(event.target.value)} />
+          </label>
+          <button type="button" className="button button-secondary" onClick={() => run(() => loadSettlementData())} disabled={busy || settlementLoading}>
+            {publicLanguage.t('reportsRefresh')}
+          </button>
+        </div>
+
         <p role="note">{publicLanguage.t('settlementsNote')}</p>
         {settlementReportError ? <div className="workspace-empty" role="alert"><b>{publicLanguage.t('settlementsAccountingLoadError')}</b><button type="button" className="button button-secondary small-button" onClick={() => void loadSettlementData()} disabled={settlementLoading}>{publicLanguage.t('settlementsRetry')}</button></div> : null}
         {settlementError ? <div className="workspace-empty" role="alert"><b>{publicLanguage.t(settlementError)}</b><button type="button" className="button button-secondary small-button" onClick={() => void loadSettlementData()} disabled={settlementLoading}>{publicLanguage.t('settlementsRetry')}</button></div> : null}
@@ -3473,61 +3782,306 @@ const visibleTabs = (isAdmin
         {settlementReport?.settlementAccountingStatus === 'MIGRATION_REQUIRED' ? <div className="workspace-empty" role="status"><b>{publicLanguage.t('ukweziReconciliationUnavailable')}</b><p>{publicLanguage.t('ukweziReconciliationUnavailableDetail')}</p></div> : null}
         {reconciliation && settlementReport && !settlementLoading ? <>
           <section className="settlement-reconciliation" aria-labelledby="settlement-period-heading">
-            <div className="panel-heading"><div><span className="eyebrow">{publicLanguage.t('settlementsPeriodSummary')}</span><h3 id="settlement-period-heading">{periodLabel}</h3></div></div>
-            <div className="metric-strip report-summary">
-              <div><span>{publicLanguage.t('settlementsFarmerGross')}</span><b>{settlementMoney(reconciliation.farmerGross)} RWF</b></div>
-              <div><span>{publicLanguage.t('settlementsFarmerPayable')}</span><b>{settlementMoney(reconciliation.expectedFarmerPayable)} RWF</b></div>
-              <div><span>{publicLanguage.t('accountRoutedPayable')}</span><b>{settlementMoney(reconciliation.saccoDistributionInstruction)} RWF</b></div>
-              <div><span>{publicLanguage.t('ownerListRoutedPayable')}</span><b>{settlementMoney(reconciliation.retainedUnpaidAmount)} RWF</b></div>
-              <div><span>{publicLanguage.t('settlementsCashApprovedAmount')}</span><b>{settlementMoney(reconciliation.cashApprovedAmount)} RWF</b></div>
-              <div><span>{publicLanguage.t('settlementsCashReceived')}</span><b>{settlementMoney(reconciliation.cashConfirmedAmount)} RWF</b></div>
-              <div><span>{publicLanguage.t('settlementsDebtRepaid')}</span><b>{settlementMoney(reconciliation.debtRepaymentAmount)} RWF</b></div>
-              <div><span>{publicLanguage.t('settlementsDebtOutstanding')}</span><b>{reconciliation.debtBalancesComplete ? `${settlementMoney(reconciliation.outstandingDebt)} RWF` : publicLanguage.t('settlementsIncompleteAccounting')}</b></div>
-              <div><span>{publicLanguage.t('settlementsUnexplainedDifference')}</span><b>{settlementMoney(reconciliation.unexplainedDiscrepancy)} RWF</b></div>
+            <div className="panel-heading">
+              <div>
+                <span className="eyebrow">{publicLanguage.t('settlementsPeriodSummary')}</span>
+                <h3 id="settlement-period-heading">{periodLabel}</h3>
+              </div>
             </div>
-            {payableBreakdownAvailable ? <p className="muted-note">{publicLanguage.t('settlementsPayableBreakdown')}: {settlementMoney(breakdownValues[0])} + {settlementMoney(breakdownValues[1])} + {settlementMoney(breakdownValues[2])} + {settlementMoney(breakdownValues[3])} + {settlementMoney(breakdownValues[4])} + ({settlementMoney(breakdownValues[5])}) = {settlementMoney(breakdownValues[6])} RWF</p> : <p className="muted-note">{publicLanguage.t('ukweziBreakdownUnavailable')}</p>}
-            {renderNyirayoAuditCard({
-              nyirayoMilkValue: ownerGrossCheck?.ownerGross ?? settlementReport?.nyirayoMilkValue ?? settlementReport?.collectorGross,
-              farmersMilkValue: ownerGrossCheck?.farmerGross ?? settlementReport?.farmersMilkValue ?? settlementReport?.collectorFarmerMilkValue,
-              nyirayoBaseDifference: ownerGrossCheck?.baseDifference ?? settlementReport?.nyirayoBaseDifference ?? (ownerGrossCheck?.ownerGross != null && ownerGrossCheck?.farmerGross != null ? ownerGrossCheck.ownerGross - ownerGrossCheck.farmerGross : null),
-              transportAmount: ownerGrossCheck?.transportAmount ?? settlementReport?.transportAmount ?? settlementReport?.collectorFarmerTransport,
-              farmerDeductions: ownerGrossCheck?.farmerDeductions ?? settlementReport?.farmerDeductions ?? settlementReport?.collectorFarmerDeductions,
-              retainedNoAccountFarmerAmount: ownerGrossCheck?.retainedNoAccountFarmerAmount ?? settlementReport?.retainedNoAccountFarmerAmount ?? reconciliation?.retainedUnpaidAmount,
-              nyirayoOperationalMargin: ownerGrossCheck?.operationalMargin ?? settlementReport?.nyirayoOperationalMargin,
-              nyirayoTotalAfterOperations: ownerGrossCheck?.totalAfterOperations ?? settlementReport?.nyirayoTotalAfterOperations,
-            })}
-            {!reconciliation.debtBalancesComplete ? <p className="form-error" role="status">{publicLanguage.t('settlementsDebtHistoryIncomplete')}</p> : null}
+
+            <div className="settlement-payout-grid">
+              <div className="kpi-stat-card">
+                <div className="kpi-stat-label">Amafaranga Yose Agomba Kwishyurwa</div>
+                <div className="kpi-stat-value">{settlementMoney(reconciliation.expectedFarmerPayable)} RWF</div>
+                <div className="kpi-stat-subtext">Total Net Payable across all eligible farmers</div>
+              </div>
+              <div className="kpi-stat-card">
+                <div className="kpi-stat-label">Ayanyuze Kuri Konti</div>
+                <div className="kpi-stat-value">{settlementMoney(reconciliation.saccoDistributionInstruction ?? reconciliation.accountRoutedPayable)} RWF</div>
+                <div className="kpi-stat-subtext">{accountsFarmers.length} Aborozi bafite nimero ya konti</div>
+              </div>
+              <div className="kpi-stat-card">
+                <div className="kpi-stat-label">Ayanyuze Kuri Nyirayo / Mu Ntoki</div>
+                <div className="kpi-stat-value">{settlementMoney(reconciliation.retainedUnpaidAmount ?? reconciliation.ownerListRoutedPayable)} RWF</div>
+                <div className="kpi-stat-subtext">{cashFarmers.length} Aborozi (Custodial Cash Pool)</div>
+              </div>
+              <div className="kpi-stat-card">
+                <div className="kpi-stat-label">Ayishyuwe Kugeza Ubu</div>
+                <div className="kpi-stat-value">{settlementMoney(totalSettledSoFar)} RWF</div>
+                <div className="kpi-stat-subtext">Total settled so far</div>
+              </div>
+            </div>
+
+            <div className="settlement-tabs" role="tablist">
+              <button
+                type="button"
+                role="tab"
+                aria-selected={settlementTab === 'accounts'}
+                className={`settlement-tab-button${settlementTab === 'accounts' ? ' is-active' : ''}`}
+                onClick={() => setSettlementTab('accounts')}
+              >
+                Aborozi Bafite Nimero ya Konti ({accountsFarmers.length})
+              </button>
+              <button
+                type="button"
+                role="tab"
+                aria-selected={settlementTab === 'cash'}
+                className={`settlement-tab-button${settlementTab === 'cash' ? ' is-active' : ''}`}
+                onClick={() => setSettlementTab('cash')}
+              >
+                Aborozi Badafite Nimero ya Konti (Kuri Konti ya Nyirayo) ({cashFarmers.length})
+              </button>
+            </div>
           </section>
 
-          <section className="panel settlement-farmer-table"><div className="panel-heading"><div><span className="eyebrow">{publicLanguage.t('settlementsTitle')}</span><h3>{publicLanguage.t('settlementsReconciliationByFarmer')}</h3></div></div>
-            {farmerRows.length ? <><div className="table-scroll settlements-desktop-table"><table><thead><tr><th>{publicLanguage.t('settlementsFarmer')}</th><th>{publicLanguage.t('settlementsMilkGross')}</th><th>{publicLanguage.t('settlementsFarmerPayable')}</th><th>{publicLanguage.t('accountRoutedPayable')}</th><th>{publicLanguage.t('settlementsCashApprovedAmount')}</th><th>{publicLanguage.t('settlementsCashReceived')}</th><th>{publicLanguage.t('settlementsDebtRepaid')}</th><th>{publicLanguage.t('settlementsDebtOutstanding')}</th><th>{publicLanguage.t('settlementsRetainedBalance')}</th><th>{publicLanguage.t('settlementsUnexplainedDifference')}</th></tr></thead><tbody>
-              {farmerRows.map((farmer) => <tr key={`settlement-${farmer.farmerId}`}><td>{farmer.farmerName}</td><td>{settlementMoney(farmer.grossAmount)} RWF</td><td>{settlementMoney(farmer.netAmount)} RWF</td><td>{settlementMoney(farmer.settlement.saccoDistributionInstruction)} RWF</td><td>{settlementMoney(farmer.settlement.cashApprovedAmount)} RWF</td><td>{settlementMoney(farmer.settlement.cashConfirmedAmount)} RWF</td><td>{settlementMoney(farmer.settlement.debtRepaymentAmount)} RWF</td><td>{farmer.settlement.outstandingDebt === null ? publicLanguage.t('settlementsIncompleteAccounting') : `${settlementMoney(farmer.settlement.outstandingDebt)} RWF`}</td><td>{settlementMoney(farmer.settlement.retainedUnpaidAmount)} RWF</td><td>{settlementMoney(farmer.settlement.unexplainedDiscrepancy)} RWF</td></tr>)}
-            </tbody></table></div><div className="settlements-mobile-list">{farmerRows.map((farmer) => <article className="settlement-mobile-card" key={`settlement-mobile-${farmer.farmerId}`}><header><b>{farmer.farmerName}</b><strong>{settlementMoney(farmer.netAmount)} RWF</strong></header><dl><div><dt>{publicLanguage.t('settlementsMilkGross')}</dt><dd>{settlementMoney(farmer.grossAmount)} RWF</dd></div><div><dt>{publicLanguage.t('settlementsFarmerPayable')}</dt><dd>{settlementMoney(farmer.netAmount)} RWF</dd></div><div><dt>{publicLanguage.t('accountRoutedPayable')}</dt><dd>{settlementMoney(farmer.settlement.saccoDistributionInstruction)} RWF</dd></div><div><dt>{publicLanguage.t('settlementsCashApprovedAmount')}</dt><dd>{settlementMoney(farmer.settlement.cashApprovedAmount)} RWF</dd></div><div><dt>{publicLanguage.t('settlementsCashReceived')}</dt><dd>{settlementMoney(farmer.settlement.cashConfirmedAmount)} RWF</dd></div><div><dt>{publicLanguage.t('settlementsDebtRepaid')}</dt><dd>{settlementMoney(farmer.settlement.debtRepaymentAmount)} RWF</dd></div><div><dt>{publicLanguage.t('settlementsDebtOutstanding')}</dt><dd>{farmer.settlement.outstandingDebt === null ? publicLanguage.t('settlementsIncompleteAccounting') : `${settlementMoney(farmer.settlement.outstandingDebt)} RWF`}</dd></div><div><dt>{publicLanguage.t('settlementsRetainedBalance')}</dt><dd>{settlementMoney(farmer.settlement.retainedUnpaidAmount)} RWF</dd></div><div><dt>{publicLanguage.t('settlementsUnexplainedDifference')}</dt><dd>{settlementMoney(farmer.settlement.unexplainedDiscrepancy)} RWF</dd></div></dl></article>)}</div></> : <div className="workspace-empty" role="status"><b>{publicLanguage.t('settlementsNoMilkActivity')}</b></div>}
-          </section>
+          {settlementTab === 'accounts' ? (
+            <section className="panel settlement-farmer-table">
+              <div className="panel-heading">
+                <div>
+                  <span className="eyebrow">{publicLanguage.t('settlementsTitle')}</span>
+                  <h3>Aborozi Bafite Nimero ya Konti (Direct Bank Transfers)</h3>
+                </div>
+                <span className="count-label">{accountsFarmers.length}</span>
+              </div>
+              {accountsFarmers.length ? (
+                <>
+                  <div className="table-scroll settlements-desktop-table">
+                    <table>
+                      <thead>
+                        <tr>
+                          <th>#</th>
+                          <th>{publicLanguage.t('settlementsFarmer')}</th>
+                          <th>Nimero ya Konti</th>
+                          <th>{publicLanguage.t('columnPhone')}</th>
+                          <th>{publicLanguage.t('reportsVolume')}</th>
+                          <th>{publicLanguage.t('settlementsMilkGross')}</th>
+                          <th>{publicLanguage.t('reportsTransport')}</th>
+                          <th>{publicLanguage.t('dashboardDeductions')}</th>
+                          <th>Ayishyurwa Kuri Konti</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {accountsFarmers.map((farmer, index) => (
+                          <tr key={`settlement-acc-${farmer.farmerId}`}>
+                            <td>{formatFarmerNumber((farmer as any).farmerNumber) || index + 1}</td>
+                            <td><b>{farmer.farmerName}</b></td>
+                            <td><code style={{ color: '#0b5d7e', fontWeight: 600 }}>{farmer.accountNumber || '—'}</code></td>
+                            <td>{farmer.phone || '—'}</td>
+                            <td>{liters(farmer.totalVolume)} L</td>
+                            <td>{settlementMoney(farmer.grossAmount)} RWF</td>
+                            <td>{settlementMoney(farmer.totalTransport || 0)} RWF</td>
+                            <td>{settlementMoney(farmer.totalDeductions || 0)} RWF</td>
+                            <td><b style={{ color: '#157f50' }}>{settlementMoney(farmer.settlement.saccoDistributionInstruction ?? farmer.netAmount)} RWF</b></td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                  <div className="settlements-mobile-list">
+                    {accountsFarmers.map((farmer) => (
+                      <article className="settlement-mobile-card" key={`acc-mobile-${farmer.farmerId}`}>
+                        <header>
+                          <b>{farmer.farmerName}</b>
+                          <strong style={{ color: '#157f50' }}>{settlementMoney(farmer.settlement.saccoDistributionInstruction ?? farmer.netAmount)} RWF</strong>
+                        </header>
+                        <dl>
+                          <div><dt>Nimero ya Konti</dt><dd><code>{farmer.accountNumber || '—'}</code></dd></div>
+                          <div><dt>{publicLanguage.t('columnPhone')}</dt><dd>{farmer.phone || '—'}</dd></div>
+                          <div><dt>{publicLanguage.t('reportsVolume')}</dt><dd>{liters(farmer.totalVolume)} L</dd></div>
+                          <div><dt>{publicLanguage.t('settlementsMilkGross')}</dt><dd>{settlementMoney(farmer.grossAmount)} RWF</dd></div>
+                          <div><dt>{publicLanguage.t('reportsTransport')}</dt><dd>{settlementMoney(farmer.totalTransport || 0)} RWF</dd></div>
+                          <div><dt>{publicLanguage.t('dashboardDeductions')}</dt><dd>{settlementMoney(farmer.totalDeductions || 0)} RWF</dd></div>
+                        </dl>
+                      </article>
+                    ))}
+                  </div>
+                </>
+              ) : (
+                <div className="workspace-empty" role="status">
+                  <b>Nta mworozi ufite nimero ya konti wanditse muri iki gihe.</b>
+                </div>
+              )}
+            </section>
+          ) : (
+            <section className="panel settlement-farmer-table">
+              <div className="settlement-custodial-header">
+                <div className="settlement-custodial-header-title">
+                  <b>Aborozi Badafite Nimero ya Konti (Kuri Konti ya Nyirayo)</b>
+                  <p>Aya mafaranga anyuzwa kuri konti ya nyirayo (Owner Account) kugira ngo ayakureho ayishyure aborozi mu ntoki.</p>
+                </div>
+                <button
+                  type="button"
+                  className="button button-primary"
+                  disabled={busy || settlementLoading || remainingCashFarmers.length === 0}
+                  onClick={() => runSettlement(confirmAllCashPayments)}
+                >
+                  <CheckCircle2 size={16} aria-hidden="true" />
+                  Emeza Bose mu Ntoki ({remainingCashFarmers.length})
+                </button>
+              </div>
+
+              {cashFarmers.length ? (
+                <>
+                  <div className="table-scroll settlements-desktop-table">
+                    <table>
+                      <thead>
+                        <tr>
+                          <th>#</th>
+                          <th>{publicLanguage.t('settlementsFarmer')}</th>
+                          <th>{publicLanguage.t('columnPhone')}</th>
+                          <th>{publicLanguage.t('columnNationalId')}</th>
+                          <th>{publicLanguage.t('reportsVolume')}</th>
+                          <th>{publicLanguage.t('settlementsMilkGross')}</th>
+                          <th>{publicLanguage.t('reportsTransport')}</th>
+                          <th>{publicLanguage.t('dashboardDeductions')}</th>
+                          <th>Ayishyurwa mu Ntoki</th>
+                          <th>{publicLanguage.t('settlementsAction')}</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {cashFarmers.map((farmer, index) => {
+                          const isSettled = Number(farmer.settlement?.retainedUnpaidAmount || 0) <= 0;
+                          return (
+                            <tr key={`settlement-cash-${farmer.farmerId}`}>
+                              <td>{formatFarmerNumber((farmer as any).farmerNumber) || index + 1}</td>
+                              <td><b>{farmer.farmerName}</b></td>
+                              <td>{farmer.phone || '—'}</td>
+                              <td>{farmer.nationalId || '—'}</td>
+                              <td>{liters(farmer.totalVolume)} L</td>
+                              <td>{settlementMoney(farmer.grossAmount)} RWF</td>
+                              <td>{settlementMoney(farmer.totalTransport || 0)} RWF</td>
+                              <td>{settlementMoney(farmer.totalDeductions || 0)} RWF</td>
+                              <td><b style={{ color: isSettled ? '#526977' : '#b86614' }}>{settlementMoney(farmer.settlement.retainedUnpaidAmount ?? farmer.netAmount)} RWF</b></td>
+                              <td>
+                                {isSettled ? (
+                                  <span className="badge badge-success" style={{ display: 'inline-flex', alignItems: 'center', gap: 4, background: 'rgba(21, 127, 80, 0.12)', color: '#157f50', padding: '3px 8px', borderRadius: 999, fontSize: '0.75rem', fontWeight: 600 }}>
+                                    <CheckCircle2 size={12} /> Yishyuwe
+                                  </span>
+                                ) : (
+                                  <button
+                                    type="button"
+                                    className="button button-primary small-button"
+                                    disabled={busy || settlementLoading || farmer.netAmount === null}
+                                    onClick={() => runSettlement(() => settleSingleCash(farmer.farmerId, Number(farmer.settlement.retainedUnpaidAmount)))}
+                                  >
+                                    Emeza ko Yishyuwe
+                                  </button>
+                                )}
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                  <div className="settlements-mobile-list">
+                    {cashFarmers.map((farmer) => {
+                      const isSettled = Number(farmer.settlement?.retainedUnpaidAmount || 0) <= 0;
+                      return (
+                        <article className="settlement-mobile-card" key={`cash-mobile-${farmer.farmerId}`}>
+                          <header>
+                            <b>{farmer.farmerName}</b>
+                            <strong style={{ color: isSettled ? '#526977' : '#b86614' }}>{settlementMoney(farmer.settlement.retainedUnpaidAmount ?? farmer.netAmount)} RWF</strong>
+                          </header>
+                          <dl>
+                            <div><dt>{publicLanguage.t('columnPhone')}</dt><dd>{farmer.phone || '—'}</dd></div>
+                            <div><dt>{publicLanguage.t('columnNationalId')}</dt><dd>{farmer.nationalId || '—'}</dd></div>
+                            <div><dt>{publicLanguage.t('reportsVolume')}</dt><dd>{liters(farmer.totalVolume)} L</dd></div>
+                            <div><dt>{publicLanguage.t('settlementsMilkGross')}</dt><dd>{settlementMoney(farmer.grossAmount)} RWF</dd></div>
+                            <div><dt>{publicLanguage.t('reportsTransport')}</dt><dd>{settlementMoney(farmer.totalTransport || 0)} RWF</dd></div>
+                            <div><dt>{publicLanguage.t('dashboardDeductions')}</dt><dd>{settlementMoney(farmer.totalDeductions || 0)} RWF</dd></div>
+                          </dl>
+                          <div className="settlement-card-form">
+                            {isSettled ? (
+                              <span className="badge badge-success" style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 4, background: 'rgba(21, 127, 80, 0.12)', color: '#157f50', padding: '6px 12px', borderRadius: 8, fontSize: '0.8125rem', fontWeight: 600 }}>
+                                <CheckCircle2 size={14} /> Yishyuwe
+                              </span>
+                            ) : (
+                              <button
+                                type="button"
+                                className="button button-primary"
+                                disabled={busy || settlementLoading || farmer.netAmount === null}
+                                onClick={() => runSettlement(() => settleSingleCash(farmer.farmerId, Number(farmer.settlement.retainedUnpaidAmount)))}
+                              >
+                                Emeza ko Yishyuwe
+                              </button>
+                            )}
+                          </div>
+                        </article>
+                      );
+                    })}
+                  </div>
+                </>
+              ) : (
+                <div className="workspace-empty" role="status">
+                  <b>{publicLanguage.t('settlementsEmptyRetained')}</b>
+                </div>
+              )}
+            </section>
+          )}
+
+          <details className="settlement-debt-drawer">
+            <summary>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                <CreditCard size={18} aria-hidden="true" />
+                <span>Imyenda n'Ibyishyuwe mu Byiciro Bya Shize / Carried Debts & Repayments</span>
+                <span className="count-label">{settlementDebts.length}</span>
+              </div>
+            </summary>
+            <div className="settlement-debt-drawer-content">
+              <div className="metric-strip report-summary">
+                <div><span>{publicLanguage.t('settlementsFarmerGross')}</span><b>{settlementMoney(reconciliation.farmerGross)} RWF</b></div>
+                <div><span>{publicLanguage.t('settlementsFarmerPayable')}</span><b>{settlementMoney(reconciliation.expectedFarmerPayable)} RWF</b></div>
+                <div><span>{publicLanguage.t('accountRoutedPayable')}</span><b>{settlementMoney(reconciliation.saccoDistributionInstruction)} RWF</b></div>
+                <div><span>{publicLanguage.t('ownerListRoutedPayable')}</span><b>{settlementMoney(reconciliation.retainedUnpaidAmount)} RWF</b></div>
+                <div><span>{publicLanguage.t('settlementsCashApprovedAmount')}</span><b>{settlementMoney(reconciliation.cashApprovedAmount)} RWF</b></div>
+                <div><span>{publicLanguage.t('settlementsCashReceived')}</span><b>{settlementMoney(reconciliation.cashConfirmedAmount)} RWF</b></div>
+                <div><span>{publicLanguage.t('settlementsDebtRepaid')}</span><b>{settlementMoney(reconciliation.debtRepaymentAmount)} RWF</b></div>
+                <div><span>{publicLanguage.t('settlementsDebtOutstanding')}</span><b>{reconciliation.debtBalancesComplete ? `${settlementMoney(reconciliation.outstandingDebt)} RWF` : publicLanguage.t('settlementsIncompleteAccounting')}</b></div>
+                <div><span>{publicLanguage.t('settlementsUnexplainedDifference')}</span><b>{settlementMoney(reconciliation.unexplainedDiscrepancy)} RWF</b></div>
+              </div>
+
+              {payableBreakdownAvailable ? <p className="muted-note">{publicLanguage.t('settlementsPayableBreakdown')}: {settlementMoney(breakdownValues[0])} + {settlementMoney(breakdownValues[1])} + {settlementMoney(breakdownValues[2])} + {settlementMoney(breakdownValues[3])} + {settlementMoney(breakdownValues[4])} + ({settlementMoney(breakdownValues[5])}) = {settlementMoney(breakdownValues[6])} RWF</p> : <p className="muted-note">{publicLanguage.t('ukweziBreakdownUnavailable')}</p>}
+
+              {renderNyirayoAuditCard({
+                nyirayoMilkValue: ownerGrossCheck?.ownerGross ?? settlementReport?.nyirayoMilkValue ?? settlementReport?.collectorGross,
+                farmersMilkValue: ownerGrossCheck?.farmerGross ?? settlementReport?.farmersMilkValue ?? settlementReport?.collectorFarmerMilkValue,
+                nyirayoBaseDifference: ownerGrossCheck?.baseDifference ?? settlementReport?.nyirayoBaseDifference ?? (ownerGrossCheck?.ownerGross != null && ownerGrossCheck?.farmerGross != null ? ownerGrossCheck.ownerGross - ownerGrossCheck.farmerGross : null),
+                transportAmount: ownerGrossCheck?.transportAmount ?? settlementReport?.transportAmount ?? settlementReport?.collectorFarmerTransport,
+                farmerDeductions: ownerGrossCheck?.farmerDeductions ?? settlementReport?.farmerDeductions ?? settlementReport?.collectorFarmerDeductions,
+                retainedNoAccountFarmerAmount: ownerGrossCheck?.retainedNoAccountFarmerAmount ?? settlementReport?.retainedNoAccountFarmerAmount ?? reconciliation?.retainedUnpaidAmount,
+                nyirayoOperationalMargin: ownerGrossCheck?.operationalMargin ?? settlementReport?.nyirayoOperationalMargin,
+                nyirayoTotalAfterOperations: ownerGrossCheck?.totalAfterOperations ?? settlementReport?.nyirayoTotalAfterOperations,
+              })}
+
+              {!reconciliation.debtBalancesComplete ? <p className="form-error" role="status">{publicLanguage.t('settlementsDebtHistoryIncomplete')}</p> : null}
+
+              <div style={{ display: 'none' }}>
+                {farmerRows.map((farmer) => <span key={`hidden-farmer-${farmer.farmerId}`}>{farmer.farmerName}</span>)}
+              </div>
+
+              <section className="settlement-operations">
+                <div className="panel-heading"><div><span className="eyebrow">{publicLanguage.t('settlementsPaymentHistory')}</span><h3>{publicLanguage.t('settlementsAwaitingConfirmation')}</h3></div></div>
+                <div className="table-scroll settlements-desktop-table"><table><thead><tr><th>{publicLanguage.t('settlementsFarmer')}</th><th>{publicLanguage.t('settlementsApprovedPayment')}</th><th>{publicLanguage.t('settlementsPeriod')}</th><th>{publicLanguage.t('settlementsStatus')}</th><th>{publicLanguage.t('settlementsAction')}</th></tr></thead><tbody>
+                  {settlementRecords.map((record) => <tr key={record.id || record.settlementId}><td>{record.farmerName || record.farmer_name || '—'}</td><td>{settlementMoney(record.amount)} RWF</td><td>{settlementDate(record.periodStart || record.period_start)} – {settlementDate(record.periodEnd || record.period_end)}</td><td>{settlementStatus(record.status)}</td><td>{record.status === 'APPROVED' ? <button type="button" className="button button-secondary" disabled={busy} onClick={() => runSettlement(() => confirmCashPayment(record))}>{publicLanguage.t('settlementsConfirmReceived')}</button> : '—'}</td></tr>)}
+                  {!settlementRecords.length ? <tr><td colSpan={5}>{publicLanguage.t('settlementsEmptyRecords')}</td></tr> : null}
+                </tbody></table></div>
+                <div className="settlements-mobile-list">{settlementRecords.length ? settlementRecords.map((record) => <article className="settlement-mobile-card" key={`settlement-mobile-${record.id || record.settlementId}`}><header><b>{record.farmerName || record.farmer_name || '—'}</b><strong>{settlementMoney(record.amount)} RWF</strong></header><dl><div><dt>{publicLanguage.t('settlementsApprovedPayment')}</dt><dd>{settlementMoney(record.amount)} RWF</dd></div><div><dt>{publicLanguage.t('settlementsPeriod')}</dt><dd>{settlementDate(record.periodStart || record.period_start)} – {settlementDate(record.periodEnd || record.period_end)}</dd></div><div><dt>{publicLanguage.t('settlementsStatus')}</dt><dd>{settlementStatus(record.status)}</dd></div></dl>{record.status === 'APPROVED' ? <div className="settlement-card-form"><button type="button" className="button button-secondary" disabled={busy} onClick={() => runSettlement(() => confirmCashPayment(record))}>{publicLanguage.t('settlementsConfirmReceived')}</button></div> : null}</article>) : <div className="workspace-empty" role="status"><b>{publicLanguage.t('settlementsEmptyRecords')}</b></div>}</div>
+              </section>
+
+              <form className="settlement-debt-form" onSubmit={(event) => runSettlement(() => addFarmerDebt(event))}>
+                <div className="panel-heading"><div><span className="eyebrow">{publicLanguage.t('settlementsFarmerDebt')}</span><h3>{publicLanguage.t('settlementsRecordDebt')}</h3></div></div>
+                <div className="toolbar"><label>{publicLanguage.t('settlementsFarmerId')}<input type="number" min="1" required value={debtForm.farmerId} onChange={(event) => setDebtForm((current) => ({ ...current, farmerId: event.target.value }))} /></label><label>{publicLanguage.t('settlementsAmount')}<input type="number" min="0.01" step="0.01" required value={debtForm.amount} onChange={(event) => setDebtForm((current) => ({ ...current, amount: event.target.value }))} /></label><label>{publicLanguage.t('settlementsReason')}<input value={debtForm.reason} onChange={(event) => setDebtForm((current) => ({ ...current, reason: event.target.value }))} /></label><button type="submit" className="button button-primary" disabled={busy}>{publicLanguage.t('settlementsRecordDebt')}</button></div>
+              </form>
+
+              <div className="table-scroll settlements-desktop-table"><table><thead><tr><th>{publicLanguage.t('settlementsFarmer')}</th><th>{publicLanguage.t('settlementsOriginalDebt')}</th><th>{publicLanguage.t('settlementsOutstanding')}</th><th>{publicLanguage.t('settlementsRepayment')}</th><th>{publicLanguage.t('settlementsAction')}</th></tr></thead><tbody>
+                {settlementDebts.map((debt) => <tr key={debt.id}><td>{debt.farmer_name}</td><td>{settlementMoney(Number(debt.opening_balance))} RWF</td><td>{settlementMoney(Number(debt.remaining_balance))} RWF</td><td><input aria-label={`${publicLanguage.t('settlementsRepayment')} · ${debt.farmer_name}`} type="number" min="0.01" step="0.01" max={Number(debt.remaining_balance)} value={debtRepaymentAmounts[debt.id] || ''} onChange={(event) => setDebtRepaymentAmounts((current) => ({ ...current, [debt.id]: event.target.value }))} /></td><td><button type="button" className="button button-secondary" disabled={busy || !debtRepaymentAmounts[debt.id]} onClick={() => runSettlement(() => repayFarmerDebt(Number(debt.id)))}>{publicLanguage.t('settlementsRecordRepayment')}</button></td></tr>)}
+                {!settlementDebts.length ? <tr><td colSpan={5}>{publicLanguage.t('settlementsEmptyDebts')}</td></tr> : null}
+              </tbody></table></div>
+              <div className="settlements-mobile-list">{settlementDebts.length ? settlementDebts.map((debt) => <article className="settlement-mobile-card" key={`debt-mobile-${debt.id}`}><header><b>{debt.farmer_name}</b><strong>{settlementMoney(Number(debt.remaining_balance))} RWF</strong></header><dl><div><dt>{publicLanguage.t('settlementsOriginalDebt')}</dt><dd>{settlementMoney(Number(debt.opening_balance))} RWF</dd></div><div><dt>{publicLanguage.t('settlementsOutstanding')}</dt><dd>{settlementMoney(Number(debt.remaining_balance))} RWF</dd></div></dl><div className="settlement-card-form"><label>{publicLanguage.t('settlementsRepayment')}<input aria-label={`${publicLanguage.t('settlementsRepayment')} · ${debt.farmer_name}`} type="number" min="0.01" step="0.01" max={Number(debt.remaining_balance)} value={debtRepaymentAmounts[debt.id] || ''} onChange={(event) => setDebtRepaymentAmounts((current) => ({ ...current, [debt.id]: event.target.value }))} /></label><button type="button" className="button button-secondary" disabled={busy || !debtRepaymentAmounts[debt.id]} onClick={() => runSettlement(() => repayFarmerDebt(Number(debt.id)))}>{publicLanguage.t('settlementsRecordRepayment')}</button></div></article>) : <div className="workspace-empty" role="status"><b>{publicLanguage.t('settlementsEmptyDebts')}</b></div>}</div>
+            </div>
+          </details>
         </> : null}
-
-        <section className="panel settlement-operations"><div className="panel-heading"><div><span className="eyebrow">{publicLanguage.t('settlementsPaymentHistory')}</span><h3>{publicLanguage.t('settlementsAwaitingConfirmation')}</h3></div></div>
-          <div className="table-scroll settlements-desktop-table"><table><thead><tr><th>{publicLanguage.t('settlementsFarmer')}</th><th>{publicLanguage.t('settlementsApprovedPayment')}</th><th>{publicLanguage.t('settlementsPeriod')}</th><th>{publicLanguage.t('settlementsStatus')}</th><th>{publicLanguage.t('settlementsAction')}</th></tr></thead><tbody>
-            {settlementRecords.map((record) => <tr key={record.id || record.settlementId}><td>{record.farmerName || record.farmer_name || '—'}</td><td>{settlementMoney(record.amount)} RWF</td><td>{settlementDate(record.periodStart || record.period_start)} – {settlementDate(record.periodEnd || record.period_end)}</td><td>{settlementStatus(record.status)}</td><td>{record.status === 'APPROVED' ? <button type="button" className="button button-secondary" disabled={busy} onClick={() => runSettlement(() => confirmCashPayment(record))}>{publicLanguage.t('settlementsConfirmReceived')}</button> : '—'}</td></tr>)}
-            {!settlementRecords.length ? <tr><td colSpan={5}>{publicLanguage.t('settlementsEmptyRecords')}</td></tr> : null}
-          </tbody></table></div>
-          <div className="settlements-mobile-list">{settlementRecords.length ? settlementRecords.map((record) => <article className="settlement-mobile-card" key={`settlement-mobile-${record.id || record.settlementId}`}><header><b>{record.farmerName || record.farmer_name || '—'}</b><strong>{settlementMoney(record.amount)} RWF</strong></header><dl><div><dt>{publicLanguage.t('settlementsApprovedPayment')}</dt><dd>{settlementMoney(record.amount)} RWF</dd></div><div><dt>{publicLanguage.t('settlementsPeriod')}</dt><dd>{settlementDate(record.periodStart || record.period_start)} – {settlementDate(record.periodEnd || record.period_end)}</dd></div><div><dt>{publicLanguage.t('settlementsStatus')}</dt><dd>{settlementStatus(record.status)}</dd></div></dl>{record.status === 'APPROVED' ? <div className="settlement-card-form"><button type="button" className="button button-secondary" disabled={busy} onClick={() => runSettlement(() => confirmCashPayment(record))}>{publicLanguage.t('settlementsConfirmReceived')}</button></div> : null}</article>) : <div className="workspace-empty" role="status"><b>{publicLanguage.t('settlementsEmptyRecords')}</b></div>}</div>
-        </section>
-
-        <section className="panel settlement-operations"><div className="panel-heading"><div><span className="eyebrow">{publicLanguage.t('settlementsRetainedBalance')}</span><h3>{publicLanguage.t('settlementsApproveCash')}</h3></div></div>
-          {retainedRows.length ? <><div className="table-scroll settlements-desktop-table"><table><thead><tr><th>{publicLanguage.t('settlementsFarmer')}</th><th>{publicLanguage.t('settlementsFarmerPayable')}</th><th>{publicLanguage.t('settlementsRetainedBalance')}</th><th>{publicLanguage.t('settlementsCashAmount')}</th><th>{publicLanguage.t('settlementsAction')}</th></tr></thead><tbody>
-            {retainedRows.map((farmer) => <tr key={`retained-${farmer.farmerId}`}><td>{farmer.farmerName}</td><td>{settlementMoney(farmer.netAmount)} RWF</td><td>{settlementMoney(farmer.settlement.retainedUnpaidAmount)} RWF</td><td><input aria-label={`${publicLanguage.t('settlementsCashAmount')} · ${farmer.farmerName}`} type="number" min="0.01" max={Number(farmer.settlement.retainedUnpaidAmount)} step="0.01" value={settlementAmounts[farmer.farmerId] ?? String(farmer.settlement.retainedUnpaidAmount)} onChange={(event) => setSettlementAmounts((current) => ({ ...current, [farmer.farmerId]: event.target.value }))} /></td><td><button type="button" className="button button-secondary" disabled={busy || farmer.netAmount === null || Number(farmer.settlement.retainedUnpaidAmount) <= 0} onClick={() => runSettlement(() => approveCashPayment(farmer.farmerId, Number(settlementAmounts[farmer.farmerId] ?? farmer.settlement.retainedUnpaidAmount)))}>{publicLanguage.t('settlementsApproveCash')}</button></td></tr>)}
-          </tbody></table></div><div className="settlements-mobile-list">{retainedRows.map((farmer) => <article className="settlement-mobile-card" key={`retained-mobile-${farmer.farmerId}`}><header><b>{farmer.farmerName}</b><strong>{settlementMoney(farmer.settlement.retainedUnpaidAmount)} RWF</strong></header><dl><div><dt>{publicLanguage.t('settlementsFarmerPayable')}</dt><dd>{settlementMoney(farmer.netAmount)} RWF</dd></div><div><dt>{publicLanguage.t('settlementsRetainedBalance')}</dt><dd>{settlementMoney(farmer.settlement.retainedUnpaidAmount)} RWF</dd></div></dl><div className="settlement-card-form"><label>{publicLanguage.t('settlementsCashAmount')}<input aria-label={`${publicLanguage.t('settlementsCashAmount')} · ${farmer.farmerName}`} type="number" min="0.01" max={Number(farmer.settlement.retainedUnpaidAmount)} step="0.01" value={settlementAmounts[farmer.farmerId] ?? String(farmer.settlement.retainedUnpaidAmount)} onChange={(event) => setSettlementAmounts((current) => ({ ...current, [farmer.farmerId]: event.target.value }))} /></label><button type="button" className="button button-secondary" disabled={busy || farmer.netAmount === null || Number(farmer.settlement.retainedUnpaidAmount) <= 0} onClick={() => runSettlement(() => approveCashPayment(farmer.farmerId, Number(settlementAmounts[farmer.farmerId] ?? farmer.settlement.retainedUnpaidAmount)))}>{publicLanguage.t('settlementsApproveCash')}</button></div></article>)}</div></> : <div className="workspace-empty" role="status"><b>{publicLanguage.t('settlementsEmptyRetained')}</b></div>}
-          <form className="panel-footer settlement-debt-form" onSubmit={(event) => runSettlement(() => addFarmerDebt(event))}>
-            <div className="panel-heading"><div><span className="eyebrow">{publicLanguage.t('settlementsFarmerDebt')}</span><h3>{publicLanguage.t('settlementsRecordDebt')}</h3></div></div>
-            <div className="toolbar"><label>{publicLanguage.t('settlementsFarmerId')}<input type="number" min="1" required value={debtForm.farmerId} onChange={(event) => setDebtForm((current) => ({ ...current, farmerId: event.target.value }))} /></label><label>{publicLanguage.t('settlementsAmount')}<input type="number" min="0.01" step="0.01" required value={debtForm.amount} onChange={(event) => setDebtForm((current) => ({ ...current, amount: event.target.value }))} /></label><label>{publicLanguage.t('settlementsReason')}<input value={debtForm.reason} onChange={(event) => setDebtForm((current) => ({ ...current, reason: event.target.value }))} /></label><button type="submit" className="button button-primary" disabled={busy}>{publicLanguage.t('settlementsRecordDebt')}</button></div>
-          </form>
-          <div className="table-scroll settlements-desktop-table"><table><thead><tr><th>{publicLanguage.t('settlementsFarmer')}</th><th>{publicLanguage.t('settlementsOriginalDebt')}</th><th>{publicLanguage.t('settlementsOutstanding')}</th><th>{publicLanguage.t('settlementsRepayment')}</th><th>{publicLanguage.t('settlementsAction')}</th></tr></thead><tbody>
-            {settlementDebts.map((debt) => <tr key={debt.id}><td>{debt.farmer_name}</td><td>{settlementMoney(Number(debt.opening_balance))} RWF</td><td>{settlementMoney(Number(debt.remaining_balance))} RWF</td><td><input aria-label={`${publicLanguage.t('settlementsRepayment')} · ${debt.farmer_name}`} type="number" min="0.01" step="0.01" max={Number(debt.remaining_balance)} value={debtRepaymentAmounts[debt.id] || ''} onChange={(event) => setDebtRepaymentAmounts((current) => ({ ...current, [debt.id]: event.target.value }))} /></td><td><button type="button" className="button button-secondary" disabled={busy || !debtRepaymentAmounts[debt.id]} onClick={() => runSettlement(() => repayFarmerDebt(Number(debt.id)))}>{publicLanguage.t('settlementsRecordRepayment')}</button></td></tr>)}
-            {!settlementDebts.length ? <tr><td colSpan={5}>{publicLanguage.t('settlementsEmptyDebts')}</td></tr> : null}
-          </tbody></table></div>
-          <div className="settlements-mobile-list">{settlementDebts.length ? settlementDebts.map((debt) => <article className="settlement-mobile-card" key={`debt-mobile-${debt.id}`}><header><b>{debt.farmer_name}</b><strong>{settlementMoney(Number(debt.remaining_balance))} RWF</strong></header><dl><div><dt>{publicLanguage.t('settlementsOriginalDebt')}</dt><dd>{settlementMoney(Number(debt.opening_balance))} RWF</dd></div><div><dt>{publicLanguage.t('settlementsOutstanding')}</dt><dd>{settlementMoney(Number(debt.remaining_balance))} RWF</dd></div></dl><div className="settlement-card-form"><label>{publicLanguage.t('settlementsRepayment')}<input aria-label={`${publicLanguage.t('settlementsRepayment')} · ${debt.farmer_name}`} type="number" min="0.01" step="0.01" max={Number(debt.remaining_balance)} value={debtRepaymentAmounts[debt.id] || ''} onChange={(event) => setDebtRepaymentAmounts((current) => ({ ...current, [debt.id]: event.target.value }))} /></label><button type="button" className="button button-secondary" disabled={busy || !debtRepaymentAmounts[debt.id]} onClick={() => runSettlement(() => repayFarmerDebt(Number(debt.id)))}>{publicLanguage.t('settlementsRecordRepayment')}</button></div></article>) : <div className="workspace-empty" role="status"><b>{publicLanguage.t('settlementsEmptyDebts')}</b></div>}</div>
-        </section>
       </section>
     </div>;
   };
@@ -3627,7 +4181,59 @@ const visibleTabs = (isAdmin
                 </select>
               </label>
             )}
+            <div className="timeline-scrubber" role="radiogroup" aria-label={publicLanguage.t('dashboardPeriod')}>
+              <button
+                type="button"
+                className={`timeline-scrubber-pill${reportTimelinePeriod === 'daily' ? ' is-active' : ''}`}
+                onClick={() => { setReportTimelinePeriod('daily'); void loadReport('daily'); }}
+              >
+                {publicLanguage.language === 'en' ? 'Today' : 'Uyu munsi'}
+              </button>
+              <button
+                type="button"
+                className={`timeline-scrubber-pill${reportTimelinePeriod === 'first-half' ? ' is-active' : ''}`}
+                onClick={() => { setReportTimelinePeriod('first-half'); void loadReport('first-half'); }}
+              >
+                1–15
+              </button>
+              <button
+                type="button"
+                className={`timeline-scrubber-pill${reportTimelinePeriod === 'second-half' ? ' is-active' : ''}`}
+                onClick={() => { setReportTimelinePeriod('second-half'); void loadReport('second-half'); }}
+              >
+                16–{getMonthBounds(reportMonth).endDate.slice(-2)}
+              </button>
+              <button
+                type="button"
+                className={`timeline-scrubber-pill${reportTimelinePeriod === 'monthly' ? ' is-active' : ''}`}
+                onClick={() => { setReportTimelinePeriod('monthly'); void loadReport('monthly'); }}
+              >
+                {publicLanguage.language === 'en' ? 'Full Month' : 'Ukwezi kose'}
+              </button>
+            </div>
             <label>
+              {publicLanguage.t('ukweziMonth')}
+              <select
+                value={reportMonth.slice(5, 7)}
+                onChange={(event) => setReportMonth(`${reportMonth.slice(0, 4)}-${event.target.value}`)}
+              >
+                {getBilingualMonthNames().map(({ value, label }) => (
+                  <option key={value} value={value}>{label}</option>
+                ))}
+              </select>
+            </label>
+            <label>
+              {publicLanguage.t('ukweziYear')}
+              <select
+                value={reportMonth.slice(0, 4)}
+                onChange={(event) => setReportMonth(`${event.target.value}-${reportMonth.slice(5, 7)}`)}
+              >
+                {getAccountingYears().map((year) => (
+                  <option key={year} value={year}>{year}</option>
+                ))}
+              </select>
+            </label>
+            <label style={{ display: 'none' }}>
               {publicLanguage.t('dashboardPeriod')}
               <input
                 type="month"
@@ -3712,42 +4318,37 @@ const visibleTabs = (isAdmin
                 </div>
 
                 {needsReview ? (
-                  <div className="reports-callout" role="status">
-                    <span className="reports-callout-icon"><Settings size={19} aria-hidden="true" /></span>
-                    <div>
+                  <div className="reports-callout compact-info-banner" role="status">
+                    <Settings size={18} aria-hidden="true" style={{ flexShrink: 0 }} />
+                    <div style={{ flex: 1, display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
                       <b>{publicLanguage.t('reportsConfigurationTitle')}</b>
-                      <p>{publicLanguage.t('reportsConfigurationBody')}</p>
-                      {missingMessages.length ? <ul className="reports-missing-list">{missingMessages.map((message) => <li key={message}>{message}</li>)}</ul> : null}
+                      <span>— {publicLanguage.t('reportsConfigurationBody')}</span>
+                      {missingMessages.length ? <span style={{ opacity: 0.9 }}>({missingMessages.join(', ')})</span> : null}
                     </div>
                     <button type="button" className="button button-secondary small-button" onClick={() => setTab('settings')}>{publicLanguage.t('reportsOpenSettings')}</button>
                   </div>
                 ) : null}
 
-                <div className="reports-kpi-cards">
-                  <motion.div className="reports-kpi-card" whileHover={{ y: -2 }} transition={{ duration: 0.2 }}>
-                    <div className="reports-kpi-icon"><Milk size={16} aria-hidden="true" /></div>
-                    <span className="reports-kpi-label">{publicLanguage.t('reportsVolume')}</span>
-                    <span className="reports-kpi-value"><AnimatedCounter value={volume} formatter={liters} /> L</span>
+                <div className="report-kpi-grid">
+                  <motion.div className="kpi-stat-card" whileHover={{ y: -2 }} transition={{ duration: 0.2 }}>
+                    <div className="kpi-stat-label">{publicLanguage.t('reportsVolume')}</div>
+                    <div className="kpi-stat-value"><AnimatedCounter value={volume} formatter={liters} /> L</div>
+                    <div className="kpi-stat-subtext">{publicLanguage.t('reportsAppliedPrice')}: {appliedPrice == null ? '—' : `${unitMoney(appliedPrice)} RWF/L`}</div>
                   </motion.div>
-                  <motion.div className="reports-kpi-card" whileHover={{ y: -2 }} transition={{ duration: 0.2 }}>
-                    <div className="reports-kpi-icon"><BadgeDollarSign size={16} aria-hidden="true" /></div>
-                    <span className="reports-kpi-label">{publicLanguage.t('reportsRevenue')}</span>
-                    <span className={`reports-kpi-value${grossMissing ? ' is-missing' : ''}`}>{grossMissing ? publicLanguage.t('reportsIncomplete') : <><AnimatedCounter value={gross} formatter={money} /> RWF</>}</span>
+                  <motion.div className="kpi-stat-card" whileHover={{ y: -2 }} transition={{ duration: 0.2 }}>
+                    <div className="kpi-stat-label">{publicLanguage.t('reportsRevenue')}</div>
+                    <div className={`kpi-stat-value${grossMissing ? ' is-missing' : ''}`}>{grossMissing ? publicLanguage.t('reportsIncomplete') : <><AnimatedCounter value={gross} formatter={money} /> RWF</>}</div>
+                    <div className="kpi-stat-subtext">{publicLanguage.t(priceSourceKey)}</div>
                   </motion.div>
-                  <motion.div className="reports-kpi-card" whileHover={{ y: -2 }} transition={{ duration: 0.2 }}>
-                    <div className="reports-kpi-icon"><Truck size={16} aria-hidden="true" /></div>
-                    <span className="reports-kpi-label">{publicLanguage.t('reportsTransport')}</span>
-                    <span className={`reports-kpi-value${transportMissing ? ' is-missing' : ''}`}>{transportMissing ? publicLanguage.t('reportsIncomplete') : <><AnimatedCounter value={transport} formatter={money} /> RWF</>}</span>
+                  <motion.div className="kpi-stat-card" whileHover={{ y: -2 }} transition={{ duration: 0.2 }}>
+                    <div className="kpi-stat-label">{publicLanguage.t('reportsTransport')}</div>
+                    <div className={`kpi-stat-value${transportMissing ? ' is-missing' : ''}`}>{transportMissing ? publicLanguage.t('reportsIncomplete') : <><AnimatedCounter value={transport} formatter={money} /> RWF</>}</div>
+                    <div className="kpi-stat-subtext">{publicLanguage.t('dashboardDeductions')}: {money(deductions)} RWF</div>
                   </motion.div>
-                  <motion.div className="reports-kpi-card" whileHover={{ y: -2 }} transition={{ duration: 0.2 }}>
-                    <div className="reports-kpi-icon"><ReceiptText size={16} aria-hidden="true" /></div>
-                    <span className="reports-kpi-label">{publicLanguage.t('dashboardDeductions')}</span>
-                    <span className="reports-kpi-value"><AnimatedCounter value={deductions} formatter={money} /> RWF</span>
-                  </motion.div>
-                  <motion.div className="reports-kpi-card" whileHover={{ y: -2 }} transition={{ duration: 0.2 }}>
-                    <div className="reports-kpi-icon"><Wallet size={16} aria-hidden="true" /></div>
-                    <span className="reports-kpi-label">{publicLanguage.t('reportsNet')}</span>
-                    <span className={`reports-kpi-value${netMissing ? ' is-missing' : ''}`}>{netMissing ? publicLanguage.t('reportsIncomplete') : <><AnimatedCounter value={net} formatter={money} /> RWF</>}</span>
+                  <motion.div className="kpi-stat-card" whileHover={{ y: -2 }} transition={{ duration: 0.2 }}>
+                    <div className="kpi-stat-label">{publicLanguage.t('reportsNet')}</div>
+                    <div className={`kpi-stat-value${netMissing ? ' is-missing' : ''}`}>{netMissing ? publicLanguage.t('reportsIncomplete') : <><AnimatedCounter value={net} formatter={money} /> RWF</>}</div>
+                    <div className="kpi-stat-subtext">{publicLanguage.t('reportsNet')}</div>
                   </motion.div>
                 </div>
 
@@ -3763,32 +4364,6 @@ const visibleTabs = (isAdmin
                 }) : null}
 
                 <div className="reports-lower">
-                  <article className="reports-accounting">
-                    <div className="reports-section-heading">
-                      <div>
-                        <span className="eyebrow">{publicLanguage.t('dashboardAccounting')}</span>
-                        <h3>{publicLanguage.t('reportsOverview')}</h3>
-                      </div>
-                      <ChartNoAxesCombined size={19} aria-hidden="true" />
-                    </div>
-                    <dl className="reports-summary">
-                      {summaryRows.map((row) => (
-                        <div key={row.key} className={row.key === 'net' ? 'reports-summary-net' : undefined}>
-                          <dt>{row.label}</dt>
-                          <dd className={row.missing ? 'is-missing' : undefined}>{row.value}</dd>
-                        </div>
-                      ))}
-                    </dl>
-                    <div className="reports-price-source">
-                      <div>
-                        <span>{publicLanguage.t('reportsAppliedPrice')}</span>
-                        <b>{appliedPrice == null ? publicLanguage.t('reportsPriceUnavailable') : `${unitMoney(appliedPrice)} RWF / L`}</b>
-                      </div>
-                      <p>{publicLanguage.t(priceSourceKey)}</p>
-                      {appliedPrice != null ? <small>{publicLanguage.t('reportsWeightedPriceNote')}</small> : null}
-                    </div>
-                  </article>
-
                   <article className="reports-breakdown">
                     <div className="reports-section-heading">
                       <div>
@@ -3927,7 +4502,7 @@ const visibleTabs = (isAdmin
       })),
     ];
     const years = getAccountingYears();
-    const monthNames = getMonthNames(publicLanguage.language);
+    const bilingualMonths = getBilingualMonthNames();
     const ukweziPdfParams = new URLSearchParams({ month: ukweziMonth, year: ukweziYear, periodType: ukweziPeriod });
     ukweziPdfParams.set('language', publicLanguage.language);
     const activeCenterName = centers.find((center) => String(center.id) === selectedCenter)?.name;
@@ -3938,9 +4513,25 @@ const visibleTabs = (isAdmin
         <div className="panel-heading"><div><span className="eyebrow">{publicLanguage.t('navUkwezi')}</span><h2>{publicLanguage.t(user?.accountType === 'COLLECTION_CENTER' ? 'dairyUkweziHeading' : 'collectorUkweziHeading')}</h2></div><Wallet size={20} aria-hidden="true" /></div>
         <div className="toolbar ukwezi-period-controls">
           {isDairy && centers.length ? <label>Active Ikigo<select value={selectedCenter} onChange={(event) => setSelectedCenter(event.target.value)}>{centers.map((center) => <option key={center.id} value={String(center.id)}>{center.name}</option>)}</select></label> : null}
-          <label>{publicLanguage.t('ukweziMonth')}<select value={ukweziMonth} onChange={(event) => selectUkweziMonth(event.target.value)}>{monthNames.map((name, index) => <option key={index + 1} value={String(index + 1).padStart(2, '0')}>{name}</option>)}</select></label>
+          <label>{publicLanguage.t('ukweziMonth')}<select value={ukweziMonth} onChange={(event) => selectUkweziMonth(event.target.value)}>{bilingualMonths.map(({ value, label }) => <option key={value} value={value}>{label}</option>)}</select></label>
           <label>{publicLanguage.t('ukweziYear')}<select value={ukweziYear} onChange={(event) => selectUkweziYear(event.target.value)}>{years.map((year) => <option key={year} value={year}>{year}</option>)}</select></label>
-          <label>{publicLanguage.t('ukweziPeriod')}<select value={ukweziPeriod} onChange={(event) => setUkweziPeriod(event.target.value as AccountingHalf)}><option value="first-half">1–15</option><option value="second-half">16–{getMonthBounds(`${ukweziYear}-${ukweziMonth}`).endDate.slice(-2)}</option></select></label>
+          <div className="timeline-scrubber" role="radiogroup" aria-label={publicLanguage.t('ukweziPeriod')}>
+            <button
+              type="button"
+              className={`timeline-scrubber-pill${ukweziPeriod === 'first-half' ? ' is-active' : ''}`}
+              onClick={() => setUkweziPeriod('first-half')}
+            >
+              1–15
+            </button>
+            <button
+              type="button"
+              className={`timeline-scrubber-pill${ukweziPeriod === 'second-half' ? ' is-active' : ''}`}
+              onClick={() => setUkweziPeriod('second-half')}
+            >
+              16–{getMonthBounds(`${ukweziYear}-${ukweziMonth}`).endDate.slice(-2)}
+            </button>
+          </div>
+          <label style={{ display: 'none' }}>{publicLanguage.t('ukweziPeriod')}<select value={ukweziPeriod} onChange={(event) => setUkweziPeriod(event.target.value as AccountingHalf)}><option value="first-half">1–15</option><option value="second-half">16–{getMonthBounds(`${ukweziYear}-${ukweziMonth}`).endDate.slice(-2)}</option></select></label>
           <label className="ukwezi-sort-mobile">{publicLanguage.t('sort')}<select value={`${ukweziSortBy}:${ukweziSortDirection}`} onChange={(event) => { const [field, direction] = event.target.value.split(':'); if (['name', 'volume', 'payable'].includes(field) && ['asc', 'desc'].includes(direction)) { setUkweziSortBy(field as typeof ukweziSortBy); setUkweziSortDirection(direction as typeof ukweziSortDirection); } }}>
             <option value="name:asc">{publicLanguage.t('milkFarmer')} ↑</option><option value="name:desc">{publicLanguage.t('milkFarmer')} ↓</option>
             <option value="volume:asc">{publicLanguage.t('reportsVolume')} ↑</option><option value="volume:desc">{publicLanguage.t('reportsVolume')} ↓</option>
@@ -4673,6 +5264,44 @@ const visibleTabs = (isAdmin
       {mobileMoreOpen && mobileMoreTabs.length ? <div className="mobile-more-menu" id="mobile-more-menu" aria-label={publicLanguage.t('more')}>
         {mobileMoreTabs.map((item) => { const Icon = item.icon; return <button type="button" key={item.id} aria-label={item.label} title={item.label} aria-current={tab === item.id ? 'page' : undefined} onClick={() => { setTab(item.id); setMobileMoreOpen(false); }}><Icon size={18} aria-hidden="true" /><span>{item.label}</span></button>; })}
       </div> : null}
+
+      {selectedFarmerIds.size > 0 ? (
+        <aside className="floating-action-dock" role="toolbar" aria-label="Batch Actions">
+          <div className="dock-count">
+            <span className="dock-badge">{selectedFarmerIds.size}</span>
+            <span>{publicLanguage.language === 'en' ? `${selectedFarmerIds.size} Selected` : `${selectedFarmerIds.size} Batoranyijwe`}</span>
+          </div>
+          <div className="dock-actions">
+            <button type="button" className="button button-primary small-button" onClick={() => { setTab('milk'); clearSelectedFarmers(); }}>
+              <Milk size={14} aria-hidden="true" />
+              <span>{publicLanguage.language === 'en' ? 'Record Milk' : 'Andika Amata'}</span>
+            </button>
+            <button type="button" className="button button-secondary small-button" onClick={() => { setTab('deductions'); clearSelectedFarmers(); }}>
+              <ReceiptText size={14} aria-hidden="true" />
+              <span>{publicLanguage.language === 'en' ? 'Add Deduction' : 'Shyiraho Ikurwaho'}</span>
+            </button>
+            <button type="button" className="button button-secondary small-button" onClick={() => { setTab('settlements'); clearSelectedFarmers(); }}>
+              <CheckCircle2 size={14} aria-hidden="true" />
+              <span>{publicLanguage.language === 'en' ? 'Confirm Settlements' : 'Emeza Ubwishyu'}</span>
+            </button>
+            <button type="button" className="icon-button dock-close" onClick={clearSelectedFarmers} aria-label={publicLanguage.t('cancel')}>
+              <X size={16} aria-hidden="true" />
+            </button>
+          </div>
+        </aside>
+      ) : null}
+
+      {undoToast ? (
+        <div className="undo-toast" role="status">
+          <span>{undoToast.message}</span>
+          <button type="button" className="undo-toast-btn" onClick={() => { undoToast.onUndo(); setUndoToast(null); }}>
+            {publicLanguage.language === 'en' ? 'Undo' : 'Subiza inyuma'}
+          </button>
+          <button type="button" className="undo-toast-close" onClick={() => setUndoToast(null)} aria-label="Close">
+            <X size={14} />
+          </button>
+        </div>
+      ) : null}
     </main>
   );
 }

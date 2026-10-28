@@ -62,6 +62,55 @@ export function detectNotebookPageMonthYear(
   words: { words?: NotebookWord[] } | NotebookWord[]
 ): { year: number; month: number } | null;
 
+export type NotebookDailyVolume = {
+  morning: number | null;
+  evening: number | null;
+  total: number | null;
+  missed: boolean;
+  raw: string;
+  status: string;
+};
+
+export type NotebookMultiDayRow = {
+  rowNumber: number;
+  farmerNumber: number | null;
+  detectedName: string;
+  nameRaw: string;
+  sublineMetadata: { phone: string | null; nationalId: string | null; accountNumber: string | null };
+  dailyVolumes: Record<string, NotebookDailyVolume>;
+  dayStatuses: Record<string, string>;
+  status: string;
+  totalPeriodLiters: number;
+  y: number;
+};
+
+export type NotebookMultiDayResult = NotebookMultiDayRow[] & {
+  multiDay: true;
+  dates: string[];
+  columns: NotebookDateColumn[];
+  detectedColumns: NotebookDateColumn[];
+  dateColumnFound: boolean;
+};
+
+export type NotebookMultiDayOptions = {
+  multiDay: true;
+  columns?: Array<NotebookDateColumn | { isoDate: string }>;
+  dates?: string[];
+  range?: { from: string; to: string };
+};
+
+export function extractNotebookMultiDay(
+  ocrResult: { words?: NotebookWord[] } | NotebookWord[],
+  options?: Partial<NotebookMultiDayOptions>,
+  referenceYearMonth?: string | { year: number; month: number } | null
+): NotebookMultiDayResult;
+
+export function extractNotebookEntries(
+  ocrResult: { words?: NotebookWord[] } | NotebookWord[],
+  selectedDateOrColumn: string | NotebookDateColumn | { isoDate?: string; raw?: string; x?: number; session?: 'morning' | 'evening' } | null | undefined,
+  referenceYearMonth: string | { year: number; month: number } | null | undefined,
+  options: NotebookMultiDayOptions
+): NotebookMultiDayResult;
 export function extractNotebookEntries(
   ocrResult: { words?: NotebookWord[] } | NotebookWord[],
   selectedDateOrColumn?: string | NotebookDateColumn | { isoDate?: string; raw?: string; x?: number; session?: 'morning' | 'evening' } | null,

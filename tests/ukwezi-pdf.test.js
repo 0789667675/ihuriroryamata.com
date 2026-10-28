@@ -399,3 +399,68 @@ test('Ukwezi PDF renders Area A (Farmer Accounting) with 35,370 RWF gap, Area B 
   assert.doesNotMatch(textEn, /SACCO/i);
   assert.doesNotMatch(textEn, /Ejo\s*Heza/i);
 });
+
+test('Paper-Efficient Bank-Ready PDF includes bank endorsement blocks, only verified accounts, and balances with Owner Account remainder', async () => {
+  const bankReport = {
+    rangeStart: '2026-10-01',
+    rangeEnd: '2026-10-15',
+    ownerGeneratedVolume: 800,
+    ownerGeneratedGross: 320000,
+    totalRevenueMonth: 320000,
+    totalDeductionsMonth: 8000,
+    collectorFarmerDeductions: 8000,
+    collectorFarmerTransport: 0,
+    collectorGross: 320000,
+    nyirayoTotalWithOwnerList: 125000,
+    farmerPayments: [
+      {
+        farmerId: 301,
+        farmerName: 'Verified Account Farmer',
+        accountNumber: '400123456789', // Verified
+        phone: '0788111222',
+        totalVolume: 500,
+        pricePerLiter: 400,
+        grossAmount: 200000,
+        totalTransport: 0,
+        totalDeductions: 5000,
+        netAmount: 195000,
+      },
+      {
+        farmerId: 302,
+        farmerName: 'Cash Only Farmer',
+        accountNumber: null, // No account -> routed to Owner line
+        phone: '0788333444',
+        totalVolume: 300,
+        pricePerLiter: 400,
+        grossAmount: 120000,
+        totalTransport: 0,
+        totalDeductions: 3000,
+        netAmount: 117000,
+      },
+    ],
+  };
+
+  const pdf = await renderUkweziPdf({
+    report: bankReport,
+    user: { id: 88, name: 'Latina Collector', accountType: 'COLLECTOR', accountNumber: '000999888' },
+    query: { month: '10', year: '2026', periodType: 'first-half', language: 'rw' },
+  });
+
+  assert.equal(pdf.subarray(0, 5).toString('ascii'), '%PDF-');
+  assert.ok(pdf.length > 5000);
+
+  // Verify source code enforces bank endorsement blocks, grand total, and owner remainder
+  const source = fs.readFileSync(path.join(__dirname, '..', 'lib', 'services', 'ukwezi-pdf-service.js'), 'utf8');
+  assert.match(source, /drawBankEndorsements/);
+  assert.match(source, /text\.preparedBy/);
+  assert.match(source, /text\.reviewedBy/);
+  assert.match(source, /text\.approvedBy/);
+  assert.match(source, /text\.grandTotal/);
+  assert.match(source, /hasVerifiedAccount/);
+  assert.match(source, /ownerRemainderRow/);
+
+  // No SACCO / Ejo Heza in source or output
+  const text = pdf.toString('latin1');
+  assert.doesNotMatch(text, /SACCO/i);
+  assert.doesNotMatch(text, /Ejo\s*Heza/i);
+});

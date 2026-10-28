@@ -39,13 +39,12 @@ test('Raporo marks missing price, transport, and net inputs as incomplete instea
   assert.match(reports, /reportsOpenSettings/);
 });
 
-test('Raporo presents five consistent KPIs and both desktop and mobile breakdowns', () => {
+test('Raporo presents four consistent executive KPIs and both desktop and mobile breakdowns', () => {
   assert.match(reports, /reports-overview/);
   assert.match(reports, /reports-status-badge/);
-  assert.match(reports, /reports-kpi-cards/);
-  assert.equal((reports.match(/className="reports-kpi-card"/g) || []).length, 5);
+  assert.match(reports, /report-kpi-grid/);
+  assert.equal((reports.match(/className="[^"]*kpi-stat-card[^"]*"/g) || []).length, 4);
   assert.match(reports, /reports-lower/);
-  assert.match(reports, /reports-accounting/);
   assert.match(reports, /reports-breakdown/);
   assert.match(reports, /reports-desktop-table/);
   assert.match(reports, /report-mobile-list/);

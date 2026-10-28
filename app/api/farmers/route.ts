@@ -5,8 +5,16 @@ const { requireAccountType } = require('@/lib/security/account-access.js');
 const { requireActiveSubscription } = require('@/lib/security/subscription-access.js');
 const Farmers = require('@/lib/services/farmer-service.js');
 const Notifications = require('@/lib/services/notification-service.js');
+const Centers = require('@/lib/services/collection-center-service.js');
 
 export const runtime = 'nodejs';
+
+const sanitizeParam = (val: unknown): string => {
+  if (val === null || val === undefined) return '';
+  const str = String(val).trim();
+  if (str === '' || str === 'undefined' || str === 'null' || str === '[object Object]') return '';
+  return str;
+};
 
 const respondWithError = (error: any, fallback: string) => NextResponse.json(
   { message: error.statusCode && error.statusCode < 500 ? error.message : fallback },
@@ -19,19 +27,35 @@ export async function GET(request: Request) {
     if (!user) return NextResponse.json({ message: 'Not authenticated.' }, { status: 401 });
     requireAccountType(user, ['COLLECTOR', 'COLLECTION_CENTER']);
     const params = new URL(request.url).searchParams;
-    // Collectors are always scoped to themselves. A Collection Center may narrow
-    // its owner-wide view to one assigned collector.
+    let center = sanitizeParam(params.get('center') || params.get('collectionCenter'));
     const collectorUserId = user.accountType === 'COLLECTOR'
       ? String(user.id)
-      : params.get('collectorUserId') || '';
+      : sanitizeParam(params.get('collectorUserId'));
+    const rawCursor = sanitizeParam(params.get('cursor'));
+    const cursor = rawCursor || undefined;
+    const search = sanitizeParam(params.get('search') || params.get('q'));
+
+    if (user.accountType === 'COLLECTION_CENTER' && !center) {
+      try {
+        const accessible = await Centers.listAccessibleCenters({ ownerUserId: user.id, accountType: user.accountType });
+        if (accessible && accessible.length > 0) {
+          center = accessible[0].name;
+        } else {
+          return NextResponse.json({ data: [], total: 0, hasMore: false, nextCursor: null });
+        }
+      } catch {
+        return NextResponse.json({ data: [], total: 0, hasMore: false, nextCursor: null });
+      }
+    }
+
     const result = await Farmers.listFarmers({
       ownerUserId: user.id,
-      search: params.get('search') || params.get('q') || '',
-      center: params.get('center') || params.get('collectionCenter') || '',
-      sortBy: params.get('sortBy'),
-      sortDirection: params.get('sortDirection'),
-      cursor: params.get('cursor'),
-      limit: params.get('limit'),
+      search,
+      center,
+      sortBy: sanitizeParam(params.get('sortBy')) || undefined,
+      sortDirection: sanitizeParam(params.get('sortDirection')) || undefined,
+      cursor,
+      limit: params.get('limit') || undefined,
       collectorUserId: collectorUserId || undefined,
     });
     return NextResponse.json(result);

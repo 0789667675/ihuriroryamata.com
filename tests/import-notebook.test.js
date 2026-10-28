@@ -5,6 +5,7 @@ const {
   detectNotebookDateColumns,
   detectNotebookPageMonthYear,
   extractNotebookEntries,
+  extractNotebookMultiDay,
   parseNotebookPage,
   parseDateToken,
   parseQuantityToken,
@@ -13,6 +14,7 @@ const {
   normalizeQuantityString,
   correctNumericOcrConfusion,
 } = require('../lib/imports/notebook.js');
+const Milk = require('../lib/services/milk-service.js');
 const {
   buildFarmerIndex,
   matchFarmer,
@@ -345,4 +347,172 @@ test('parseDateToken formats diverse date representations to ISO business dates'
   assert.deepEqual(parseDateToken('29/10', '2026-10'), { year: 2026, month: 10, day: 29, isoDate: '2026-10-29' });
   assert.deepEqual(parseDateToken('30', '2026-10'), { year: 2026, month: 10, day: 30, isoDate: '2026-10-30' });
   assert.equal(parseDateToken('not-a-date'), null);
+});
+
+test('multi-day simultaneous extraction across 5 columns (Days 20 to 24), daily quantities, and total litres', () => {
+  const words = [
+    // Month/Year header
+    { text: 'UKWEZI', x: 20, y: 5, width: 50, height: 14 },
+    { text: 'KWA', x: 75, y: 5, width: 35, height: 14 },
+    { text: '10/2026', x: 115, y: 5, width: 60, height: 14 },
+
+    // Date columns: Days 20, 21, 22, 23, 24
+    { text: 'Izina', x: 20, y: 25, width: 45, height: 14 },
+    { text: '20', x: 180, y: 25, width: 25, height: 14, confidence: 0.99 },
+    { text: '21', x: 260, y: 25, width: 25, height: 14, confidence: 0.98 },
+    { text: '22', x: 340, y: 25, width: 25, height: 14, confidence: 0.97 },
+    { text: '23', x: 420, y: 25, width: 25, height: 14, confidence: 0.96 },
+    { text: '24', x: 500, y: 25, width: 25, height: 14, confidence: 0.95 },
+
+    // Row 1: 1. NIYONSABA (Farmer #1)
+    { text: '1', x: 15, y: 50, width: 10, height: 14, confidence: 0.99 },
+    { text: 'NIYONSABA', x: 30, y: 50, width: 80, height: 14, confidence: 0.98 },
+    // Day 20: 5 (morning)
+    { text: '5', x: 180, y: 50, width: 20, height: 14, confidence: 0.95 },
+    // Day 21: 4^ (half-litre notation = 4.5)
+    { text: '4^', x: 260, y: 50, width: 20, height: 14, confidence: 0.94 },
+    // Day 22: - (missed session = 0)
+    { text: '-', x: 340, y: 50, width: 15, height: 14, confidence: 0.90 },
+    // Day 23: 10
+    { text: '10', x: 420, y: 50, width: 20, height: 14, confidence: 0.95 },
+    // Day 24: 6' (half-litre notation = 6.5)
+    { text: "6'", x: 500, y: 50, width: 20, height: 14, confidence: 0.93 },
+
+    // Row 2: 2. MUKAMANA (Farmer #2)
+    { text: '2', x: 15, y: 75, width: 10, height: 14, confidence: 0.99 },
+    { text: 'MUKAMANA', x: 30, y: 75, width: 80, height: 14, confidence: 0.97 },
+    { text: '8', x: 180, y: 75, width: 20, height: 14, confidence: 0.95 },
+    { text: '9', x: 260, y: 75, width: 20, height: 14, confidence: 0.95 },
+    { text: '7', x: 340, y: 75, width: 20, height: 14, confidence: 0.95 },
+    { text: '8.5', x: 420, y: 75, width: 25, height: 14, confidence: 0.95 },
+    { text: '9', x: 500, y: 75, width: 20, height: 14, confidence: 0.95 },
+  ];
+
+  // Test extractNotebookMultiDay
+  const result = extractNotebookMultiDay(words);
+  assert.equal(result.multiDay, true);
+  assert.equal(result.dates.length, 5);
+  assert.deepEqual(result.dates, ['2026-10-20', '2026-10-21', '2026-10-22', '2026-10-23', '2026-10-24']);
+  assert.equal(result.length, 2);
+
+  // Farmer 1 assertions
+  const f1 = result[0];
+  assert.equal(f1.farmerNumber, 1);
+  assert.equal(f1.detectedName, 'NIYONSABA');
+  assert.equal(f1.dailyVolumes['2026-10-20'].total, 5);
+  assert.equal(f1.dailyVolumes['2026-10-21'].total, 4.5);
+  assert.equal(f1.dailyVolumes['2026-10-22'].total, 0);
+  assert.equal(f1.dailyVolumes['2026-10-22'].missed, true);
+  assert.equal(f1.dailyVolumes['2026-10-23'].total, 10);
+  assert.equal(f1.dailyVolumes['2026-10-24'].total, 6.5);
+  // Total liters: 5 + 4.5 + 0 + 10 + 6.5 = 26
+  assert.equal(f1.totalPeriodLiters, 26);
+
+  // Farmer 2 assertions
+  const f2 = result[1];
+  assert.equal(f2.farmerNumber, 2);
+  assert.equal(f2.detectedName, 'MUKAMANA');
+  assert.equal(f2.dailyVolumes['2026-10-20'].total, 8);
+  assert.equal(f2.dailyVolumes['2026-10-21'].total, 9);
+  assert.equal(f2.dailyVolumes['2026-10-22'].total, 7);
+  assert.equal(f2.dailyVolumes['2026-10-23'].total, 8.5);
+  assert.equal(f2.dailyVolumes['2026-10-24'].total, 9);
+  // Total liters: 8 + 9 + 7 + 8.5 + 9 = 41.5
+  assert.equal(f2.totalPeriodLiters, 41.5);
+
+  // Also test extractNotebookEntries with multiDay: true option
+  const entriesMulti = extractNotebookEntries(words, { multiDay: true, dates: ['2026-10-20', '2026-10-21', '2026-10-22', '2026-10-23', '2026-10-24'] });
+  assert.equal(entriesMulti.multiDay, true);
+  assert.equal(entriesMulti.length, 2);
+  assert.equal(entriesMulti[0].totalPeriodLiters, 26);
+});
+
+test('saving multi-day imports creates records with their corresponding column dates and idempotency', async () => {
+  const upserted = [];
+  const batches = new Map();
+
+  const repository = {
+    findOwnerUserById: async () => ({ id: 10, role: 'owner' }),
+    listFarmersForOwner: async () => [
+      { id: 1, full_name: 'NIYONSABA', collection_center_id: 2, is_active: 1 },
+      { id: 2, full_name: 'MUKAMANA', collection_center_id: 2, is_active: 1 },
+    ],
+    getCollectorFarmerScope: async ({ collectorUserId, farmerId }) => ({ ownerUserId: 10 }),
+    getMilkContext: async ({ ownerUserId, farmerId, date }) => ({
+      farmer: { id: Number(farmerId) },
+      center: { id: 2, pricePerLiter: 400, transportRatePerLiter: 20 },
+      pricePerLiter: 400,
+    }),
+    getCenterPricesForPeriod: async () => ({
+      2: { pricePerLiter: 400, transportRatePerLiter: 20 },
+    }),
+    findExistingMilkForFarmersAndDates: async () => [],
+    reserveImportBatch: async ({ batchKey }) => {
+      const existing = batches.get(batchKey);
+      if (existing) return { idempotent: true, batchId: 99, summary: existing.summary, rows: existing.rows };
+      return { idempotent: false, batchId: 99 };
+    },
+    completeImportBatch: async ({ batchId, summary }) => {
+      batches.set('milk_multiday_batch_123', summary);
+    },
+    findImportBatchByKey: async (ownerId, kind, key) => batches.get(key) || null,
+    recordImportBatch: async (data) => {
+      batches.set(data.batchKey, { ...data, created_at: new Date().toISOString() });
+    },
+    upsertMilkRecord: async (input) => {
+      upserted.push(input);
+      return { record: { id: 100 + upserted.length, ...input }, created: true, duplicate: false };
+    },
+  };
+
+  const multiEntries = [
+    { rowNumber: 1, farmerId: 1, date: '2026-10-20', volumeMorning: 5, volumeEvening: 0, confirmedLiters: 5 },
+    { rowNumber: 1, farmerId: 1, date: '2026-10-21', volumeMorning: 4.5, volumeEvening: 0, confirmedLiters: 4.5 },
+    { rowNumber: 1, farmerId: 1, date: '2026-10-23', volumeMorning: 10, volumeEvening: 0, confirmedLiters: 10 },
+    { rowNumber: 1, farmerId: 1, date: '2026-10-24', volumeMorning: 6.5, volumeEvening: 0, confirmedLiters: 6.5 },
+    { rowNumber: 2, farmerId: 2, date: '2026-10-20', volumeMorning: 8, volumeEvening: 0, confirmedLiters: 8 },
+    { rowNumber: 2, farmerId: 2, date: '2026-10-21', volumeMorning: 9, volumeEvening: 0, confirmedLiters: 9 },
+  ];
+
+  const batchKey = 'milk_multiday_batch_123';
+  const result = await Milk.importMilkRecords({
+    ownerUserId: 10,
+    actorId: 10,
+    collectorUserId: 10,
+    batchKey,
+    entries: multiEntries,
+    repository,
+  });
+
+  assert.equal(result.summary.total, 6);
+  assert.equal(result.summary.created, 6);
+  assert.equal(result.summary.failed, 0);
+  assert.equal(result.summary.duplicates, 0);
+
+  // Verify that each upsert received the physical register column date, never a single scan date
+  assert.equal(upserted.length, 6);
+  assert.deepEqual(
+    upserted.map((u) => ({ farmerId: u.farmerId, date: u.date, morning: u.volumeMorning })),
+    [
+      { farmerId: 1, date: '2026-10-20', morning: 5 },
+      { farmerId: 1, date: '2026-10-21', morning: 4.5 },
+      { farmerId: 1, date: '2026-10-23', morning: 10 },
+      { farmerId: 1, date: '2026-10-24', morning: 6.5 },
+      { farmerId: 2, date: '2026-10-20', morning: 8 },
+      { farmerId: 2, date: '2026-10-21', morning: 9 },
+    ]
+  );
+
+  // Idempotency: replaying the same batch returns the recorded results without double-upserting
+  const replayed = await Milk.importMilkRecords({
+    ownerUserId: 10,
+    actorId: 10,
+    collectorUserId: 10,
+    batchKey,
+    entries: multiEntries,
+    repository,
+  });
+  assert.equal(replayed.idempotent, true);
+  assert.equal(replayed.summary.created, 6);
+  assert.equal(upserted.length, 6); // no new records created
 });

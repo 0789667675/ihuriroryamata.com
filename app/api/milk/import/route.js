@@ -28,7 +28,9 @@ export async function POST(request) {
       return NextResponse.json({ message: 'The reviewed list is too large. Import at most 100 milk rows per request.', code: 'IMPORT_TOO_LARGE' }, { status: 413 });
     }
     const body = await request.json().catch(() => null);
-    if (!body || !Array.isArray(body.rows)) {
+    // Multi-day register scans may send `entries` (one per farmer per register date).
+    const reviewedRows = body && (Array.isArray(body.rows) ? body.rows : Array.isArray(body.entries) ? body.entries : null);
+    if (!body || !reviewedRows) {
       return NextResponse.json({ message: 'A list of reviewed milk rows is required.', code: 'IMPORT_ROWS_REQUIRED' }, { status: 400 });
     }
     const result = await Milk.importMilkRecords({
@@ -40,7 +42,7 @@ export async function POST(request) {
       scannedAt: body.scannedAt,
       source: body.source || 'ocr_register_scan',
       session: body.session,
-      rows: body.rows,
+      rows: reviewedRows,
     });
     return NextResponse.json(result, {
       status: 200,

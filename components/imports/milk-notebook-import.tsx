@@ -8,7 +8,9 @@ import type { PublicLanguage } from '@/lib/i18n/public-copy';
 import { prepareImageForOcr } from '@/lib/imports/client-files';
 import { loadImportFarmers, loadRecordedFarmerIds, postJson, type ImportFarmer } from '@/lib/imports/client-api';
 import { buildFarmerIndex, farmerLabel, matchFarmer } from '@/lib/imports/farmer-matching';
-import { detectNotebookDateColumns, extractNotebookEntries, parseNotebookPage } from '@/lib/imports/notebook';
+import { detectNotebookDateColumns, detectNotebookPageMonthYear, extractNotebookEntries, parseNotebookPage } from '@/lib/imports/notebook';
+import { assessMultiDayRow, buildMultiDayDraftDays, buildMultiDayEntries, chunkMultiDayEntries, type MultiDayRowDraft } from '@/lib/imports/multi-day';
+import { MultiDayReviewMatrix } from '@/components/imports/milk-multiday-matrix';
 import { detectHeader, normalizeHeader, parseTextRows } from '@/lib/imports/text-parsing';
 import { getAccountingDate } from '@/lib/utils/accounting-period.js';
 
@@ -60,6 +62,7 @@ type AssessedMilkRow = MilkDraft & {
 
 type ServerMilkRow = {
   rowNumber: number;
+  date?: string;
   farmerId: number | null;
   status: string;
   errorCode?: string;
@@ -192,6 +195,18 @@ export function MilkNotebookImportModal({
   const [serverResults, setServerResults] = useState<ServerMilkRow[]>([]);
   const [completedSummary, setCompletedSummary] = useState<{ created: number; failed: number; duplicates: number } | null>(null);
 
+  // Multi-Day Batch state (record several register columns at once)
+  const [scanMode, setScanMode] = useState<'single' | 'multi'>('single');
+  const [multiFromDay, setMultiFromDay] = useState('');
+  const [multiToDay, setMultiToDay] = useState('');
+  const [multiDay, setMultiDay] = useState(false);
+  const [multiDates, setMultiDates] = useState<string[]>([]);
+  const [multiSelectedDates, setMultiSelectedDates] = useState<string[]>([]);
+  const [multiRows, setMultiRows] = useState<MultiDayRowDraft[]>([]);
+  const [multiRecorded, setMultiRecorded] = useState<Record<string, Set<number>>>({});
+  const [multiExpandedUid, setMultiExpandedUid] = useState<number | null>(null);
+  const [creatingUid, setCreatingUid] = useState<number | null>(null);
+  const [createError, setCreateError] = useState<{ uid: number; message: string } | null>(null);
   // Inline quick farmer registration state
   const [inlineRegisterRow, setInlineRegisterRow] = useState<number | null>(null);
   const [regName, setRegName] = useState('');
@@ -283,9 +298,51 @@ export function MilkNotebookImportModal({
     setCompletedSummary(null);
     setSavedProcessed(0);
     setSaveTotal(0);
+    setScanMode('single');
+    setMultiFromDay('');
+    setMultiToDay('');
+    setMultiDay(false);
+    setMultiDates([]);
+    setMultiSelectedDates([]);
+    setMultiRows([]);
+    setMultiRecorded({});
+    setMultiExpandedUid(null);
+    setCreatingUid(null);
+    setCreateError(null);
     ocrWordsRef.current = [];
     batchKeyRef.current = '';
     scannedAtRef.current = '';
+  };
+
+  const resolveMatch = (name: string, farmerNumber?: number | null) => {
+    let exactId: number | null = null;
+    let matchStatus = 'none';
+    let matchReason = '';
+    let candidates: number[] = [];
+
+    if (farmerNumber && existingFarmers.length) {
+      const byNum = existingFarmers.find((f) => f.farmerNumber === farmerNumber);
+      if (byNum) {
+        exactId = byNum.id;
+        matchStatus = 'exact';
+        matchReason = 'farmer_number_match';
+        candidates = [byNum.id];
+      }
+    }
+
+    if (!exactId) {
+      const match = matchFarmer({ name }, farmerIndex);
+      if (match.status === 'exact' && match.farmerId) {
+        exactId = Number(match.farmerId);
+        matchStatus = 'exact';
+        matchReason = match.reason || 'name_match';
+      } else {
+        matchStatus = match.status;
+        matchReason = match.reason || '';
+      }
+      candidates = (match.candidates || []).map((farmer: { id: number | string }) => Number(farmer.id)).filter(Boolean);
+    }
+    return { exactId, matchStatus, matchReason, candidates };
   };
 
   const matchDraft = (name: string, base: {
@@ -307,33 +364,7 @@ export function MilkNotebookImportModal({
     include: boolean;
     verified: boolean;
   }): MilkDraft => {
-    let exactId: number | null = null;
-    let matchStatus = 'none';
-    let matchReason = '';
-    let candidates: number[] = [];
-
-    if (base.farmerNumber && existingFarmers.length) {
-      const byNum = existingFarmers.find((f) => f.farmerNumber === base.farmerNumber);
-      if (byNum) {
-        exactId = byNum.id;
-        matchStatus = 'exact';
-        matchReason = 'farmer_number_match';
-        candidates = [byNum.id];
-      }
-    }
-
-    if (!exactId) {
-      const match = matchFarmer({ name }, farmerIndex);
-      if (match.status === 'exact' && match.farmerId) {
-        exactId = Number(match.farmerId);
-        matchStatus = 'exact';
-        matchReason = match.reason || 'name_match';
-      } else {
-        matchStatus = match.status;
-        matchReason = match.reason || '';
-      }
-      candidates = (match.candidates || []).map((farmer: { id: number | string }) => Number(farmer.id)).filter(Boolean);
-    }
+    const { exactId, matchStatus, matchReason, candidates } = resolveMatch(name, base.farmerNumber);
 
     return {
       uid: uidRef.current += 1,
@@ -365,6 +396,7 @@ export function MilkNotebookImportModal({
       setBusyLabel('');
     }
     setRecordedFarmerIds(recorded);
+    setMultiDay(false);
     setRows(drafts.map((draft) => ({
       ...draft,
       include: draft.include && (!draft.farmerId || !recorded.has(Number(draft.farmerId))),
@@ -375,6 +407,186 @@ export function MilkNotebookImportModal({
     setConfirmed(false);
     setServerResults([]);
     setCompletedSummary(null);
+  };
+
+  const loadRecordedForDates = async (dates: string[], signal?: AbortSignal) => {
+    const loaded: Record<string, Set<number>> = {};
+    for (const day of dates) {
+      loaded[day] = await loadRecordedFarmerIds(day, signal);
+    }
+    return loaded;
+  };
+
+  const openMultiReview = async (drafts: MultiDayRowDraft[], allDates: string[], selected: string[]) => {
+    setBusy(true);
+    setBusyLabel(t('checkingExisting'));
+    setExistingError('');
+    abortRef.current?.abort();
+    const controller = new AbortController();
+    abortRef.current = controller;
+    let recorded: Record<string, Set<number>> = {};
+    try {
+      recorded = await loadRecordedForDates(selected, controller.signal);
+    } catch (loadError) {
+      if (!isAbort(loadError)) setExistingError(loadError instanceof Error ? loadError.message : t('existingMilk'));
+    } finally {
+      setBusy(false);
+      setBusyLabel('');
+    }
+    setMultiRecorded(recorded);
+    setMultiDates(allDates);
+    setMultiSelectedDates(selected);
+    setMultiRows(drafts);
+    setMultiDay(true);
+    setStep(1);
+    setConfirmed(false);
+    setServerResults([]);
+    setCompletedSummary(null);
+  };
+
+  const scanMultiDay = (words: Array<{ text: string; x: number; y: number; width: number; height: number; confidence?: number }>) => {
+    // The register's own header decides the month; the target date is only a fallback reference.
+    const reference = detectNotebookPageMonthYear(words) || date;
+    const extracted = extractNotebookEntries(words, null, reference, { multiDay: true });
+    if (!extracted.dates.length) {
+      throw new Error(language === 'rw'
+        ? 'Nta nkingi z amatariki zabonetse. Koresha "Umunsi umwe" cyangwa ufate ifoto igaragara neza.'
+        : 'No date columns were detected. Use Single Day or retake a clearer photo.');
+    }
+    if (!extracted.length) throw new Error(t('noMilkRows'));
+    const from = Number(multiFromDay) || 1;
+    const to = Number(multiToDay) || 31;
+    const selected = extracted.dates.filter((isoDate) => {
+      const day = Number(isoDate.slice(8, 10));
+      return day >= from && day <= to;
+    });
+    if (!selected.length) {
+      throw new Error(language === 'rw'
+        ? 'Nta munsi uri muri iyo ntera wabonetse mu ikayi.'
+        : 'None of the detected register days fall in that range.');
+    }
+    setDetectedDateColumns(extracted.columns);
+    setDateDetectionUncertain(extracted.columns.some((col) => col.confidence !== null && col.confidence < 0.72));
+    setSelectedColumnDate('');
+    setBusinessDate(selected[0]);
+
+    const drafts: MultiDayRowDraft[] = extracted.map((row) => {
+      const match = resolveMatch(row.detectedName, row.farmerNumber);
+      const days = buildMultiDayDraftDays(row, extracted.dates);
+      const hasLitres = selected.some((day) => Number(days[day]?.morning || 0) + Number(days[day]?.evening || 0) > 0);
+      return {
+        uid: uidRef.current += 1,
+        rowNumber: row.rowNumber,
+        farmerNumber: row.farmerNumber,
+        detectedPhone: row.sublineMetadata.phone,
+        detectedNationalId: row.sublineMetadata.nationalId,
+        detectedAccountNumber: row.sublineMetadata.accountNumber,
+        nameText: row.detectedName,
+        rawText: row.nameRaw,
+        farmerId: match.exactId ? String(match.exactId) : '',
+        candidates: match.candidates,
+        matchStatus: match.matchStatus,
+        matchReason: match.matchReason,
+        include: hasLitres,
+        days,
+      };
+    });
+    return { drafts, allDates: extracted.dates, selected };
+  };
+
+  const toggleMultiDate = async (isoDate: string) => {
+    if (saveRunning) return;
+    setConfirmed(false);
+    if (multiSelectedDates.includes(isoDate)) {
+      setMultiSelectedDates((current) => current.filter((day) => day !== isoDate));
+      return;
+    }
+    if (!multiRecorded[isoDate]) {
+      setBusy(true);
+      try {
+        const recorded = await loadRecordedFarmerIds(isoDate);
+        setMultiRecorded((current) => ({ ...current, [isoDate]: recorded }));
+      } catch (loadError) {
+        setExistingError(loadError instanceof Error ? loadError.message : t('existingMilk'));
+      } finally {
+        setBusy(false);
+      }
+    }
+    setMultiSelectedDates((current) => [...current, isoDate].sort());
+  };
+
+  const updateMultiRow = (uid: number, changes: Partial<MultiDayRowDraft>) => {
+    if (saveRunning) return;
+    setConfirmed(false);
+    setMultiRows((current) => current.map((row) => (row.uid === uid ? { ...row, ...changes } : row)));
+  };
+
+  const editMultiCell = (uid: number, isoDate: string, field: 'morning' | 'evening', value: string) => {
+    if (saveRunning) return;
+    setConfirmed(false);
+    setMultiRows((current) => current.map((row) => (row.uid === uid
+      ? { ...row, days: { ...row.days, [isoDate]: { ...row.days[isoDate], [field]: value, verified: true } } }
+      : row)));
+  };
+
+  const confirmMultiRow = (uid: number) => {
+    if (saveRunning) return;
+    setConfirmed(false);
+    setMultiRows((current) => current.map((row) => (row.uid === uid
+      ? { ...row, days: Object.fromEntries(Object.entries(row.days).map(([day, cell]) => [day, { ...cell, verified: true }])) }
+      : row)));
+  };
+
+  const chooseMultiFarmer = (row: MultiDayRowDraft, value: string) => {
+    if (value === '__all__') {
+      setMultiExpandedUid(row.uid);
+      return;
+    }
+    setMultiExpandedUid(null);
+    updateMultiRow(row.uid, { farmerId: value, include: value ? true : row.include, matchStatus: value ? 'manual' : 'none' });
+  };
+
+  /** One-click registration: the new farmer gets a permanent #Number from the server and every day of this row links to it. */
+  const createMultiFarmer = async (row: MultiDayRowDraft) => {
+    if (!row.nameText.trim()) {
+      setCreateError({ uid: row.uid, message: language === 'rw' ? 'Izina rirakenewe.' : 'Farmer name is required.' });
+      return;
+    }
+    const center = centers[0] || null;
+    const fallbackCenterName = existingFarmers.find((f) => f.collectionCenter)?.collectionCenter || '';
+    if (!center && !fallbackCenterName) {
+      setCreateError({
+        uid: row.uid,
+        message: language === 'rw'
+          ? 'Banza ushyireho ikigo cy ikusanyirizo mu Igenamiterere.'
+          : 'Set up a collection center in Settings before registering farmers.',
+      });
+      return;
+    }
+    setCreatingUid(row.uid);
+    setCreateError(null);
+    try {
+      const created = await postJson<ImportFarmer>('/api/farmers', {
+        name: row.nameText.trim(),
+        phone: row.detectedPhone || null,
+        nationalId: row.detectedNationalId || null,
+        accountNumber: row.detectedAccountNumber || null,
+        collectionCenter: center ? center.name : fallbackCenterName,
+        collectionCenterId: center ? Number(center.id) : undefined,
+      });
+      setExistingFarmers((prev) => [...prev, created]);
+      updateMultiRow(row.uid, {
+        farmerId: String(created.id),
+        nameText: created.name,
+        matchStatus: 'exact',
+        matchReason: 'inline_registered',
+        include: true,
+      });
+    } catch (err) {
+      setCreateError({ uid: row.uid, message: err instanceof Error ? err.message : t('errorGeneric') });
+    } finally {
+      setCreatingUid(null);
+    }
   };
 
   const scanNotebook = async () => {
@@ -409,6 +621,12 @@ export function MilkNotebookImportModal({
       ocrWordsRef.current = result.words;
       scannedAtRef.current = new Date().toISOString();
       batchKeyRef.current = `milk_scan_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
+
+      if (scanMode === 'multi') {
+        const multi = scanMultiDay(result.words);
+        await openMultiReview(multi.drafts, multi.allDates, multi.selected);
+        return;
+      }
 
       const cols = detectNotebookDateColumns(result.words, date);
       setDetectedDateColumns(cols);
@@ -726,7 +944,27 @@ export function MilkNotebookImportModal({
 
   const includedRows = assessedRows.filter((row) => row.include);
   const blockingRows = includedRows.filter((row) => row.blocking);
-  const canSave = confirmed && includedRows.length > 0 && blockingRows.length === 0 && !saveRunning && !busy;
+  const canSaveSingle = confirmed && includedRows.length > 0 && blockingRows.length === 0 && !saveRunning && !busy;
+
+  const multiAssessments = useMemo(() => multiRows.map((row) => assessMultiDayRow(row, {
+    dates: multiSelectedDates,
+    recordedByDate: multiRecorded,
+  })), [multiRows, multiSelectedDates, multiRecorded]);
+  const multiEntries = useMemo(() => buildMultiDayEntries(multiRows, multiAssessments), [multiRows, multiAssessments]);
+  const multiBlocking = multiAssessments.filter((assessed) => assessed.blocking);
+  const multiCounts = multiAssessments.reduce((summary, assessed) => {
+    summary.total += 1;
+    if (assessed.status === 'matched') summary.matched += 1;
+    else if (assessed.status === 'review') summary.review += 1;
+    else if (assessed.status === 'needsMatch') summary.needsMatch += 1;
+    else if (assessed.status === 'invalid') summary.invalid += 1;
+    return summary;
+  }, { total: 0, matched: 0, review: 0, needsMatch: 0, invalid: 0 });
+  const canSaveMulti = confirmed && multiEntries.length > 0 && multiBlocking.length === 0 && !saveRunning && !busy;
+  const canSave = multiDay ? canSaveMulti : canSaveSingle;
+  const multiDateRangeLabel = multiSelectedDates.length
+    ? `${toDisplayDate(multiSelectedDates[0])}${multiSelectedDates.length > 1 ? ` – ${toDisplayDate(multiSelectedDates[multiSelectedDates.length - 1])}` : ''}`
+    : '—';
 
   const counts = assessedRows.reduce((summary, row) => {
     summary.total += 1;
@@ -764,7 +1002,86 @@ export function MilkNotebookImportModal({
     return Array.from(ids).map((id) => farmerById.get(id)).filter(Boolean) as ImportFarmer[];
   };
 
+  const multiFarmerOptions = (row: MultiDayRowDraft) => {
+    const ids = new Set<number>();
+    for (const id of row.candidates) ids.add(id);
+    if (row.farmerId) ids.add(Number(row.farmerId));
+    if (multiExpandedUid === row.uid) {
+      for (const farmer of existingFarmers) ids.add(Number(farmer.id));
+    }
+    return Array.from(ids).map((id) => farmerById.get(id)).filter(Boolean) as ImportFarmer[];
+  };
+
+  /**
+   * Multi-day save: every confirmed day goes to /api/milk/import as its own entry carrying the
+   * register column date. The batchKey makes a repeated submission idempotent (import_batches).
+   */
+  const startSaveMulti = async () => {
+    if (!canSaveMulti || saveLockRef.current) return;
+    saveLockRef.current = true;
+    setSaveError('');
+    setSaveRunning(true);
+    setServerResults([]);
+    setCompletedSummary(null);
+    setSavedProcessed(0);
+    setSaveTotal(multiEntries.length);
+    abortRef.current?.abort();
+    const controller = new AbortController();
+    abortRef.current = controller;
+    const collected: ServerMilkRow[] = [];
+    let created = 0;
+    let failed = 0;
+    let duplicates = 0;
+    let processed = 0;
+
+    const currentBatchKey = batchKeyRef.current || `milk_scan_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`;
+    const currentScannedAt = scannedAtRef.current || new Date().toISOString();
+
+    try {
+      for (const chunk of chunkMultiDayEntries(multiEntries, currentBatchKey)) {
+        if (controller.signal.aborted) throw new DOMException('Aborted', 'AbortError');
+        const result = await postJson<{
+          summary?: { created?: number; failed?: number; duplicates?: number };
+          rows?: ServerMilkRow[];
+        }>('/api/milk/import', {
+          batchKey: chunk.batchKey,
+          scannedAt: currentScannedAt,
+          source: 'ocr_register_scan',
+          entries: chunk.entries,
+        }, controller.signal);
+        const chunkRows = Array.isArray(result.rows) ? result.rows : [];
+        collected.push(...chunkRows);
+        setServerResults([...collected]);
+        created += chunkRows.filter((row) => row.status === 'created').length;
+        duplicates += chunkRows.filter((row) => row.status === 'duplicate' || row.status === 'conflict').length;
+        failed += chunkRows.filter((row) => row.status === 'failed').length;
+        processed += chunk.entries.length;
+        setSavedProcessed(Math.min(multiEntries.length, processed));
+      }
+      setCompletedSummary({ created, failed, duplicates });
+      setStep(2);
+      try {
+        await onCompleted();
+      } catch {
+        // Table refresh error is non-fatal
+      }
+    } catch (saveFailure) {
+      if (isAbort(saveFailure)) {
+        setSaveError(`${t('cancel')}. ${t('progress', { done: processed, total: multiEntries.length })}`);
+      } else {
+        setSaveError(saveFailure instanceof Error ? saveFailure.message : t('errorGeneric'));
+      }
+    } finally {
+      saveLockRef.current = false;
+      setSaveRunning(false);
+    }
+  };
+
   const startSave = async () => {
+    if (multiDay) {
+      await startSaveMulti();
+      return;
+    }
     if (!canSave || saveLockRef.current) return;
     saveLockRef.current = true;
     setSaveError('');
@@ -793,7 +1110,8 @@ export function MilkNotebookImportModal({
           rows?: ServerMilkRow[];
         }>('/api/milk/import', {
           date: businessDate,
-          batchKey: currentBatchKey,
+          // Each chunk needs its own idempotency key, otherwise chunk 2+ would replay chunk 1's batch.
+          batchKey: offset === 0 ? currentBatchKey : `${currentBatchKey}_p${offset / 50}`,
           scannedAt: currentScannedAt,
           source: 'ocr_register_scan',
           session,
@@ -910,8 +1228,19 @@ export function MilkNotebookImportModal({
     {step === 0 ? <div className="import-source">
       <div className="import-milk-meta">
         <label>{t('targetDate')}<input type="date" value={date} onChange={(event) => { setDate(event.target.value); setBusinessDate(event.target.value); }} required /></label>
-        <label>{t('session')}<select value={session} onChange={(event) => setSession(event.target.value as 'morning' | 'evening')}><option value="morning">{t('morning')}</option><option value="evening">{t('evening')}</option></select></label>
+        {sourceMode === 'photo' && scanMode === 'multi' ? null : <label>{t('session')}<select value={session} onChange={(event) => setSession(event.target.value as 'morning' | 'evening')}><option value="morning">{t('morning')}</option><option value="evening">{t('evening')}</option></select></label>}
       </div>
+      {sourceMode === 'photo' ? <div className="import-mode-toggle" role="radiogroup" aria-label={language === 'rw' ? 'Uburyo bwo kwandika' : 'Recording mode'}>
+        <button type="button" role="radio" aria-checked={scanMode === 'single'} className={scanMode === 'single' ? 'active' : ''} onClick={() => setScanMode('single')} disabled={busy}>{language === 'rw' ? 'Umunsi umwe' : 'Single Day'}</button>
+        <button type="button" role="radio" aria-checked={scanMode === 'multi'} className={scanMode === 'multi' ? 'active' : ''} onClick={() => setScanMode('multi')} disabled={busy}>{language === 'rw' ? 'Iminsi myinshi icyarimwe' : 'Multi-Day Batch'}</button>
+      </div> : null}
+      {sourceMode === 'photo' && scanMode === 'multi' ? <div className="import-milk-meta import-multiday-range">
+        <label>{language === 'rw' ? 'Kuva ku munsi (si ngombwa)' : 'From day (optional)'}<input type="number" min="1" max="31" inputMode="numeric" placeholder="20" value={multiFromDay} onChange={(event) => setMultiFromDay(event.target.value)} /></label>
+        <label>{language === 'rw' ? 'Kugeza ku munsi (si ngombwa)' : 'To day (optional)'}<input type="number" min="1" max="31" inputMode="numeric" placeholder="24" value={multiToDay} onChange={(event) => setMultiToDay(event.target.value)} /></label>
+        <p className="muted-note">{language === 'rw'
+          ? 'Siga ubusa kugira ngo ufate iminsi yose igaragara. Buri munsi uzabikwa ku itariki iri mu nkingi y ikayi, ntabwo ari itariki y ifoto.'
+          : 'Leave blank to select all visible days. Each day is saved under the date printed on the register column, never the scan date.'}</p>
+      </div> : null}
       <div className="import-source-tabs" role="tablist" aria-label={t('sourceTitle')}>
         <button type="button" role="tab" aria-selected={sourceMode === 'photo'} className={sourceMode === 'photo' ? 'active' : ''} onClick={() => setSourceMode('photo')}><ImageIcon size={16} />{t('photoTab')}</button>
         <button type="button" role="tab" aria-selected={sourceMode === 'paste'} className={sourceMode === 'paste' ? 'active' : ''} onClick={() => setSourceMode('paste')}>{t('pasteTab')}</button>
@@ -957,7 +1286,7 @@ export function MilkNotebookImportModal({
       <ImportNotice tone="info">{t('milkModeNote')}</ImportNotice>
     </div> : null}
 
-    {step === 1 ? <div className="import-review">
+    {step === 1 && !multiDay ? <div className="import-review">
       {saveRunning ? <ImportProgress value={savedProcessed} max={saveTotal} label={t('progress', { done: savedProcessed, total: saveTotal })} /> : null}
 
       {/* Detected Date Columns Pill Bar */}
@@ -1233,6 +1562,107 @@ export function MilkNotebookImportModal({
         </div>
       ) : null}
     </div> : null}
+
+    {step === 1 && multiDay ? (
+      <div className="import-review import-multiday-review">
+        {saveRunning ? (
+          <ImportProgress
+            value={savedProcessed}
+            max={saveTotal}
+            label={t('progress', { done: savedProcessed, total: saveTotal })}
+          />
+        ) : null}
+
+        <div className="import-date-pills-bar" role="region" aria-label={language === 'rw' ? 'Iminsi yatoranyijwe' : 'Selected days'}>
+          <span className="muted-note">
+            <strong>{language === 'rw' ? 'Iminsi yatoranyijwe' : 'Selected days'}:</strong>
+          </span>
+          {multiDates.map((d) => (
+            <button
+              key={d}
+              type="button"
+              className={`import-date-pill ${multiSelectedDates.includes(d) ? 'active' : ''}`}
+              onClick={() => toggleMultiDate(d)}
+              disabled={saveRunning}
+            >
+              <span>{toDisplayDate(d)}</span>
+            </button>
+          ))}
+        </div>
+
+        <div className="import-review-meta">
+          <span>
+            {language === 'rw' ? 'Igihe cy ikayi' : 'Register range'}: <b>{multiDateRangeLabel}</b> ({multiSelectedDates.length} {language === 'rw' ? 'iminsi' : 'days'})
+          </span>
+        </div>
+
+        {dateDetectionUncertain ? (
+          <ImportNotice tone="warning" role="alert">
+            {t('dateDetectionUncertain')}
+          </ImportNotice>
+        ) : null}
+
+        <div className="import-review-toolbar">
+          <div className="import-counts">
+            <span><b>{multiCounts.total}</b> {t('allRows')}</span>
+            <span className="ok"><b>{multiCounts.matched}</b> {t('matched')}</span>
+            {multiCounts.review ? <span className="warn"><b>{multiCounts.review}</b> {t('reviewBadge')}</span> : null}
+            {multiCounts.needsMatch ? <span className="warn"><b>{multiCounts.needsMatch}</b> {t('needsMatch')}</span> : null}
+            {multiCounts.invalid ? <span className="danger"><b>{multiCounts.invalid}</b> {t('invalid')}</span> : null}
+          </div>
+        </div>
+
+        <MultiDayReviewMatrix
+          language={language}
+          t={t}
+          rows={multiRows}
+          assessments={multiAssessments}
+          dates={multiSelectedDates}
+          farmerById={farmerById}
+          farmerOptions={multiFarmerOptions}
+          disabled={saveRunning}
+          creatingUid={creatingUid}
+          createError={createError}
+          onToggleInclude={(uid, inc) => updateMultiRow(uid, { include: inc })}
+          onChooseFarmer={chooseMultiFarmer}
+          onCreateFarmer={createMultiFarmer}
+          onEditCell={editMultiCell}
+          onConfirmRow={confirmMultiRow}
+        />
+
+        <div className="import-confirm">
+          <label className="import-check">
+            <input
+              type="checkbox"
+              checked={confirmed}
+              disabled={saveRunning || multiBlocking.length > 0}
+              onChange={(e) => setConfirmed(e.target.checked)}
+            />
+            {language === 'rw'
+              ? `Emeza amatariki y ikayi (${multiDateRangeLabel}) n imirongo ${multiEntries.length} igiye kubikwa`
+              : `Confirm register column dates (${multiDateRangeLabel}) and ${multiEntries.length} milk records to save`}
+          </label>
+          {multiBlocking.length ? (
+            <ImportNotice tone="warning">
+              {multiBlocking.length} {t('reviewMilkHint')} ({t('unmatched')}: {multiCounts.needsMatch}, {t('reviewBadge')}: {multiCounts.review})
+            </ImportNotice>
+          ) : null}
+        </div>
+
+        {serverResults.some((row) => row.status !== 'created') ? (
+          <div className="import-results">
+            <h4>{t('batchSummary')}</h4>
+            <ul>
+              {serverResults.filter((row) => row.status !== 'created').map((row) => (
+                <li key={`${row.rowNumber}-${row.date}-${row.errorCode}`}>
+                  {t('rowNumber')} {row.rowNumber} ({row.date}): {row.message || row.errorCode}
+                </li>
+              ))}
+            </ul>
+          </div>
+        ) : null}
+      </div>
+    ) : null}
 
     {step === 2 && completedSummary ? <div className="import-done">
       <div className="import-done-mark"><Check size={28} aria-hidden="true" /></div>

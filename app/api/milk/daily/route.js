@@ -4,9 +4,17 @@ const { getAuthenticatedUser } = require('@/lib/security/authenticate.js');
 const { requireAccountType } = require('@/lib/security/account-access.js');
 const { getAccountingDate } = require('@/lib/utils/accounting-period.js');
 const Milk = require('@/lib/services/milk-service.js');
+const Centers = require('@/lib/services/collection-center-service.js');
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
+
+const sanitizeParam = (val) => {
+  if (val === null || val === undefined) return '';
+  const str = String(val).trim();
+  if (str === '' || str === 'undefined' || str === 'null' || str === '[object Object]') return '';
+  return str;
+};
 
 export async function GET(request) {
   try {
@@ -15,18 +23,70 @@ export async function GET(request) {
     requireAccountType(user, ['COLLECTOR', 'COLLECTION_CENTER']);
     const params = new URL(request.url).searchParams;
     const date = params.get('date') || getAccountingDate();
-    const centerId = params.get('centerId');
-    const center = params.get('center') || params.get('collectionCenter');
-    const cursor = params.get('cursor');
+    let centerId = sanitizeParam(params.get('centerId'));
+    let center = sanitizeParam(params.get('center') || params.get('collectionCenter'));
+    const cursor = sanitizeParam(params.get('cursor')) || undefined;
     const limit = params.get('limit') || 50;
-    const search = params.get('search') || '';
-    const session = params.get('session') || 'all';
-    const deliveryStatus = params.get('deliveryStatus') || 'all';
-    const sortBy = params.get('sortBy') || undefined;
-    const sortDirection = params.get('sortDirection') || undefined;
+    const search = sanitizeParam(params.get('search'));
+    const session = sanitizeParam(params.get('session')) || 'all';
+    const deliveryStatus = sanitizeParam(params.get('deliveryStatus')) || 'all';
+    const sortBy = sanitizeParam(params.get('sortBy')) || undefined;
+    const sortDirection = sanitizeParam(params.get('sortDirection')) || undefined;
 
     if (user.accountType === 'COLLECTION_CENTER' && !centerId && !center) {
-      return NextResponse.json({ message: 'An active collection center is required. Please select a center.' }, { status: 400 });
+      try {
+        const accessible = await Centers.listAccessibleCenters({ ownerUserId: user.id, accountType: user.accountType });
+        if (accessible && accessible.length > 0) {
+          centerId = String(accessible[0].id);
+          center = accessible[0].name;
+        } else {
+          return NextResponse.json({
+            farmers: [],
+            summary: {
+              totalFarmers: 0,
+              presentCount: 0,
+              missedCount: 0,
+              expectedCount: 0,
+              deliveredCount: 0,
+              missingCount: 0,
+              deliveryRate: 0,
+              totalMorning: 0,
+              totalEvening: 0,
+              totalVolume: 0,
+              totalAmount: 0,
+              pricePerLiter: 0,
+              transportRate: 0,
+            },
+            farmerPagination: { nextCursor: null, hasMore: false },
+            center: null,
+            centers: [],
+            collectorMilk: [],
+          });
+        }
+      } catch {
+        return NextResponse.json({
+          farmers: [],
+          summary: {
+            totalFarmers: 0,
+            presentCount: 0,
+            missedCount: 0,
+            expectedCount: 0,
+            deliveredCount: 0,
+            missingCount: 0,
+            deliveryRate: 0,
+            totalMorning: 0,
+            totalEvening: 0,
+            totalVolume: 0,
+            totalAmount: 0,
+            pricePerLiter: 0,
+            transportRate: 0,
+          },
+          farmerPagination: { nextCursor: null, hasMore: false },
+          center: null,
+          centers: [],
+          collectorMilk: [],
+        });
+      }
     }
 
     const result = await Milk.getDailyCollection({
@@ -34,8 +94,8 @@ export async function GET(request) {
       accountType: user.accountType,
       collectorUserId: user.accountType === 'COLLECTOR' ? String(user.id) : params.get('collectorUserId') || '',
       date,
-      centerId,
-      center,
+      centerId: centerId || undefined,
+      center: center || undefined,
       cursor,
       limit,
       search,

@@ -457,7 +457,7 @@ test('missing historical farmer prices keep farmer and owner accounting incomple
   const query = ReportRepository.buildFarmerTotalsQuery({ ownerUserId: 42, rangeStart: '2026-06-01', rangeEnd: '2026-06-15' });
   assert.match(query.text, /unpriced_valid_count/);
   assert.match(query.text, /prices\.effective_date <= mr\.date/);
-  assert.doesNotMatch(query.text, /c\.price_per_liter/);
+  assert.match(query.text, /COALESCE\(NULLIF\(mr\.price_per_liter, 0\), ccp\.price_per_liter, NULLIF\(cc\.price_per_liter, 0\), 400\)/);
   const farmer = ReportRepository.mapFarmerRow({
     farmerId: 7,
     farmerName: 'Unpriced Farmer',
@@ -507,7 +507,7 @@ test('farmer-by-day totals do not substitute a current price for missing histori
     runQuery: async (text, values) => {
       assert.deepEqual(values, [42, '2026-06-16', '2026-06-30']);
       assert.match(text, /unpriced_valid_count/);
-      assert.doesNotMatch(text, /c\.price_per_liter/);
+      assert.match(text, /COALESCE\(NULLIF\(mr\.price_per_liter, 0\), ccp\.price_per_liter, NULLIF\(cc\.price_per_liter, 0\), 400\)/);
       return { rows: [{ date: '2026-06-20', valid_liters: 10, original_liters: 10, lost_liters: 0, gross_amount: 0, unpriced_valid_count: 1 }] };
     },
   });
@@ -1212,13 +1212,13 @@ test('Dairy collector SQL is owner-, assignment-, period-, and selected-center-s
   assert.match(query.text, /mr\.status = 'cancelled'/);
   assert.match(query.text, /prices\.effective_date <= mr\.date/);
   assert.match(query.text, /unpricedMilkCount/);
-  assert.doesNotMatch(query.text, /c\.price_per_liter/);
+  assert.match(query.text, /COALESCE\(NULLIF\(mr\.price_per_liter, 0\), ccp\.price_per_liter, NULLIF\(cc\.price_per_liter, 0\), 400\)/);
   assert.doesNotMatch(query.text, /transport|deductions|ejoheza/i);
 });
 
 test('Dairy collector settlement stays unknown when historical prices are missing', async () => {
   const dairyQuery = ReportRepository.buildDairyCollectorTotalsQuery({ ownerUserId: 77, rangeStart: '2026-06-01', rangeEnd: '2026-06-15' });
-  assert.doesNotMatch(dairyQuery.text, /c\.price_per_liter/);
+  assert.match(dairyQuery.text, /COALESCE\(NULLIF\(mr\.price_per_liter, 0\), ccp\.price_per_liter, NULLIF\(cc\.price_per_liter, 0\), 400\)/);
   assert.match(dairyQuery.text, /prices\.effective_date <= mr\.date/);
 
   const totals = await ReportRepository.getDairyCollectorTotals({
@@ -1499,4 +1499,74 @@ test('Area A (Farmer Accounting) and Area B (Nyirayo Accounting) strictly separa
   assert.equal(acct.ownerGrossReconciliation.nyirayoOwnAccountingBalance, -463630);
   assert.equal(acct.ownerGrossReconciliation.ownerNameListFarmerSettlementAmount, 284000);
   assert.equal(acct.ownerGrossReconciliation.nyirayoTotalWithOwnerList, -179630);
+});
+
+test('Closed Bank Accounting Equation for Collection Center: Direct Accounts + Owner Account Line = Total Buyer Money in Bank', async () => {
+  const farmers = [
+    {
+      farmerId: 201,
+      farmerName: 'Gatete Paul',
+      accountNumber: '400987654321', // Bafite Konti
+      totalVolume: 500,
+      grossAmount: 200000,
+      totalTransport: 0,
+      totalDeductions: 5000,
+      netAmount: 195000,
+      transportIsComplete: true,
+      milkValueComplete: true,
+    },
+    {
+      farmerId: 202,
+      farmerName: 'Nyiramana Beatrice',
+      accountNumber: null, // Badafite Konti (routed to Owner line)
+      totalVolume: 300,
+      grossAmount: 120000,
+      totalTransport: 0,
+      totalDeductions: 3000,
+      netAmount: 117000,
+      transportIsComplete: true,
+      milkValueComplete: true,
+    },
+  ];
+
+  const repo = {
+    getUserProfile: async () => ({ id: 50, name: 'Koperative Ikigo', accountType: 'COLLECTION_CENTER', role: 'admin' }),
+    getCurrentCenterPrice: async () => ({ pricePerLiter: 400 }),
+    getPeriodTotals: async () => ({ totalVolume: 800, totalAmount: 320000 }),
+    getFarmerTotals: async () => farmers,
+    getPeriodSummary: async () => ({ totalFarmers: 2, totalVolume: 800, totalAmount: 320000 }),
+    getTotalFarmers: async () => 2,
+    getTotalDeductions: async () => 8000,
+    getTodayTotals: async () => ({ todayMorning: 0, todayEvening: 0, todayTotal: 0, todayAmount: 0 }),
+    getMilkLossRecords: async () => [],
+    getAccessibleCenters: async () => [{ centerName: 'Ikigo Gikuru', centerId: 1 }],
+  };
+
+  const settlementRepo = {
+    getPeriodFinancials: async () => ({
+      settlements: [],
+      repayments: [],
+      debts: [],
+    }),
+  };
+
+  const summary = await Reports.getSummary({
+    ownerUserId: 50,
+    query: { periodType: 'first-half', month: 10, year: 2026, collectionCenter: 'Ikigo Gikuru' },
+    repository: repo,
+    settlementRepository: settlementRepo,
+    now: new Date('2026-10-15T12:00:00Z'),
+  });
+
+  const totalBuyerMoney = summary.totalRevenueMonth; // 320,000 RWF
+  const directAccounts = summary.accountRoutedPayable; // 195,000 RWF
+  const ownerAccountLine = summary.nyirayoTotalWithOwnerList; // Owner Margin (8,000) + Custodial Cash (117,000) = 125,000 RWF
+
+  assert.equal(directAccounts, 195000);
+  assert.equal(summary.ownerNameListFarmerSettlementAmount, 117000);
+  assert.equal(summary.nyirayoOwnAccountingBalance, 8000); // 0 base diff + 8,000 deductions
+  assert.equal(ownerAccountLine, 125000);
+  // 100% Closed Bank Balance Equation:
+  assert.equal(directAccounts + ownerAccountLine, totalBuyerMoney);
+  assert.equal(195000 + 125000, 320000);
 });

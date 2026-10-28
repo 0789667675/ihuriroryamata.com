@@ -4,7 +4,7 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
-    "build": "next build",
+    "build": "node -r ./scripts/patch-mkdir.js ./node_modules/next/dist/bin/next build",
     "start": "next start",
     "test": "node --test",
     "test:e2e": "playwright test",
