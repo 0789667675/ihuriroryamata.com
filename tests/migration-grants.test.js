@@ -85,7 +85,7 @@ test('every migration that creates a public table defines explicit grants in the
       assert.ok(
         grantRegex.test(sql),
         `${file}: table \`${table}\` is created without an explicit GRANT ... TO <role> in the same migration. ` +
-          'Add GRANT privileges for authenticated and/or service_role (never anon by default).'
+          'Add a least-privilege GRANT for service_role (never anon or authenticated).'
       );
       checkedTables++;
     }
@@ -98,12 +98,29 @@ test('every migration that creates a public table defines explicit grants in the
 test('no migration grants Data API access to the anon role', () => {
   for (const file of migrationFiles()) {
     const sql = readMigration(file);
-    assert.ok(
-      !/grant\b[\s\S]*?\bto\s+anon\b/i.test(sql),
-      `${file}: grants the \`anon\` role Data API access. ` +
-        'Unauthenticated table access is prohibited by the migration convention. ' +
-        'Add an explicit exception only if the table is intentionally public.'
-    );
+    for (const statement of sql.split(';')) {
+      if (!/^\s*grant\b/i.test(statement)) continue;
+      assert.ok(
+        !/\bto\s+anon\b/i.test(statement),
+        `${file}: grants the \`anon\` role Data API access. ` +
+          'Unauthenticated table access is prohibited by the migration convention. ' +
+          'Add an explicit exception only if the table is intentionally public.'
+      );
+    }
+  }
+});
+
+test('no migration grants Data API access to the authenticated role', () => {
+  for (const file of migrationFiles()) {
+    const sql = readMigration(file);
+    for (const statement of sql.split(';')) {
+      if (!/^\s*grant\b/i.test(statement)) continue;
+      assert.ok(
+        !/\bto\s+authenticated\b/i.test(statement),
+        `${file}: grants Data API access to authenticated. ` +
+          'The Milk System uses server-side DATABASE_URL access only; grant service_role only when required.'
+      );
+    }
   }
 });
 

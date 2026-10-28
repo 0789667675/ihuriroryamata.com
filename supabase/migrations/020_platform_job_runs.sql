@@ -13,6 +13,18 @@ CREATE TABLE IF NOT EXISTS platform_job_runs (
   error_code VARCHAR(120)
 );
 
+-- Operational job evidence is server-side only. The browser never queries it
+-- through the Supabase Data API.
+ALTER TABLE public.platform_job_runs ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY milk_system_deny_data_api_access
+ON public.platform_job_runs
+AS RESTRICTIVE
+FOR ALL
+TO anon, authenticated
+USING (false)
+WITH CHECK (false);
+
 CREATE INDEX IF NOT EXISTS idx_platform_job_runs_job_started
   ON platform_job_runs (job_id, started_at DESC);
 

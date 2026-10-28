@@ -17,9 +17,17 @@ CREATE TABLE IF NOT EXISTS public.farmer_field_configurations (
   UNIQUE (owner_user_id, field_key)
 );
 
-GRANT SELECT, INSERT, UPDATE, DELETE
+-- Field configuration is read and written only by authenticated server routes.
+-- Do not expose it through the Supabase Data API.
+ALTER TABLE public.farmer_field_configurations ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY milk_system_deny_data_api_access
 ON public.farmer_field_configurations
-TO authenticated;
+AS RESTRICTIVE
+FOR ALL
+TO anon, authenticated
+USING (false)
+WITH CHECK (false);
 
 GRANT ALL
 ON public.farmer_field_configurations

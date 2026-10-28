@@ -196,12 +196,17 @@ test('import UI and parsing code keeps source documents out of browser persisten
   assert.doesNotMatch(milk, /fetch\('\/api\/imports\/extract'/);
 });
 
-test('import batch migration stores only outcomes, is granted explicitly, and is required by health', () => {
+test('import batch migration is server-only, stores only outcomes, and is required by health', () => {
   const migration = read('supabase/migrations/019_import_batches.sql');
   assert.match(migration, /CREATE TABLE IF NOT EXISTS public\.import_batches/);
   assert.match(migration, /UNIQUE \(owner_user_id, batch_key\)/);
   assert.match(migration, /summary JSONB NOT NULL DEFAULT '\{\}'::jsonb/);
-  assert.match(migration, /GRANT SELECT, INSERT, UPDATE, DELETE\s+ON public\.import_batches\s+TO authenticated/s);
+  assert.match(migration, /ALTER TABLE public\.import_batches ENABLE ROW LEVEL SECURITY/);
+  assert.match(
+    migration,
+    /CREATE POLICY milk_system_deny_data_api_access[\s\S]*?TO anon, authenticated[\s\S]*?USING \(false\)[\s\S]*?WITH CHECK \(false\)/
+  );
+  assert.doesNotMatch(migration, /GRANT[\s\S]*?TO authenticated/);
   assert.match(migration, /GRANT ALL\s+ON public\.import_batches\s+TO service_role/s);
   const tableDefinition = migration.slice(migration.indexOf('CREATE TABLE'), migration.indexOf(');', migration.indexOf('CREATE TABLE')) + 2);
   assert.doesNotMatch(tableDefinition, /\b(name|phone|national_id|account_number|document|image|ocr_text)\b/i);

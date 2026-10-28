@@ -14,9 +14,17 @@ CREATE TABLE IF NOT EXISTS public.import_batches (
   UNIQUE (owner_user_id, batch_key)
 );
 
-GRANT SELECT, INSERT, UPDATE, DELETE
+-- The import ledger is server-side only. The browser never queries it through
+-- the Supabase Data API; the application uses its authenticated server routes.
+ALTER TABLE public.import_batches ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY milk_system_deny_data_api_access
 ON public.import_batches
-TO authenticated;
+AS RESTRICTIVE
+FOR ALL
+TO anon, authenticated
+USING (false)
+WITH CHECK (false);
 
 GRANT ALL
 ON public.import_batches

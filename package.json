@@ -8,7 +8,8 @@
     "start": "next start",
     "test": "node --test",
     "test:e2e": "playwright test",
-    "db:check": "node scripts/db-check.js"
+    "db:check": "node scripts/db-check.js",
+    "security:check": "node scripts/verify-database-security.js"
   },
   "dependencies": {
     "@fontsource/dm-sans": "^5.3.0",
