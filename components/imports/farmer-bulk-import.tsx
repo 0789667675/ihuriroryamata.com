@@ -214,7 +214,7 @@ export function FarmerBulkImportModal({
     [fieldConfig]
   );
   const reviewEnabledFields = useMemo<{ key: string; enabled: boolean; required: boolean; sortOrder: number; system: boolean }[]>(
-    () => enabledConfig.filter((field: { system: boolean }) => !field.system),
+    () => enabledConfig.filter((field: { system: boolean; key: string }) => !field.system && field.key !== 'cowType'),
     [enabledConfig]
   );
 
@@ -794,7 +794,7 @@ export function FarmerBulkImportModal({
             phone: row.values.phone,
             nationalId: row.values.nationalId,
             accountNumber: row.values.accountNumber,
-            cowType: reviewEnabledFields.some((field) => field.key === 'cowType') ? row.values.cowType : undefined,
+            cowType: '',
             collectionCenterId: Number(row.centerId || defaultCenterId || ''),
           })),
         }, controller.signal);
@@ -1010,7 +1010,7 @@ export function FarmerBulkImportModal({
             <td>
               <select value={decided ?? ''} onChange={(event) => setColumnTarget(interp.index, (event.target.value as ImportTarget | ''))}>
                 <option value="">{t('notDecided')}</option>
-                {IMPORT_TARGETS.map((target) => <option key={target.key} value={target.key}>{targetOptionLabel(language, target.key as ImportTarget)}</option>)}
+                {IMPORT_TARGETS.filter((target) => target.key !== 'cowType').map((target) => <option key={target.key} value={target.key}>{targetOptionLabel(language, target.key as ImportTarget)}</option>)}
               </select>
               {decided === 'exclude' ? <span className="muted-note"> · {t('notFarmerField')}</span> : null}
             </td>
@@ -1022,9 +1022,7 @@ export function FarmerBulkImportModal({
           </tr>;
         })}
       </tbody></table></div>
-      <div className="import-map-extra">
-        <label>{t('defaultCenter')}<select value={defaultCenterId} onChange={(event) => setDefaultCenterId(event.target.value)}><option value="">{t('chooseCenter')}</option>{availableCenters.map((center) => <option key={center.id} value={centerIdOf(center)}>{center.name}</option>)}</select></label>
-      </div>
+      {availableCenters.length > 1 ? <div className="import-map-extra"><label>{t('defaultCenter')}<select value={defaultCenterId} onChange={(event) => setDefaultCenterId(event.target.value)}><option value="">{t('chooseCenter')}</option>{availableCenters.map((center) => <option key={center.id} value={centerIdOf(center)}>{center.name}</option>)}</select></label></div> : null}
       <p className="muted-note">{t('noFieldNote')}</p>
       <div className="import-footer-actions import-inline-actions">
         <button type="button" className="button button-secondary" onClick={() => setStep(0)}>{t('backToSource')}</button>
@@ -1067,7 +1065,7 @@ export function FarmerBulkImportModal({
         <table className="import-config-table">
           <thead><tr><th>{t('fieldLabel')}</th><th>{t('enabledLabel')}</th><th>{t('requiredLabel')}</th><th>{t('orderLabel')}</th></tr></thead>
           <tbody>
-            {draftConfig.filter((field) => !field.system).map((field) => <tr key={field.key}>
+            {draftConfig.filter((field) => !field.system && field.key !== 'cowType').map((field) => <tr key={field.key}>
               <td>{fieldLabel(language, field.key)}</td>
               <td><label className="import-check"><input type="checkbox" checked={field.enabled} onChange={() => toggleDraftEnabled(field.key)} />{field.enabled ? t('enabledLabel') : t('notRequired')}</label></td>
               <td><label className="import-check"><input type="checkbox" checked={field.required} onChange={() => toggleDraftRequired(field.key)} disabled={!field.enabled} />{field.required ? t('requiredLabel') : t('notRequired')}</label></td>
@@ -1078,7 +1076,7 @@ export function FarmerBulkImportModal({
         {fieldConfigError ? <p className="muted-note">{fieldConfigError}</p> : null}
         <div className="import-actions" style={{ marginTop: 8 }}>
           <button type="button" className="button button-primary" onClick={saveFieldConfig} disabled={fieldConfigLoading}>{t('saveFieldConfig')}</button>
-          <span className="muted-note">{t('cowTypeNote')}</span>
+          
         </div>
       </div>
       <div className="import-footer-actions import-inline-actions">
@@ -1120,10 +1118,14 @@ export function FarmerBulkImportModal({
               {row.warnings.filter((w) => w.field === field.key).map((w) => <div key={w.code} className="import-field-warning">{w.message}</div>)}
             </td>)}
             <td>
-              <select value={row.centerId} disabled={saveRunning || row.saveOutcome === 'created' || !availableCenters.length} onChange={(event) => updateRowCenter(row.uid, event.target.value)}>
-                <option value="">{t('selectCenterOption')}</option>
-                {availableCenters.map((center) => <option key={center.id} value={centerIdOf(center)}>{center.name}</option>)}
-              </select>
+              {availableCenters.length > 1 ? (
+                <select value={row.centerId} disabled={saveRunning || row.saveOutcome === 'created' || !availableCenters.length} onChange={(event) => updateRowCenter(row.uid, event.target.value)}>
+                  <option value="">{t('selectCenterOption')}</option>
+                  {availableCenters.map((center) => <option key={center.id} value={centerIdOf(center)}>{center.name}</option>)}
+                </select>
+              ) : (
+                <span>{availableCenters[0]?.name || row.centerText || '—'}</span>
+              )}
             </td>
             <td className="import-status-cell"><ImportStatus status={row.status} label={statusLabel(row)} />
               {row.detail ? <small>{row.detail}</small> : null}

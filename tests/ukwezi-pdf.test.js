@@ -236,3 +236,166 @@ test('Ukwezi PDF route uses the authenticated owner and selected period context'
   assert.match(workspace, /throw new Error\(body\?\.message \|\| publicLanguage\.t\('ukweziPdfError'\)\)/);
   assert.match(nextConfig, /serverComponentsExternalPackages: \['pdfkit'\]/);
 });
+
+test('Ukwezi PDF renderer includes Igenzura rya Nyirayo line items in settlement reconciliation', async () => {
+  const auditReport = {
+    ...report,
+    nyirayoMilkValue: 208400,
+    farmersMilkValue: 707400,
+    nyirayoBaseDifference: -499000,
+    transportAmount: 18000,
+    farmerDeductions: 9000,
+    retainedNoAccountFarmerAmount: 288000,
+    nyirayoOperationalMargin: -472000,
+    nyirayoTotalAfterOperations: -184000,
+    settlementAccounting: {
+      saccoDistributionInstruction: 392400,
+      saccoConfirmedAmount: 0,
+      cashApprovedAmount: 0,
+      cashConfirmedAmount: 0,
+      debtRepaymentAmount: 0,
+      outstandingDebt: 0,
+      debtBalancesComplete: true,
+      retainedUnpaidAmount: 288000,
+      unexplainedDiscrepancy: 0,
+      ownerGrossReconciliation: {
+        ownerGross: 208400,
+        farmerGross: 707400,
+        baseDifference: -499000,
+        transportAmount: 18000,
+        farmerDeductions: 9000,
+        retainedNoAccountFarmerAmount: 288000,
+        operationalMargin: -472000,
+        totalAfterOperations: -184000,
+      },
+      farmers: report.farmerPayments.slice(0, 2),
+    },
+  };
+
+  const pdf = await renderUkweziPdf({
+    report: auditReport,
+    user: { id: 73, name: 'Latina account holder', email: 'latina@example.invalid', accountType: 'COLLECTOR' },
+    query: { month: '10', year: '2026', periodType: 'first-half' },
+  });
+
+  assert.equal(pdf.subarray(0, 5).toString('ascii'), '%PDF-');
+  assert.ok(pdf.length > 5000);
+});
+
+test('Ukwezi PDF renders Area A (Farmer Accounting) with 35,370 RWF gap, Area B (Nyirayo Accounting) with -499,000 RWF difference, and avoids SACCO/Ejo Heza labels', async () => {
+  const auditReport = {
+    ...report,
+    farmersMilkValue: 707400,
+    farmerTransportTotal: 23370,
+    farmerDeductionsTotal: 12000,
+    farmerPayableTotal: 672030,
+    accountRoutedPayable: 388030,
+    ownerListRoutedPayable: 284000,
+    nyirayoRecordedMilkValue: 208400,
+    farmersComparisonMilkValue: 707400,
+    nyirayoMilkDifference: -499000,
+    nyirayoTransportAmount: 23370,
+    nyirayoDeductionsAmount: 12000,
+    nyirayoOwnAccountingBalance: -463630,
+    ownerNameListFarmerSettlementAmount: 284000,
+    nyirayoTotalWithOwnerList: -179630,
+    collectorGross: 208400,
+    collectorFarmerMilkValue: 707400,
+    collectorFarmerTransport: 23370,
+    collectorFarmerDeductions: 12000,
+    collectorFarmerPayable: 672030,
+    collectorSurplusAmount: -499000,
+    settlementAccounting: {
+      farmersMilkValue: 707400,
+      farmerPayableTotal: 672030,
+      accountRoutedPayable: 388030,
+      ownerListRoutedPayable: 284000,
+      saccoDistributionInstruction: 388030,
+      saccoConfirmedAmount: 0,
+      cashApprovedAmount: 0,
+      cashConfirmedAmount: 0,
+      debtRepaymentAmount: 0,
+      outstandingDebt: 0,
+      debtBalancesComplete: true,
+      retainedUnpaidAmount: 284000,
+      unexplainedDiscrepancy: 0,
+      ownerGrossReconciliation: {
+        ownerGross: 208400,
+        farmerGross: 707400,
+        baseDifference: -499000,
+        transportAmount: 23370,
+        farmerDeductions: 12000,
+        retainedNoAccountFarmerAmount: 284000,
+        operationalMargin: -463630,
+        totalAfterOperations: -179630,
+        nyirayoRecordedMilkValue: 208400,
+        farmersComparisonMilkValue: 707400,
+        nyirayoMilkDifference: -499000,
+        nyirayoTransportAmount: 23370,
+        nyirayoDeductionsAmount: 12000,
+        nyirayoOwnAccountingBalance: -463630,
+        ownerNameListFarmerSettlementAmount: 284000,
+        nyirayoTotalWithOwnerList: -179630,
+      },
+      farmers: [
+        {
+          farmerId: 201,
+          farmerName: 'Gatete John',
+          totalVolume: 1018.5,
+          grossAmount: 407400,
+          netAmount: 388030,
+          settlement: {
+            saccoDistributionInstruction: 388030,
+            cashApprovedAmount: 0,
+            cashConfirmedAmount: 0,
+            debtRepaymentAmount: 0,
+            outstandingDebt: 0,
+            debtBalanceComplete: true,
+            retainedUnpaidAmount: 0,
+            unexplainedDiscrepancy: 0,
+          },
+        },
+        {
+          farmerId: 202,
+          farmerName: 'Mukamana Claire',
+          totalVolume: 750,
+          grossAmount: 300000,
+          netAmount: 284000,
+          settlement: {
+            saccoDistributionInstruction: 0,
+            cashApprovedAmount: 0,
+            cashConfirmedAmount: 0,
+            debtRepaymentAmount: 0,
+            outstandingDebt: 0,
+            debtBalanceComplete: true,
+            retainedUnpaidAmount: 284000,
+            unexplainedDiscrepancy: 0,
+          },
+        },
+      ],
+    },
+  };
+
+  const pdfRw = await renderUkweziPdf({
+    report: auditReport,
+    user: { id: 73, name: 'Latina account holder', email: 'latina@example.invalid', accountType: 'COLLECTOR' },
+    query: { month: '10', year: '2026', periodType: 'first-half', language: 'rw' },
+  });
+
+  const pdfEn = await renderUkweziPdf({
+    report: auditReport,
+    user: { id: 73, name: 'Latina account holder', email: 'latina@example.invalid', accountType: 'COLLECTOR' },
+    query: { month: '10', year: '2026', periodType: 'first-half', language: 'en' },
+  });
+
+  assert.equal(pdfRw.subarray(0, 5).toString('ascii'), '%PDF-');
+  assert.equal(pdfEn.subarray(0, 5).toString('ascii'), '%PDF-');
+
+  // Verify neither PDF contains "SACCO" or "Ejo Heza" in its text stream
+  const textRw = pdfRw.toString('latin1');
+  const textEn = pdfEn.toString('latin1');
+  assert.doesNotMatch(textRw, /SACCO/i);
+  assert.doesNotMatch(textRw, /Ejo\s*Heza/i);
+  assert.doesNotMatch(textEn, /SACCO/i);
+  assert.doesNotMatch(textEn, /Ejo\s*Heza/i);
+});

@@ -225,3 +225,177 @@ test('strict milk insert reports a changed existing row instead of updating it',
   assert.equal(inputs[0].strictInsert, true);
   assert.equal(inputs[0].volumeMorning, 9);
 });
+
+test('repeated scan submission with the same batchKey is idempotent via import_batches', async () => {
+  const batches = new Map();
+  const upserts = [];
+  const repository = {
+    getCollectorFarmerScope: async () => ({ ownerUserId: 42 }),
+    getMilkContext: async () => ({ farmer: { id: 11 }, center: { id: 5, pricePerLiter: 400, transportRatePerLiter: 20 }, pricePerLiter: 400 }),
+    reserveImportBatch: async ({ ownerUserId, batchKey, kind }) => {
+      assert.equal(kind, 'milk');
+      const existing = batches.get(`${ownerUserId}:${batchKey}`);
+      if (existing) {
+        return { batchId: existing.id, idempotent: true, summary: existing.summary };
+      }
+      const batch = { id: 101, status: 'processing', summary: null };
+      batches.set(`${ownerUserId}:${batchKey}`, batch);
+      return { batchId: 101, idempotent: false };
+    },
+    completeImportBatch: async ({ batchId, summary }) => {
+      for (const batch of batches.values()) {
+        if (batch.id === batchId) {
+          batch.status = 'completed';
+          batch.summary = summary;
+        }
+      }
+    },
+    upsertMilkRecord: async (input) => {
+      upserts.push(input);
+      return { record: { id: 201 }, created: true, updated: false, duplicate: false };
+    },
+  };
+
+  const initial = await Milk.importMilkRecords({
+    ownerUserId: 7,
+    actorId: 7,
+    collectorUserId: 7,
+    date: '2026-10-27',
+    batchKey: 'batch-scan-001',
+    rows: [{ rowNumber: 1, farmerId: 11, volumeMorning: 10, volumeEvening: 0 }],
+    repository,
+  });
+
+  assert.equal(initial.batchId, 101);
+  assert.equal(initial.idempotent, false);
+  assert.equal(initial.summary.created, 1);
+  assert.equal(upserts.length, 1);
+
+  // Re-submission with the exact same batchKey returns idempotent result without calling upsert
+  const replay = await Milk.importMilkRecords({
+    ownerUserId: 7,
+    actorId: 7,
+    collectorUserId: 7,
+    date: '2026-10-27',
+    batchKey: 'batch-scan-001',
+    rows: [{ rowNumber: 1, farmerId: 11, volumeMorning: 10, volumeEvening: 0 }],
+    repository,
+  });
+
+  assert.equal(replay.batchId, 101);
+  assert.equal(replay.idempotent, true);
+  assert.equal(replay.summary.created, 1);
+  assert.equal(upserts.length, 1); // No new upsert executed!
+});
+
+test('milk import passes audit trail metadata with source: ocr_register_scan, businessDate, and scannedAt', async () => {
+  let capturedInput = null;
+  const repository = {
+    getCollectorFarmerScope: async () => ({ ownerUserId: 42 }),
+    getMilkContext: async () => ({ farmer: { id: 11 }, center: { id: 5, pricePerLiter: 400, transportRatePerLiter: 20 }, pricePerLiter: 400 }),
+    upsertMilkRecord: async (input) => {
+      capturedInput = input;
+      return { record: { id: 301 }, created: true, updated: false, duplicate: false };
+    },
+  };
+
+  const scanTimestamp = '2026-10-28T06:30:00.000Z';
+  const registerBusinessDate = '2026-10-27';
+
+  await Milk.importMilkRecords({
+    ownerUserId: 7,
+    actorId: 7,
+    collectorUserId: 7,
+    date: registerBusinessDate,
+    batchKey: 'scan-batch-audit-test',
+    scannedAt: scanTimestamp,
+    source: 'ocr_register_scan',
+    session: 'morning',
+    rows: [{
+      rowNumber: 1,
+      farmerId: 11,
+      date: registerBusinessDate,
+      session: 'morning',
+      liters: 12.5,
+      volumeMorning: 12.5,
+      volumeEvening: 0,
+      ocrDetectedName: 'MUKAMANA Alice',
+      ocrDetectedLiters: '12.5 L',
+      confirmedLiters: 12.5,
+    }],
+    repository,
+  });
+
+  assert.ok(capturedInput);
+  assert.equal(capturedInput.date, registerBusinessDate);
+  assert.equal(capturedInput.strictInsert, true);
+  assert.deepEqual(capturedInput.auditDetails, {
+    source: 'ocr_register_scan',
+    scannedAt: scanTimestamp,
+    businessDate: registerBusinessDate,
+    session: 'morning',
+    ocrDetectedName: 'MUKAMANA Alice',
+    ocrDetectedLiters: '12.5 L',
+    confirmedLiters: 12.5,
+    farmerId: 11,
+    batchKey: 'scan-batch-audit-test',
+  });
+});
+
+test('multi-column OCR extraction integrates with milk import to record against register businessDate', async () => {
+  const { extractNotebookEntries } = require('../lib/imports/notebook.js');
+
+  const words = [
+    { text: 'Izina', x: 20, y: 15, width: 45, height: 16, confidence: 0.98 },
+    { text: '26/10/2026', x: 200, y: 15, width: 70, height: 16, confidence: 0.97 },
+    { text: '27/10/2026', x: 320, y: 15, width: 70, height: 16, confidence: 0.98 },
+    { text: '28/10/2026', x: 440, y: 15, width: 70, height: 16, confidence: 0.97 },
+    { text: 'MUKAMANA Alice', x: 20, y: 45, width: 100, height: 14, confidence: 0.96 },
+    { text: '8', x: 230, y: 45, width: 15, height: 14, confidence: 0.94 },
+    { text: '10', x: 350, y: 45, width: 15, height: 14, confidence: 0.95 },
+    { text: '12', x: 470, y: 45, width: 15, height: 14, confidence: 0.94 },
+    { text: 'UWASE Beatrice', x: 20, y: 75, width: 100, height: 14, confidence: 0.96 },
+    { text: '7', x: 230, y: 75, width: 15, height: 14, confidence: 0.93 },
+    { text: '9', x: 350, y: 75, width: 15, height: 14, confidence: 0.95 },
+    { text: '11', x: 470, y: 75, width: 15, height: 14, confidence: 0.94 },
+  ];
+
+  const extracted = extractNotebookEntries(words, '27/10/2026');
+  assert.equal(extracted.businessDate, '2026-10-27');
+  assert.equal(extracted[0].quantity, 10);
+  assert.equal(extracted[1].quantity, 9);
+
+  const recordedInputs = [];
+  const repository = {
+    getCollectorFarmerScope: async () => ({ ownerUserId: 42 }),
+    getMilkContext: async ({ farmerId, date }) => {
+      assert.equal(date, '2026-10-27');
+      return { farmer: { id: farmerId }, center: { id: 5, pricePerLiter: 400, transportRatePerLiter: 20 }, pricePerLiter: 400 };
+    },
+    upsertMilkRecord: async (input) => {
+      recordedInputs.push(input);
+      return { record: { id: 400 + recordedInputs.length }, created: true, updated: false, duplicate: false };
+    },
+  };
+
+  const importResult = await Milk.importMilkRecords({
+    ownerUserId: 7,
+    actorId: 7,
+    collectorUserId: 7,
+    date: extracted.businessDate,
+    source: 'ocr_register_scan',
+    session: 'morning',
+    rows: [
+      { rowNumber: 1, farmerId: 11, liters: extracted[0].quantity, volumeMorning: extracted[0].quantity, volumeEvening: 0 },
+      { rowNumber: 2, farmerId: 12, liters: extracted[1].quantity, volumeMorning: extracted[1].quantity, volumeEvening: 0 },
+    ],
+    repository,
+  });
+
+  assert.equal(importResult.summary.created, 2);
+  assert.equal(recordedInputs.length, 2);
+  assert.equal(recordedInputs[0].date, '2026-10-27');
+  assert.equal(recordedInputs[0].volumeMorning, 10);
+  assert.equal(recordedInputs[1].date, '2026-10-27');
+  assert.equal(recordedInputs[1].volumeMorning, 9);
+});

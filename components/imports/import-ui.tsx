@@ -63,11 +63,16 @@ export function ImportProgress({ value, max, label }: { value: number; max: numb
 
 const STATUS_TONE: Record<string, string> = {
   ready: 'success',
+  matched: 'success',
   created: 'success',
   exact: 'success',
   possible: 'warning',
+  review: 'warning',
   uncertain: 'warning',
   ambiguous: 'warning',
+  needsMatch: 'danger',
+  needs_match: 'danger',
+  unmatched: 'danger',
   unreadable: 'danger',
   invalid: 'danger',
   failed: 'danger',

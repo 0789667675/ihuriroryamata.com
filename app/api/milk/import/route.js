@@ -36,6 +36,10 @@ export async function POST(request) {
       actorId: user.id,
       collectorUserId: user.id,
       date: body.date,
+      batchKey: body.batchKey,
+      scannedAt: body.scannedAt,
+      source: body.source || 'ocr_register_scan',
+      session: body.session,
       rows: body.rows,
     });
     return NextResponse.json(result, {

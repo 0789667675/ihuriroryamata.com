@@ -8,6 +8,7 @@ export type ImportFarmer = {
   accountNumber?: string | null;
   collectionCenter?: string | null;
   collectorUserId?: number | null;
+  farmerNumber?: number | null;
 };
 
 export type PageResult<T> = {

@@ -50,7 +50,7 @@ test('Collection Center farmer management uses owner scope without Collector ass
   assert.match(farmerView, /!isCollector && !isDairy \? <div className="assignment-tool">/);
   const farmerTable = farmerView.slice(farmerView.indexOf('table-scroll farmers-desktop-table'), farmerView.indexOf('{farmers ? farmers.data.length'));
   assert.match(farmerTable, /farmerNumberShort/);
-  assert.match(farmerTable, /assignedCollector/);
+  assert.doesNotMatch(farmerTable, /assignedCollector/);
   assert.match(farmerTable, /statusLabel/);
   assert.match(farmerTable, /viewFarmerHistory/);
   assert.doesNotMatch(farmerTable, /navIfishi/);

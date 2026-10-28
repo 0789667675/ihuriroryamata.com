@@ -8,19 +8,35 @@ import type { PublicLanguage } from '@/lib/i18n/public-copy';
 import { prepareImageForOcr } from '@/lib/imports/client-files';
 import { loadImportFarmers, loadRecordedFarmerIds, postJson, type ImportFarmer } from '@/lib/imports/client-api';
 import { buildFarmerIndex, farmerLabel, matchFarmer } from '@/lib/imports/farmer-matching';
-import { parseNotebookPage } from '@/lib/imports/notebook';
+import { detectNotebookDateColumns, extractNotebookEntries, parseNotebookPage } from '@/lib/imports/notebook';
 import { detectHeader, normalizeHeader, parseTextRows } from '@/lib/imports/text-parsing';
 import { getAccountingDate } from '@/lib/utils/accounting-period.js';
+
+type DetectedDateCol = {
+  isoDate: string;
+  raw: string;
+  x: number;
+  confidence: number | null;
+  width?: number;
+  y?: number;
+};
 
 type MilkDraft = {
   uid: number;
   rowNumber: number;
+  farmerNumber?: number | null;
+  detectedPhone?: string | null;
+  detectedNationalId?: string | null;
+  detectedAccountNumber?: string | null;
   nameText: string;
   rawText: string;
   quantityRaw: string;
   ocrStatus: string;
   confidence: number | null;
   dateColumnFound: boolean;
+  businessDate: string;
+  session: 'morning' | 'evening';
+  litres: string;
   morning: string;
   evening: string;
   farmerId: string;
@@ -32,7 +48,7 @@ type MilkDraft = {
 };
 
 type AssessedMilkRow = MilkDraft & {
-  status: 'ready' | 'unmatched' | 'uncertain' | 'unreadable' | 'duplicate' | 'invalid' | 'excluded';
+  status: 'matched' | 'review' | 'needsMatch' | 'duplicate' | 'invalid' | 'excluded';
   detail: string;
   morningValue: number;
   eveningValue: number;
@@ -54,6 +70,12 @@ type ServerMilkRow = {
 const isAbort = (error: unknown) => error instanceof DOMException && error.name === 'AbortError';
 
 const todayIso = () => getAccountingDate();
+
+const toDisplayDate = (isoDate: string) => {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(isoDate || ''));
+  if (!match) return isoDate;
+  return `${match[3]}/${match[2]}/${match[1]}`;
+};
 
 const parseVolume = (value: string) => {
   const text = String(value ?? '').replace(',', '.').trim();
@@ -126,16 +148,22 @@ export function MilkNotebookImportModal({
   onCompleted,
   collectionDate,
   language,
+  centers = [],
 }: {
   onClose: () => void;
   onCompleted: () => Promise<void> | void;
   collectionDate: string;
   language: PublicLanguage;
+  centers?: Array<{ id: number | string; name: string }>;
 }) {
   const t = useCallback((key: ImportCopyKey, params?: Record<string, string | number>) => getImportCopy(language, key, params), [language]);
   const [step, setStep] = useState<0 | 1 | 2>(0);
   const [sourceMode, setSourceMode] = useState<'photo' | 'paste'>('photo');
   const [date, setDate] = useState(collectionDate || todayIso());
+  const [businessDate, setBusinessDate] = useState(collectionDate || todayIso());
+  const [dateDetectionUncertain, setDateDetectionUncertain] = useState(false);
+  const [detectedDateColumns, setDetectedDateColumns] = useState<DetectedDateCol[]>([]);
+  const [selectedColumnDate, setSelectedColumnDate] = useState<string>('');
   const [session, setSession] = useState<'morning' | 'evening'>('morning');
   const [pasteText, setPasteText] = useState('');
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
@@ -164,10 +192,24 @@ export function MilkNotebookImportModal({
   const [serverResults, setServerResults] = useState<ServerMilkRow[]>([]);
   const [completedSummary, setCompletedSummary] = useState<{ created: number; failed: number; duplicates: number } | null>(null);
 
+  // Inline quick farmer registration state
+  const [inlineRegisterRow, setInlineRegisterRow] = useState<number | null>(null);
+  const [regName, setRegName] = useState('');
+  const [regPhone, setRegPhone] = useState('');
+  const [regCenter, setRegCenter] = useState('');
+  const [regCenterId, setRegCenterId] = useState<number | ''>('');
+  const [regNid, setRegNid] = useState('');
+  const [regAccount, setRegAccount] = useState('');
+  const [regSaving, setRegSaving] = useState(false);
+  const [regError, setRegError] = useState('');
+
   const uidRef = useRef(0);
   const abortRef = useRef<AbortController | null>(null);
   const previewRef = useRef('');
   const saveLockRef = useRef(false);
+  const ocrWordsRef = useRef<Array<{ text: string; x: number; y: number; width: number; height: number; confidence?: number }>>([]);
+  const batchKeyRef = useRef<string>('');
+  const scannedAtRef = useRef<string>('');
 
   const farmerIndex = useMemo(() => buildFarmerIndex(existingFarmers), [existingFarmers]);
   const farmerById = useMemo(() => new Map(existingFarmers.map((farmer) => [Number(farmer.id), farmer])), [existingFarmers]);
@@ -218,6 +260,10 @@ export function MilkNotebookImportModal({
     setStep(0);
     setSourceMode('photo');
     setDate(collectionDate || todayIso());
+    setBusinessDate(collectionDate || todayIso());
+    setDateDetectionUncertain(false);
+    setDetectedDateColumns([]);
+    setSelectedColumnDate('');
     setSession('morning');
     setPasteText('');
     setSelectedFile(null);
@@ -230,37 +276,74 @@ export function MilkNotebookImportModal({
     setIssuesOnly(false);
     setPage(0);
     setExpandedFarmerRow(null);
+    setInlineRegisterRow(null);
     setConfirmed(false);
     setSaveError('');
     setServerResults([]);
     setCompletedSummary(null);
     setSavedProcessed(0);
     setSaveTotal(0);
+    ocrWordsRef.current = [];
+    batchKeyRef.current = '';
+    scannedAtRef.current = '';
   };
 
   const matchDraft = (name: string, base: {
     rowNumber: number;
+    farmerNumber?: number | null;
+    detectedPhone?: string | null;
+    detectedNationalId?: string | null;
+    detectedAccountNumber?: string | null;
     rawText: string;
     quantityRaw: string;
     ocrStatus: string;
     confidence: number | null;
     dateColumnFound: boolean;
+    businessDate: string;
+    session: 'morning' | 'evening';
+    litres: string;
     morning: string;
     evening: string;
     include: boolean;
     verified: boolean;
   }): MilkDraft => {
-    const match = matchFarmer({ name }, farmerIndex);
-    const exact = match.status === 'exact' && match.farmerId;
+    let exactId: number | null = null;
+    let matchStatus = 'none';
+    let matchReason = '';
+    let candidates: number[] = [];
+
+    if (base.farmerNumber && existingFarmers.length) {
+      const byNum = existingFarmers.find((f) => f.farmerNumber === base.farmerNumber);
+      if (byNum) {
+        exactId = byNum.id;
+        matchStatus = 'exact';
+        matchReason = 'farmer_number_match';
+        candidates = [byNum.id];
+      }
+    }
+
+    if (!exactId) {
+      const match = matchFarmer({ name }, farmerIndex);
+      if (match.status === 'exact' && match.farmerId) {
+        exactId = Number(match.farmerId);
+        matchStatus = 'exact';
+        matchReason = match.reason || 'name_match';
+      } else {
+        matchStatus = match.status;
+        matchReason = match.reason || '';
+      }
+      candidates = (match.candidates || []).map((farmer: { id: number | string }) => Number(farmer.id)).filter(Boolean);
+    }
+
     return {
       uid: uidRef.current += 1,
       ...base,
       nameText: name,
-      farmerId: exact ? String(match.farmerId) : '',
-      candidates: (match.candidates || []).map((farmer: { id: number | string }) => Number(farmer.id)).filter(Boolean),
-      matchStatus: match.status,
-      matchReason: match.reason || '',
-      verified: base.verified && Boolean(exact),
+      farmerId: exactId ? String(exactId) : '',
+      candidates,
+      matchStatus,
+      matchReason,
+      verified: base.verified && Boolean(exactId),
       include: base.include,
     };
   };
@@ -322,37 +405,62 @@ export function MilkNotebookImportModal({
         words: Array<{ text: string; x: number; y: number; width: number; height: number; confidence?: number }>;
       }>('/api/imports/ocr', { imageBase64: prepared.base64, mimeType: prepared.mimeType }, controller.signal);
       if (!result.words?.length) throw new Error(t('errorOcr'));
-      const parsed = parseNotebookPage({ words: result.words, targetDate: date });
+      
+      ocrWordsRef.current = result.words;
+      scannedAtRef.current = new Date().toISOString();
+      batchKeyRef.current = `milk_scan_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
+
+      const cols = detectNotebookDateColumns(result.words, date);
+      setDetectedDateColumns(cols);
+
+      let targetCol: DetectedDateCol | null = null;
+      let effectiveBusinessDate = date;
+
+      if (cols.length > 0) {
+        const found = cols.find((c) => c.isoDate === date) || cols[0];
+        targetCol = found;
+        effectiveBusinessDate = found.isoDate;
+        setSelectedColumnDate(found.isoDate);
+        setBusinessDate(found.isoDate);
+        setDate(found.isoDate);
+        setDateDetectionUncertain(found.confidence !== null && found.confidence < 0.72);
+      } else {
+        setDateDetectionUncertain(true);
+        setSelectedColumnDate('');
+        setBusinessDate(date);
+      }
+
+      const parsed = extractNotebookEntries(result.words, targetCol || date);
       if (!parsed.entries?.length) throw new Error(t('noMilkRows'));
+
       const mode = session;
-      const drafts = parsed.entries.map((entry: {
-        rowNumber: number;
-        rawText: string;
-        name: string;
-        quantity: number | null;
-        quantityRaw: string;
-        status: string;
-        confidence: number | null;
-        dateColumnFound: boolean;
-      }) => {
+      const drafts = parsed.entries.map((entry: any) => {
         const quantity = entry.quantity;
         const amount = quantity !== null && Number.isFinite(Number(quantity)) && Number(quantity) > 0 ? String(quantity) : '';
         const hasQuantity = Boolean(amount) && entry.status !== 'ambiguous' && entry.status !== 'unreadable';
         return matchDraft(entry.name, {
           rowNumber: entry.rowNumber,
+          farmerNumber: entry.farmerNumber || null,
+          detectedPhone: entry.detectedPhone || null,
+          detectedNationalId: entry.detectedNationalId || null,
+          detectedAccountNumber: entry.detectedAccountNumber || null,
           rawText: entry.rawText,
           quantityRaw: entry.quantityRaw,
           ocrStatus: entry.status,
           confidence: entry.confidence,
           dateColumnFound: entry.dateColumnFound,
-          morning: mode === 'morning' ? amount : '',
-          evening: mode === 'evening' ? amount : '',
+          businessDate: effectiveBusinessDate,
+          session: mode,
+          litres: amount,
+          morning: mode === 'morning' ? amount : (entry.morningQuantity ? String(entry.morningQuantity) : ''),
+          evening: mode === 'evening' ? amount : (entry.eveningQuantity ? String(entry.eveningQuantity) : ''),
           include: hasQuantity,
           verified: entry.status === 'ok' && hasQuantity,
         });
       });
-      if (!parsed.dateColumnFound) setWarning(t('dateColumnWarning'));
-      await openReview(drafts, date);
+
+      if (!parsed.dateColumnFound || !cols.length) setWarning(t('dateColumnWarning'));
+      await openReview(drafts, effectiveBusinessDate);
     } catch (scanError) {
       if (isAbort(scanError)) return;
       const code = scanError && typeof scanError === 'object' && 'code' in scanError ? String((scanError as { code?: string }).code || '') : '';
@@ -367,6 +475,72 @@ export function MilkNotebookImportModal({
     } finally {
       setBusy(false);
       setBusyLabel('');
+    }
+  };
+
+  const switchDateColumn = async (col: DetectedDateCol) => {
+    setSelectedColumnDate(col.isoDate);
+    setBusinessDate(col.isoDate);
+    setDate(col.isoDate);
+    setDateDetectionUncertain(col.confidence !== null && col.confidence < 0.72);
+    setConfirmed(false);
+
+    if (ocrWordsRef.current.length > 0) {
+      const parsed = extractNotebookEntries(ocrWordsRef.current, col);
+      if (parsed.entries?.length) {
+        const mode = session;
+        const drafts = parsed.entries.map((entry: {
+          rowNumber: number;
+          rawText: string;
+          name: string;
+          quantity: number | null;
+          quantityRaw: string;
+          status: string;
+          confidence: number | null;
+          dateColumnFound: boolean;
+        }) => {
+          const quantity = entry.quantity;
+          const amount = quantity !== null && Number.isFinite(Number(quantity)) && Number(quantity) > 0 ? String(quantity) : '';
+          const hasQuantity = Boolean(amount) && entry.status !== 'ambiguous' && entry.status !== 'unreadable';
+          return matchDraft(entry.name, {
+            rowNumber: entry.rowNumber,
+            rawText: entry.rawText,
+            quantityRaw: entry.quantityRaw,
+            ocrStatus: entry.status,
+            confidence: entry.confidence,
+            dateColumnFound: entry.dateColumnFound,
+            businessDate: col.isoDate,
+            session: mode,
+            litres: amount,
+            morning: mode === 'morning' ? amount : '',
+            evening: mode === 'evening' ? amount : '',
+            include: hasQuantity,
+            verified: entry.status === 'ok' && hasQuantity,
+          });
+        });
+        await openReview(drafts, col.isoDate);
+      }
+    } else {
+      setRows((current) => current.map((r) => ({ ...r, businessDate: col.isoDate })));
+      try {
+        const recorded = await loadRecordedFarmerIds(col.isoDate);
+        setRecordedFarmerIds(recorded);
+      } catch {}
+    }
+  };
+
+  const handleBusinessDateChange = async (newDate: string) => {
+    setBusinessDate(newDate);
+    setDate(newDate);
+    setConfirmed(false);
+    setDateDetectionUncertain(false);
+    setRows((current) => current.map((r) => ({ ...r, businessDate: newDate })));
+    setBusy(true);
+    try {
+      const recorded = await loadRecordedFarmerIds(newDate);
+      setRecordedFarmerIds(recorded);
+    } catch {} finally {
+      setBusy(false);
     }
   };
 
@@ -389,10 +563,17 @@ export function MilkNotebookImportModal({
     }
     if (parsed.warning === 'noHeaderSplit') setWarning(t('noHeaderSplit'));
     else if (parsed.warning === 'noHeaderQuantity') setWarning(t('noHeaderQuantity'));
+
+    scannedAtRef.current = new Date().toISOString();
+    batchKeyRef.current = `milk_paste_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
+    setBusinessDate(date);
+    setSelectedColumnDate('');
+
     const drafts = parsed.rows.map((row, index) => {
       const morning = parseVolume(row.morning);
       const evening = parseVolume(row.evening);
       const total = morning.value + evening.value;
+      const initialLitres = total > 0 ? (morning.value > 0 ? String(morning.value) : String(evening.value)) : '';
       return matchDraft(row.name, {
         rowNumber: index + 1,
         rawText: row.raw,
@@ -400,6 +581,9 @@ export function MilkNotebookImportModal({
         ocrStatus: row.invalidQuantity ? 'unreadable' : total > 0 ? 'ok' : 'unreadable',
         confidence: null,
         dateColumnFound: true,
+        businessDate: date,
+        session: morning.value > 0 ? 'morning' : 'evening',
+        litres: initialLitres,
         morning: row.morning,
         evening: row.evening,
         include: total > 0 && !row.invalidQuantity,
@@ -429,6 +613,52 @@ export function MilkNotebookImportModal({
     });
   };
 
+  const startInlineRegister = (row: MilkDraft) => {
+    setInlineRegisterRow(row.uid);
+    setRegName(row.nameText);
+    setRegPhone(row.detectedPhone || '');
+    setRegNid(row.detectedNationalId || '');
+    setRegAccount(row.detectedAccountNumber || '');
+    const firstCenter = centers.length === 1 ? centers[0] : null;
+    const centerName = firstCenter ? firstCenter.name : (existingFarmers.find((f) => f.collectionCenter)?.collectionCenter || '');
+    const centerId = firstCenter ? Number(firstCenter.id) : (existingFarmers.find((f) => f.collectionCenter)?.id ? 1 : '');
+    setRegCenter(centerName);
+    setRegCenterId(centerId);
+    setRegError('');
+  };
+
+  const submitInlineRegister = async (row: MilkDraft) => {
+    if (!regName.trim()) {
+      setRegError(language === 'rw' ? 'Izina rirakenewe.' : 'Farmer name is required.');
+      return;
+    }
+    setRegSaving(true);
+    setRegError('');
+    try {
+      const created = await postJson<ImportFarmer>('/api/farmers', {
+        name: regName.trim(),
+        phone: regPhone.trim() || null,
+        collectionCenter: regCenter.trim() || null,
+        collectionCenterId: regCenterId ? Number(regCenterId) : undefined,
+        nationalId: regNid.trim() || null,
+        accountNumber: regAccount.trim() || null,
+      });
+      setExistingFarmers((prev) => [...prev, created]);
+      updateRow(row.uid, {
+        farmerId: String(created.id),
+        nameText: created.name,
+        matchStatus: 'exact',
+        matchReason: 'inline_registered',
+        verified: Boolean(row.litres && row.ocrStatus === 'ok'),
+      });
+      setInlineRegisterRow(null);
+    } catch (err) {
+      setRegError(err instanceof Error ? err.message : t('errorGeneric'));
+    } finally {
+      setRegSaving(false);
+    }
+  };
+
   const duplicateCounts = useMemo(() => {
     const counts = new Map<string, number>();
     for (const row of rows) {
@@ -439,61 +669,76 @@ export function MilkNotebookImportModal({
   }, [rows]);
 
   const assessedRows = useMemo<AssessedMilkRow[]>(() => rows.map((row) => {
+    const litresParsed = parseVolume(row.litres);
     const morning = parseVolume(row.morning);
     const evening = parseVolume(row.evening);
-    const total = morning.value + evening.value;
+    const total = litresParsed.present
+      ? litresParsed.value
+      : (morning.value + evening.value);
     const existingMilk = Boolean(row.farmerId) && recordedFarmerIds.has(Number(row.farmerId));
     const duplicateInPage = Boolean(row.farmerId) && (duplicateCounts.get(row.farmerId) || 0) > 1;
-    const invalidVolume = morning.invalid || evening.invalid;
-    let status: AssessedMilkRow['status'] = 'ready';
+    const invalidVolume = litresParsed.invalid || morning.invalid || evening.invalid;
+
+    let status: AssessedMilkRow['status'] = 'matched';
     let detail = '';
-    if (!row.include) status = 'excluded';
-    else if (!row.farmerId) {
-      status = 'unmatched';
-      detail = row.candidates.length ? row.candidates.slice(0, 3).map((id) => farmerById.get(id)?.name).filter(Boolean).join(' / ') : t('selectFarmerForRow');
+
+    if (!row.include) {
+      status = 'excluded';
+    } else if (!row.farmerId || row.matchStatus === 'none' || row.matchStatus === 'ambiguous') {
+      status = 'needsMatch';
+      detail = row.candidates.length
+        ? row.candidates.slice(0, 3).map((id) => farmerById.get(id)?.name).filter(Boolean).join(' / ')
+        : t('selectFarmerForRow');
     } else if (duplicateInPage) {
       status = 'duplicate';
       detail = t('duplicateInPage');
     } else if (existingMilk) {
       status = 'duplicate';
       detail = t('existingRecord');
-    } else if (!total || invalidVolume) {
-      status = 'unreadable';
+    } else if (invalidVolume) {
+      status = 'invalid';
       detail = t('milkNoQty');
-    } else if (!row.verified) {
-      status = 'uncertain';
-      detail = t('confirmRow');
+    } else if (!total) {
+      status = 'review';
+      detail = t('milkNoQty');
+    } else if (!row.verified && (row.ocrStatus === 'uncertain' || row.ocrStatus === 'ambiguous' || row.ocrStatus === 'unreadable' || !row.dateColumnFound || (row.confidence !== null && row.confidence < 0.72))) {
+      status = 'review';
+      detail = row.quantityRaw ? `OCR: ${row.quantityRaw}` : t('verifyQuantity');
     }
+
     const farmer = row.farmerId ? farmerById.get(Number(row.farmerId)) : null;
-    if (farmer && !detail) detail = farmerLabel(farmer);
+    if (farmer && !detail && status === 'matched') detail = farmerLabel(farmer);
+
+    const isBlocking = row.include && (status === 'needsMatch' || status === 'review' || status === 'duplicate' || status === 'invalid');
+
     return {
       ...row,
       status,
       detail,
-      morningValue: morning.value,
-      eveningValue: evening.value,
+      morningValue: (row.session || session) === 'morning' ? total : morning.value,
+      eveningValue: (row.session || session) === 'evening' ? total : evening.value,
       total,
       duplicateInPage,
       existingMilk,
-      blocking: row.include && (status === 'unmatched' || status === 'uncertain' || status === 'unreadable' || status === 'duplicate'),
+      blocking: isBlocking,
     };
-  }), [rows, recordedFarmerIds, duplicateCounts, farmerById, t]);
+  }), [rows, recordedFarmerIds, duplicateCounts, farmerById, session, t]);
 
   const includedRows = assessedRows.filter((row) => row.include);
   const blockingRows = includedRows.filter((row) => row.blocking);
   const canSave = confirmed && includedRows.length > 0 && blockingRows.length === 0 && !saveRunning && !busy;
+
   const counts = assessedRows.reduce((summary, row) => {
     summary.total += 1;
-    if (row.status === 'ready') summary.ready += 1;
+    if (row.status === 'matched') summary.matched += 1;
     else if (row.status === 'duplicate') summary.duplicate += 1;
-    else if (row.status === 'unmatched') summary.unmatched += 1;
-    else if (row.status === 'uncertain') summary.uncertain += 1;
-    else if (row.status === 'unreadable') summary.unreadable += 1;
+    else if (row.status === 'needsMatch') summary.needsMatch += 1;
+    else if (row.status === 'review') summary.review += 1;
     else summary.excluded += 1;
     return summary;
-  }, { total: 0, ready: 0, duplicate: 0, unmatched: 0, uncertain: 0, unreadable: 0, excluded: 0 });
+  }, { total: 0, matched: 0, duplicate: 0, needsMatch: 0, review: 0, excluded: 0 });
 
-  const filteredRows = assessedRows.filter((row) => !issuesOnly || row.status !== 'ready' && row.status !== 'excluded');
+  const filteredRows = assessedRows.filter((row) => !issuesOnly || (row.status !== 'matched' && row.status !== 'excluded'));
   const pageSize = 25;
   const totalPages = Math.max(1, Math.ceil(filteredRows.length / pageSize));
   const safePage = Math.min(page, totalPages - 1);
@@ -501,11 +746,11 @@ export function MilkNotebookImportModal({
   useEffect(() => { if (page !== safePage) setPage(safePage); }, [page, safePage]);
 
   const statusLabel = (row: AssessedMilkRow) => {
-    if (row.status === 'ready') return t('ready');
+    if (row.status === 'matched') return t('matched');
+    if (row.status === 'review') return t('reviewBadge');
+    if (row.status === 'needsMatch') return t('needsMatch');
     if (row.status === 'duplicate') return t('duplicate');
-    if (row.status === 'unmatched') return t('unmatched');
-    if (row.status === 'uncertain') return t('uncertain');
-    if (row.status === 'unreadable') return t('unreadable');
+    if (row.status === 'invalid') return t('invalid');
     return t('excluded');
   };
 
@@ -535,6 +780,10 @@ export function MilkNotebookImportModal({
     let created = 0;
     let failed = 0;
     let duplicates = 0;
+
+    const currentBatchKey = batchKeyRef.current || `milk_scan_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`;
+    const currentScannedAt = scannedAtRef.current || new Date().toISOString();
+
     try {
       for (let offset = 0; offset < includedRows.length; offset += 50) {
         if (controller.signal.aborted) throw new DOMException('Aborted', 'AbortError');
@@ -543,14 +792,25 @@ export function MilkNotebookImportModal({
           summary?: { created?: number; failed?: number; duplicates?: number };
           rows?: ServerMilkRow[];
         }>('/api/milk/import', {
-          date,
+          date: businessDate,
+          batchKey: currentBatchKey,
+          scannedAt: currentScannedAt,
+          source: 'ocr_register_scan',
+          session,
           rows: chunk.map((row) => ({
             rowNumber: row.rowNumber,
             farmerId: Number(row.farmerId),
-            volumeMorning: row.morningValue,
-            volumeEvening: row.eveningValue,
+            date: row.businessDate || businessDate,
+            session: row.session || session,
+            liters: row.total,
+            volumeMorning: (row.session || session) === 'morning' ? row.total : 0,
+            volumeEvening: (row.session || session) === 'evening' ? row.total : 0,
+            ocrDetectedName: row.nameText || row.rawText || null,
+            ocrDetectedLiters: row.quantityRaw || null,
+            confirmedLiters: row.total,
           })),
         }, controller.signal);
+
         const chunkRows = Array.isArray(result.rows) ? result.rows : [];
         collected.push(...chunkRows);
         setServerResults([...collected]);
@@ -564,7 +824,7 @@ export function MilkNotebookImportModal({
       try {
         await onCompleted();
       } catch {
-        // The milk rows were saved; a table refresh failure must not be reported as a save failure.
+        // Table refresh error is non-fatal
       }
     } catch (saveFailure) {
       if (isAbort(saveFailure)) {
@@ -589,6 +849,9 @@ export function MilkNotebookImportModal({
       ocrStatus: 'manual',
       confidence: null,
       dateColumnFound: true,
+      businessDate,
+      session,
+      litres: '',
       morning: '',
       evening: '',
       farmerId: '',
@@ -646,7 +909,7 @@ export function MilkNotebookImportModal({
 
     {step === 0 ? <div className="import-source">
       <div className="import-milk-meta">
-        <label>{t('targetDate')}<input type="date" value={date} onChange={(event) => setDate(event.target.value)} required /></label>
+        <label>{t('targetDate')}<input type="date" value={date} onChange={(event) => { setDate(event.target.value); setBusinessDate(event.target.value); }} required /></label>
         <label>{t('session')}<select value={session} onChange={(event) => setSession(event.target.value as 'morning' | 'evening')}><option value="morning">{t('morning')}</option><option value="evening">{t('evening')}</option></select></label>
       </div>
       <div className="import-source-tabs" role="tablist" aria-label={t('sourceTitle')}>
@@ -696,13 +959,52 @@ export function MilkNotebookImportModal({
 
     {step === 1 ? <div className="import-review">
       {saveRunning ? <ImportProgress value={savedProcessed} max={saveTotal} label={t('progress', { done: savedProcessed, total: saveTotal })} /> : null}
+
+      {/* Detected Date Columns Pill Bar */}
+      {detectedDateColumns.length > 0 ? (
+        <div className="import-date-pills-bar" role="region" aria-label={t('detectedDateColumns')}>
+          <span className="muted-note"><strong>{t('detectedDateColumns')}:</strong></span>
+          {detectedDateColumns.map((col) => (
+            <button
+              key={`${col.raw}-${col.x}`}
+              type="button"
+              className={`import-date-pill ${selectedColumnDate === col.isoDate ? 'active' : ''}`}
+              onClick={() => switchDateColumn(col)}
+              disabled={saveRunning}
+            >
+              <span>{col.raw}</span>
+              <small>({col.isoDate})</small>
+            </button>
+          ))}
+        </div>
+      ) : null}
+
+      {/* Authoritative Business Date Display and Warning */}
+      <div className="import-review-meta">
+        <label className="import-business-date-control">
+          <span>{t('businessDate')}: </span>
+          <input
+            type="date"
+            value={businessDate}
+            onChange={(event) => handleBusinessDateChange(event.target.value)}
+            disabled={saveRunning}
+          />
+        </label>
+        <span>{t('session')}: <b>{t(session)}</b></span>
+      </div>
+
+      {dateDetectionUncertain ? (
+        <ImportNotice tone="warning" role="alert">
+          {t('dateDetectionUncertain')}
+        </ImportNotice>
+      ) : null}
+
       <div className="import-review-toolbar">
         <div className="import-counts">
           <span><b>{counts.total}</b> {t('allRows')}</span>
-          <span className="ok"><b>{counts.ready}</b> {t('ready')}</span>
-          {counts.uncertain ? <span className="warn"><b>{counts.uncertain}</b> {t('uncertain')}</span> : null}
-          {counts.unmatched ? <span className="warn"><b>{counts.unmatched}</b> {t('unmatched')}</span> : null}
-          {counts.unreadable ? <span className="danger"><b>{counts.unreadable}</b> {t('unreadable')}</span> : null}
+          <span className="ok"><b>{counts.matched}</b> {t('matched')}</span>
+          {counts.review ? <span className="warn"><b>{counts.review}</b> {t('reviewBadge')}</span> : null}
+          {counts.needsMatch ? <span className="warn"><b>{counts.needsMatch}</b> {t('needsMatch')}</span> : null}
           {counts.duplicate ? <span className="danger"><b>{counts.duplicate}</b> {t('duplicate')}</span> : null}
         </div>
         <div className="import-review-toolbar-actions">
@@ -710,32 +1012,226 @@ export function MilkNotebookImportModal({
           <button type="button" className="button button-secondary small-button" onClick={addManualRow} disabled={saveRunning}><Plus size={14} />{t('addManualRow')}</button>
         </div>
       </div>
-      <div className="import-review-meta"><span>{t('targetDate')}: <b>{date}</b></span><span>{t('session')}: <b>{t(session)}</b></span></div>
+
+      {/* Review Table conforming to specification: # | Farmer (Matched Name & #Number) | Date (DD/MM/YYYY) | Session | Litres | Status */}
       <div className="table-scroll import-review-table import-milk-table"><table>
-        <thead><tr><th>{t('include')}</th><th>{t('rowNumber')}</th><th>{t('name')}</th><th>{t('selectFarmer')}</th><th>{t('morningQty')}</th><th>{t('eveningQty')}</th><th>{t('confirmRow')}</th><th>{t('status')}</th></tr></thead>
-        <tbody>{visibleRows.map((row) => <tr key={row.uid} className={row.status === 'duplicate' || row.status === 'unreadable' ? 'import-row-blocked' : row.status === 'uncertain' || row.status === 'unmatched' ? 'import-row-warning' : ''}>
-          <td><input type="checkbox" aria-label={`${t('include')} ${row.rowNumber}`} checked={row.include} disabled={saveRunning} onChange={(event) => updateRow(row.uid, { include: event.target.checked, verified: event.target.checked ? false : row.verified })} /></td>
-          <td>{row.rowNumber}</td>
-          <td className="import-ocr-name"><b>{row.nameText || '—'}</b>{row.rawText && row.rawText !== row.nameText ? <small title={row.rawText}>{row.rawText}</small> : null}{row.quantityRaw ? <small>{t('quantity')}: {row.quantityRaw}</small> : null}</td>
-          <td><select value={row.farmerId} onChange={(event) => chooseFarmer(row, event.target.value)} disabled={saveRunning}>
-            <option value="">{t('selectFarmer')}</option>
-            {farmerOptions(row).map((farmer) => <option key={farmer.id} value={farmer.id}>{farmerLabel(farmer)}</option>)}
-            {expandedFarmerRow !== row.uid ? <option value="__all__">{t('showAllFarmers')}</option> : null}
-          </select></td>
-          <td><input type="number" min="0" max="10000" step="0.01" value={row.morning} onChange={(event) => updateRow(row.uid, { morning: event.target.value, verified: false })} disabled={saveRunning} /></td>
-          <td><input type="number" min="0" max="10000" step="0.01" value={row.evening} onChange={(event) => updateRow(row.uid, { evening: event.target.value, verified: false })} disabled={saveRunning} /></td>
-          <td><input type="checkbox" aria-label={t('confirmRow')} checked={row.verified} disabled={saveRunning || !row.include} onChange={(event) => updateRow(row.uid, { verified: event.target.checked })} /></td>
-          <td className="import-status-cell"><ImportStatus status={row.status} label={statusLabel(row)} />{row.detail ? <small>{row.detail}</small> : null}{row.matchStatus === 'ambiguous' ? <small>{t('ambiguous')}: {row.candidates.slice(0, 3).map((id) => farmerById.get(id)?.name).filter(Boolean).join(' / ')}</small> : null}</td>
-        </tr>)}</tbody>
+        <thead>
+          <tr>
+            <th style={{ width: 50 }}>#</th>
+            <th>{language === 'rw' ? 'Umworozi (Izina & #Nimero)' : 'Farmer (Matched Name & #Number)'}</th>
+            <th>{language === 'rw' ? 'Itariki (DD/MM/YYYY)' : 'Date (DD/MM/YYYY)'}</th>
+            <th>{t('session')}</th>
+            <th>{t('litres')}</th>
+            <th>{t('status')}</th>
+          </tr>
+        </thead>
+        <tbody>{visibleRows.map((row) => {
+          const farmer = row.farmerId ? farmerById.get(Number(row.farmerId)) : null;
+          return <tr key={row.uid} className={row.status === 'duplicate' ? 'import-row-blocked' : row.status === 'review' || row.status === 'needsMatch' ? 'import-row-warning' : ''}>
+            <td>
+              <label className="import-row-number-label">
+                <input
+                  type="checkbox"
+                  aria-label={`${t('include')} ${row.rowNumber}`}
+                  checked={row.include}
+                  disabled={saveRunning}
+                  onChange={(event) => updateRow(row.uid, { include: event.target.checked, verified: event.target.checked ? false : row.verified })}
+                />
+                <span>{row.rowNumber}</span>
+              </label>
+            </td>
+            <td className="import-ocr-name">
+              <div className="farmer-match-cell">
+                {farmer ? (
+                  <div className="matched-farmer-info">
+                    <b>{farmer.name} <span className="farmer-badge-id">#{farmer.id}</span></b>
+                    {row.nameText && row.nameText !== farmer.name ? <small>OCR: {row.nameText}</small> : null}
+                  </div>
+                ) : (
+                  <div className="unmatched-farmer-info">
+                    <b>{row.nameText || '—'}</b>
+                    {row.rawText && row.rawText !== row.nameText ? <small title={row.rawText}>{row.rawText}</small> : null}
+                  </div>
+                )}
+                <div className="farmer-select-row">
+                  <select value={row.farmerId} onChange={(event) => chooseFarmer(row, event.target.value)} disabled={saveRunning}>
+                    <option value="">{t('selectFarmer')}</option>
+                    {farmerOptions(row).map((f) => <option key={f.id} value={f.id}>{farmerLabel(f)}</option>)}
+                    {expandedFarmerRow !== row.uid ? <option value="__all__">{t('showAllFarmers')}</option> : null}
+                  </select>
+                  {(!row.farmerId || row.matchStatus === 'ambiguous' || row.matchStatus === 'none') ? (
+                    <button
+                      type="button"
+                      className="button button-secondary small-button"
+                      onClick={() => startInlineRegister(row)}
+                      disabled={saveRunning}
+                    >
+                      <Plus size={12} /> {t('registerNewFarmer')}
+                    </button>
+                  ) : null}
+                </div>
+                {inlineRegisterRow === row.uid ? (
+                  <div className="inline-register-box" role="region" aria-label={t('registerNewFarmer')}>
+                    <strong>{t('registerNewFarmer')}</strong>
+                    {regError ? <div className="text-danger small">{regError}</div> : null}
+                    <div className="inline-register-grid">
+                      <label>
+                        <span>{t('name')}*</span>
+                        <input type="text" value={regName} onChange={(e) => setRegName(e.target.value)} required />
+                      </label>
+                      <label>
+                        <span>{t('phone')}</span>
+                        <input type="tel" value={regPhone} onChange={(e) => setRegPhone(e.target.value)} placeholder="0788..." />
+                      </label>
+                      {centers.length > 1 ? (
+                        <label>
+                          <span>{t('center')}</span>
+                          <select value={regCenterId} onChange={(e) => {
+                            const val = e.target.value;
+                            setRegCenterId(val ? Number(val) : '');
+                            const found = centers.find((c) => String(c.id) === val);
+                            setRegCenter(found ? found.name : '');
+                          }}>
+                            <option value="">{t('chooseCenter')}</option>
+                            {centers.map((c) => <option key={c.id} value={String(c.id)}>{c.name}</option>)}
+                          </select>
+                        </label>
+                      ) : null}
+                      <label>
+                        <span>{t('nationalId')}</span>
+                        <input type="text" value={regNid} onChange={(e) => setRegNid(e.target.value)} />
+                      </label>
+                      <label>
+                        <span>{t('accountNumber')}</span>
+                        <input type="text" value={regAccount} onChange={(e) => setRegAccount(e.target.value)} />
+                      </label>
+                    </div>
+                    <div className="inline-register-actions">
+                      <button
+                        type="button"
+                        className="button button-primary small-button"
+                        onClick={() => submitInlineRegister(row)}
+                        disabled={regSaving || !regName.trim()}
+                      >
+                        <Check size={12} /> {regSaving ? t('savingFarmer') : t('registerNewFarmer')}
+                      </button>
+                      <button
+                        type="button"
+                        className="button button-secondary small-button"
+                        onClick={() => setInlineRegisterRow(null)}
+                        disabled={regSaving}
+                      >
+                        {t('cancel')}
+                      </button>
+                    </div>
+                  </div>
+                ) : null}
+              </div>
+            </td>
+            <td>
+              <div className="date-cell">
+                <input
+                  type="date"
+                  value={row.businessDate || businessDate}
+                  onChange={(event) => updateRow(row.uid, { businessDate: event.target.value, verified: false })}
+                  disabled={saveRunning}
+                />
+                <small className="date-display-hint">{toDisplayDate(row.businessDate || businessDate)}</small>
+              </div>
+            </td>
+            <td>
+              <select
+                value={row.session || session}
+                onChange={(event) => {
+                  const nextSession = event.target.value as 'morning' | 'evening';
+                  updateRow(row.uid, {
+                    session: nextSession,
+                    morning: nextSession === 'morning' ? row.litres : '',
+                    evening: nextSession === 'evening' ? row.litres : '',
+                    verified: false,
+                  });
+                }}
+                disabled={saveRunning}
+              >
+                <option value="morning">{t('morning')}</option>
+                <option value="evening">{t('evening')}</option>
+              </select>
+            </td>
+            <td>
+              <div className="litres-cell">
+                <input
+                  type="number"
+                  min="0"
+                  max="10000"
+                  step="0.01"
+                  value={row.litres}
+                  onChange={(event) => {
+                    const val = event.target.value;
+                    const num = Number(val);
+                    updateRow(row.uid, {
+                      litres: val,
+                      morning: (row.session || session) === 'morning' ? val : '',
+                      evening: (row.session || session) === 'evening' ? val : '',
+                      verified: Number.isFinite(num) && num > 0,
+                    });
+                  }}
+                  disabled={saveRunning}
+                />
+                {row.quantityRaw ? <small title={row.quantityRaw}>OCR: {row.quantityRaw}</small> : null}
+                {!row.verified && row.status === 'review' ? (
+                  <label className="inline-confirm-check">
+                    <input
+                      type="checkbox"
+                      checked={row.verified}
+                      onChange={(e) => updateRow(row.uid, { verified: e.target.checked })}
+                    />
+                    <span>{t('confirmRow')}</span>
+                  </label>
+                ) : null}
+              </div>
+            </td>
+            <td className="import-status-cell">
+              <ImportStatus status={row.status} label={statusLabel(row)} />
+              {row.detail ? <small>{row.detail}</small> : null}
+              {row.matchStatus === 'ambiguous' ? <small>{t('ambiguous')}: {row.candidates.slice(0, 3).map((id) => farmerById.get(id)?.name).filter(Boolean).join(' / ')}</small> : null}
+            </td>
+          </tr>;
+        })}</tbody>
       </table></div>
+
       {!visibleRows.length ? <p className="muted-note">{t('noMilkRows')}</p> : null}
       <ImportPager page={safePage} pages={totalPages} onChange={setPage} previousLabel={t('previous')} nextLabel={t('next')} />
       <ImportNotice tone="info">{t('reviewMilkHint')}</ImportNotice>
+
       <div className="import-confirm">
-        <label className="import-check"><input type="checkbox" checked={confirmed} disabled={saveRunning} onChange={(event) => setConfirmed(event.target.checked)} />{t('confirmReview')}</label>
-        {blockingRows.length ? <ImportNotice tone="warning">{blockingRows.length} {t('reviewMilkHint')}</ImportNotice> : null}
+        <label className="import-check">
+          <input
+            type="checkbox"
+            checked={confirmed}
+            disabled={saveRunning || blockingRows.length > 0}
+            onChange={(event) => setConfirmed(event.target.checked)}
+          />
+          {t('confirmBusinessDate')}: <b>{toDisplayDate(businessDate)}</b>
+        </label>
+        {blockingRows.length ? (
+          <ImportNotice tone="warning">
+            {blockingRows.length} {t('reviewMilkHint')} ({t('unmatched')}: {counts.needsMatch}, {t('reviewBadge')}: {counts.review})
+          </ImportNotice>
+        ) : null}
       </div>
-      {serverResults.some((row) => row.status !== 'created') ? <div className="import-results"><h4>{t('batchSummary')}</h4><ul>{serverResults.filter((row) => row.status !== 'created').map((row) => <li key={`${row.rowNumber}-${row.errorCode}`}>{t('rowNumber')} {row.rowNumber}: {row.message || row.errorCode}</li>)}</ul></div> : null}
+
+      {serverResults.some((row) => row.status !== 'created') ? (
+        <div className="import-results">
+          <h4>{t('batchSummary')}</h4>
+          <ul>
+            {serverResults.filter((row) => row.status !== 'created').map((row) => (
+              <li key={`${row.rowNumber}-${row.errorCode}`}>
+                {t('rowNumber')} {row.rowNumber}: {row.message || row.errorCode}
+              </li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
     </div> : null}
 
     {step === 2 && completedSummary ? <div className="import-done">
@@ -747,7 +1243,18 @@ export function MilkNotebookImportModal({
         <div><b>{completedSummary.duplicates}</b><span>{t('duplicates')}</span></div>
         <div><b>{completedSummary.failed}</b><span>{t('failed')}</span></div>
       </div>
-      {serverResults.some((row) => row.status !== 'created') ? <div className="import-results"><h4>{t('batchSummary')}</h4><ul>{serverResults.filter((row) => row.status !== 'created').map((row) => <li key={`${row.rowNumber}-${row.errorCode}`}>{t('rowNumber')} {row.rowNumber}: {row.message || row.errorCode}</li>)}</ul></div> : null}
+      {serverResults.some((row) => row.status !== 'created') ? (
+        <div className="import-results">
+          <h4>{t('batchSummary')}</h4>
+          <ul>
+            {serverResults.filter((row) => row.status !== 'created').map((row) => (
+              <li key={`${row.rowNumber}-${row.errorCode}`}>
+                {t('rowNumber')} {row.rowNumber}: {row.message || row.errorCode}
+              </li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
     </div> : null}
   </ImportFrame>;
 }

@@ -1301,3 +1301,202 @@ test('historical farmer aggregate keys preserve PostgreSQL date-only values', as
   assert.equal(dailyLiters.get('2026-06-20'), 40);
   assert.deepEqual(dailyTotals.get('2026-06-20'), { validLiters: 40, originalLiters: 45, lostLiters: 5, grossAmount: 16000, milkValueComplete: true });
 });
+
+test('Igenzura rya Nyirayo: computes signed base difference (-499,000 RWF), preserves non-account farmer funds, and tracks operational margins', async () => {
+  const nyirayoEntries = [{
+    date: '2026-10-01',
+    volumeLiters: 521,
+    effectiveVolumeLiters: 521,
+    farmerLostLiters: 0,
+    pricePerLiter: 400,
+    status: 'valid',
+  }];
+
+  const farmers = [
+    {
+      farmerId: 101,
+      farmerName: 'Kagina Jean',
+      accountNumber: '400123456789',
+      totalVolume: 1018.5,
+      grossAmount: 407400,
+      totalTransport: 10000,
+      totalDeductions: 5000,
+      netAmount: 392400,
+      transportIsComplete: true,
+      milkValueComplete: true,
+    },
+    {
+      farmerId: 102,
+      farmerName: 'Mukamana Claire',
+      accountNumber: null,
+      totalVolume: 750,
+      grossAmount: 300000,
+      totalTransport: 8000,
+      totalDeductions: 4000,
+      netAmount: 288000,
+      transportIsComplete: true,
+      milkValueComplete: true,
+    },
+  ];
+
+  const repo = reportRepository({
+    entries: nyirayoEntries,
+    getFarmerTotals: async () => farmers,
+    getPeriodTotals: async () => ({ totalVolume: 1768.5, totalAmount: 707400 }),
+    getTotalDeductions: async () => 9000,
+    getFarmerValidLitersByDate: async () => new Map([['2026-10-01', 1768.5]]),
+    getFarmerValidTotalsByDate: async () => new Map([['2026-10-01', { validLiters: 1768.5, originalLiters: 1768.5, lostLiters: 0, grossAmount: 707400, milkValueComplete: true }]]),
+    getOwnerIfishiHistory: async () => [{ validVolumeLiters: 521, pricePerLiter: 400, grossAmount: 208400 }],
+  });
+
+  const summary = await Reports.getSummary({
+    ownerUserId: 42,
+    query: { periodType: 'first-half', month: 10, year: 2026 },
+    repository: repo,
+    settlementRepository: {
+      getPeriodFinancials: async () => ({
+        settlements: [],
+        repayments: [],
+        debts: [],
+      }),
+    },
+  });
+
+  // 1. Authoritative signed base difference: 208,400 - 707,400 = -499,000 (never forced to zero)
+  assert.equal(summary.nyirayoMilkValue, 208400);
+  assert.equal(summary.farmersMilkValue, 707400);
+  assert.equal(summary.nyirayoBaseDifference, -499000);
+
+  // 2. Traceable operational components
+  assert.equal(summary.transportAmount, 18000);
+  assert.equal(summary.farmerDeductions, 9000);
+  assert.equal(summary.retainedNoAccountFarmerAmount, 288000);
+  assert.equal(summary.unaccountedFarmersPool, 288000);
+
+  // 3. Operational margin and Total after operations
+  assert.equal(summary.nyirayoOperationalMargin, -472000); // -499,000 + 18,000 + 9,000
+  assert.equal(summary.nyirayoTotalAfterOperations, -184000); // -472,000 + 288,000
+
+  // 4. Farmer Ledger integrity: all farmers retain full payables
+  const acct = summary.settlementAccounting;
+  assert.ok(acct, 'Settlement accounting should be available');
+  assert.equal(acct.expectedFarmerPayable, 680400);
+  assert.equal(acct.saccoDistributionInstruction, 392400);
+  assert.equal(acct.retainedUnpaidAmount, 288000);
+  assert.equal(acct.saccoDistributionInstruction + acct.retainedUnpaidAmount, acct.expectedFarmerPayable);
+
+  // 5. Owner gross reconciliation preserves signed metrics
+  assert.equal(acct.ownerGrossReconciliation.ownerGross, 208400);
+  assert.equal(acct.ownerGrossReconciliation.farmerGross, 707400);
+  assert.equal(acct.ownerGrossReconciliation.baseDifference, -499000);
+  assert.equal(acct.ownerGrossReconciliation.transportAmount, 18000);
+  assert.equal(acct.ownerGrossReconciliation.farmerDeductions, 9000);
+  assert.equal(acct.ownerGrossReconciliation.retainedNoAccountFarmerAmount, 288000);
+  assert.equal(acct.ownerGrossReconciliation.operationalMargin, -472000);
+  assert.equal(acct.ownerGrossReconciliation.totalAfterOperations, -184000);
+
+  // 6. Collector settlement row pass-through
+  const row = summary.collectorSettlementRow;
+  assert.equal(row.nyirayoMilkValue, 208400);
+  assert.equal(row.farmersMilkValue, 707400);
+  assert.equal(row.nyirayoBaseDifference, -499000);
+  assert.equal(row.transportAmount, 18000);
+  assert.equal(row.farmerDeductions, 9000);
+  assert.equal(row.retainedNoAccountFarmerAmount, 288000);
+  assert.equal(row.nyirayoOperationalMargin, -472000);
+  assert.equal(row.nyirayoTotalAfterOperations, -184000);
+});
+
+test('Area A (Farmer Accounting) and Area B (Nyirayo Accounting) strictly separate 35,370 RWF deductions/transport gap and owner-name list routing', async () => {
+  const nyirayoEntries = [
+    { date: '2026-10-01', volumeLiters: 521, effectiveVolumeLiters: 521, pricePerLiter: 400, grossAmount: 208400, status: 'valid' },
+  ];
+
+  const farmers = [
+    {
+      farmerId: 201,
+      farmerName: 'Gatete John (has account)',
+      accountNumber: 'ACC-12345',
+      totalVolume: 1018.5,
+      grossAmount: 407400,
+      totalTransport: 13370,
+      totalDeductions: 6000,
+      netAmount: 388030,
+      transportIsComplete: true,
+      milkValueComplete: true,
+    },
+    {
+      farmerId: 202,
+      farmerName: 'Mukamana Claire (no account)',
+      accountNumber: null,
+      totalVolume: 750,
+      grossAmount: 300000,
+      totalTransport: 10000,
+      totalDeductions: 6000,
+      netAmount: 284000,
+      transportIsComplete: true,
+      milkValueComplete: true,
+    },
+  ];
+
+  const repo = reportRepository({
+    entries: nyirayoEntries,
+    getFarmerTotals: async () => farmers,
+    getPeriodTotals: async () => ({ totalVolume: 1768.5, totalAmount: 707400 }),
+    getTotalDeductions: async () => 12000,
+    getFarmerValidLitersByDate: async () => new Map([['2026-10-01', 1768.5]]),
+    getFarmerValidTotalsByDate: async () => new Map([['2026-10-01', { validLiters: 1768.5, originalLiters: 1768.5, lostLiters: 0, grossAmount: 707400, milkValueComplete: true }]]),
+    getOwnerIfishiHistory: async () => [{ validVolumeLiters: 521, pricePerLiter: 400, grossAmount: 208400 }],
+  });
+
+  const summary = await Reports.getSummary({
+    ownerUserId: 42,
+    query: { periodType: 'first-half', month: 10, year: 2026 },
+    repository: repo,
+    settlementRepository: {
+      getPeriodFinancials: async () => ({
+        settlements: [],
+        repayments: [],
+        debts: [],
+      }),
+    },
+  });
+
+  // Area A: Farmer Accounting
+  assert.equal(summary.farmersMilkValue, 707400); // Gross milk value
+  assert.equal(summary.farmerTransportTotal, 23370); // 13,370 + 10,000
+  assert.equal(summary.farmerDeductionsTotal, 12000); // 6,000 + 6,000
+  const farmerGap = summary.farmerTransportTotal + summary.farmerDeductionsTotal;
+  assert.equal(farmerGap, 35370); // Exact 35,370 gap
+  assert.equal(summary.farmerPayableTotal, 672030); // 707,400 - 35,370 = 672,030
+  assert.equal(summary.farmersMilkValue - farmerGap, summary.farmerPayableTotal);
+
+  // Traceable routing within Area A
+  assert.equal(summary.accountRoutedPayable, 388030); // Farmers with account numbers
+  assert.equal(summary.ownerListRoutedPayable, 284000); // Farmers without account numbers (routed under Owner-name list)
+  assert.equal(summary.accountRoutedPayable + summary.ownerListRoutedPayable, summary.farmerPayableTotal);
+
+  // Area B: Nyirayo Accounting
+  assert.equal(summary.nyirayoRecordedMilkValue, 208400);
+  assert.equal(summary.farmersComparisonMilkValue, 707400);
+  assert.equal(summary.nyirayoMilkDifference, -499000); // 208,400 - 707,400 = -499,000 (signed, never zeroed out)
+  assert.equal(summary.nyirayoTransportAmount, 23370);
+  assert.equal(summary.nyirayoDeductionsAmount, 12000);
+  assert.equal(summary.nyirayoOwnAccountingBalance, -463630); // -499,000 + 23,370 + 12,000 = -463,630
+  assert.equal(summary.ownerNameListFarmerSettlementAmount, 284000); // Custodial funds under Owner-name list
+  assert.equal(summary.nyirayoTotalWithOwnerList, -179630); // -463,630 + 284,000 = -179,630
+
+  // Settlement reconciliation checks
+  const acct = summary.settlementAccounting;
+  assert.ok(acct);
+  assert.equal(acct.farmersMilkValue, 707400);
+  assert.equal(acct.farmerPayableTotal, 672030);
+  assert.equal(acct.accountRoutedPayable, 388030);
+  assert.equal(acct.ownerListRoutedPayable, 284000);
+  assert.equal(acct.ownerGrossReconciliation.nyirayoRecordedMilkValue, 208400);
+  assert.equal(acct.ownerGrossReconciliation.farmersComparisonMilkValue, 707400);
+  assert.equal(acct.ownerGrossReconciliation.nyirayoMilkDifference, -499000);
+  assert.equal(acct.ownerGrossReconciliation.nyirayoOwnAccountingBalance, -463630);
+  assert.equal(acct.ownerGrossReconciliation.ownerNameListFarmerSettlementAmount, 284000);
+  assert.equal(acct.ownerGrossReconciliation.nyirayoTotalWithOwnerList, -179630);
+});
