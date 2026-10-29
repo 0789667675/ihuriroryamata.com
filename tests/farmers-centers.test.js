@@ -630,3 +630,41 @@ test('signed sessions reject tampering and expose a numeric user identity', () =
   assert.deepEqual(verifySessionToken(token), { id: owner.id, role: owner.role, exp: verifySessionToken(token).exp });
   assert.equal(verifySessionToken(`${token}x`), null);
 });
+
+
+test('Aborozi directory implements 7-column hierarchy with neutral status pill for unassigned farmers', () => {
+  const workspace = fs.readFileSync(path.join(__dirname, '..', 'app', 'workspace.tsx'), 'utf8');
+  const styles = fs.readFileSync(path.join(__dirname, '..', 'app', 'globals.css'), 'utf8');
+  const farmerView = workspace.slice(workspace.indexOf('const renderFarmers'), workspace.indexOf('const renderCenters'));
+  const farmerTable = farmerView.slice(farmerView.indexOf('table-scroll farmers-desktop-table'), farmerView.indexOf('{farmers ? farmers.data.length'));
+
+  assert.match(farmerTable, /farmerNumberShort/);
+  assert.match(farmerTable, /columnName/);
+  assert.match(farmerTable, /columnPhone/);
+  assert.match(farmerTable, /accountNationalId/);
+  assert.match(farmerTable, /statusLabel/);
+  assert.match(farmerTable, /publicLanguage\.t\('actions'\)/);
+  assert.doesNotMatch(farmerTable, /assignedCollector/);
+
+  assert.match(farmerView, /status-unassigned-pill/);
+  assert.match(farmerView, /Nta mucunda/);
+  assert.match(styles, /\.status-unassigned-pill \{/);
+  assert.match(styles, /\.farmers-desktop-table tbody tr:hover/);
+  assert.match(styles, /0 8px 24px -4px rgba\(22, 129, 171, 0\.08\)/);
+});
+
+test('Abacunda page implements Link Collector card and Executive Roster with mobile support', () => {
+  const workspace = fs.readFileSync(path.join(__dirname, '..', 'app', 'workspace.tsx'), 'utf8');
+  const styles = fs.readFileSync(path.join(__dirname, '..', 'app', 'globals.css'), 'utf8');
+  const centersView = workspace.slice(workspace.indexOf('const renderCenters'), workspace.indexOf('const renderFarmerHistory'));
+
+  assert.match(centersView, /link-collector-card/);
+  assert.match(centersView, /linkCollector/);
+  assert.match(centersView, /collectors-executive-table/);
+  assert.match(centersView, /collector-work-id-badge/);
+  assert.match(centersView, /openAbacundaIfishi/);
+  assert.match(centersView, /unlinkCollector/);
+  assert.match(styles, /\.collectors-executive-table/);
+  assert.match(styles, /\.collectors-mobile-roster/);
+  assert.match(styles, /\.collector-work-id-badge/);
+});
