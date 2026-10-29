@@ -103,7 +103,7 @@ type ReportOwnerRow = { farmerId: null; farmerName: string; name: string; isOwne
 type CollectorSettlementFields = { collectorFarmerMilkValue?: number | null; collectorFarmerPayable?: number | null; collectorAccountingComplete?: boolean | null; collectorAccountingMissingInputs?: string[] };
 type SettlementAccounting = { farmerGross: number | null; expectedFarmerPayable: number | null; farmersMilkValue?: number | null; farmerTransportTotal?: number | null; farmerDeductionsTotal?: number | null; farmerPayableTotal?: number | null; accountRoutedPayable?: number | null; ownerListRoutedPayable?: number | null; saccoEligiblePayable: number | null; saccoDistributionInstruction: number | null; saccoConfirmedAmount: number; retainedUnpaidAmount: number | null; cashApprovedAmount: number; cashConfirmedAmount: number; debtRepaymentAmount: number; outstandingDebt: number | null; legacyUnallocatedDebtRepayments: number; debtBalancesComplete: boolean; unexplainedDiscrepancy: number | null; ownerGrossReconciliation: { ownerGross: number | null; farmerGross: number | null; surplus: number | null; discrepancy: number | null; baseDifference?: number | null; transportAmount?: number | null; farmerDeductions?: number | null; retainedNoAccountFarmerAmount?: number | null; operationalMargin?: number | null; totalAfterOperations?: number | null; nyirayoRecordedMilkValue?: number | null; farmersComparisonMilkValue?: number | null; nyirayoMilkDifference?: number | null; nyirayoTransportAmount?: number | null; nyirayoDeductionsAmount?: number | null; nyirayoOwnAccountingBalance?: number | null; ownerNameListFarmerSettlementAmount?: number | null; nyirayoTotalWithOwnerList?: number | null }; farmers: Array<ReportFarmerRow & { settlement: { saccoEligible: boolean; saccoDistributionInstruction: number | null; cashApprovedAmount: number; cashConfirmedAmount: number; debtRepaymentAmount: number; outstandingDebt: number | null; retainedUnpaidAmount: number | null; unexplainedDiscrepancy: number | null } }> };
 type Report = { totalFarmers: number; totalVolume: number; totalMorning: number; totalEvening: number; totalRevenueMonth: number; ownerGeneratedGross?: number | null; ownerGeneratedVolume?: number; totalDeductionsMonth: number; totalTransportFeesMonth: number; netRevenueMonth: number; pricePerLiter?: number | null; collectorAccountingComplete?: boolean | null; collectorAccountingMissingInputs?: string[]; todayTotal: number; todayMorning: number; todayEvening: number; rangeStart: string; rangeEnd: string; collectorPayable: number | null; collectorGross?: number | null; collectorActualVolume?: number; collectorOriginalVolume?: number; collectorLostVolume?: number; collectorFarmersValidLiters?: number; collectorTotalFarmersPayable?: number; collectorFarmerMilkValue?: number | null; collectorFarmerDeductions?: number; collectorFarmerTransport?: number; collectorSurplusAmount?: number | null; collectorPayableFromBreakdown?: number | null; collectorIsReconciled?: boolean | null; collectorProfile?: { name: string } | null; collectorEntries?: Array<{ id: number; date: string; status: string; volumeLiters: number; effectiveVolumeLiters: number; farmerLostLiters: number; voidReason?: string | null; voidedBy?: number | null; voidedAt?: string | null }>; milkLossRecords?: Array<{ id: number; farmerId: number; farmerName: string; date: string; status: string; originalVolume: number; validVolume: number; lostVolume: number; reason: string | null; adjustedBy: number | null; adjustedAt: string | null }>; collectorSettlementRows?: any[]; ownerSettlementRow?: ReportOwnerRow | null; farmerPayments: ReportFarmerRow[]; settlementAccounting?: SettlementAccounting | null; settlementAccountingStatus?: 'AVAILABLE' | 'MIGRATION_REQUIRED' | null; nyirayoMilkValue?: number | null; farmersMilkValue?: number | null; nyirayoBaseDifference?: number | null; transportAmount?: number | null; farmerDeductions?: number | null; retainedNoAccountFarmerAmount?: number | null; unaccountedFarmersPool?: number | null; nyirayoOperationalMargin?: number | null; nyirayoTotalAfterOperations?: number | null };
-type Account = { user_id: number; account_name: string; account_email: string; account_type: string; account_status: string; effective_status: string; email_verified: boolean; farmer_count: number; center_count: number };
+type Account = { user_id: number; account_name: string; account_email: string; account_type: string; account_status: string; effective_status: string; email_verified: boolean; farmer_count: number; center_count: number; phone?: string | null; subscription_status?: string | null; payment_due_at?: string | null; billing_exempt?: boolean; plan_code?: string | null; days_remaining?: number | null };
 type AdminAccountDetails = { account: { id: number; name: string; email: string; account_type: string; account_status: string; email_verified: boolean; phone: string | null; created_at: string }; subscription: { status: string; effective_status?: string; billing_exempt?: boolean; exemption_reason?: string | null; exemption_granted_at?: string | null; exemption_revoked_at?: string | null; plan_id: number | null; current_price: number | string | null; currency: string | null; tier_code: string | null; access_started_at: string | null; payment_due_at: string | null; subscription_started_at: string | null; subscription_ends_at: string | null } | null; counts: { centers: number; farmers: number; milk_records: number; deductions: number; payments: number; notifications: number } };
 type AdminPaymentSummary = { successfulCount: number; successfulAmount: number; pendingCount: number; failedCount: number; cancelledCount: number; expiredCount: number };
 type AdminSummary = { accounts: { total_accounts: number; without_subscription: number; not_approved: number; pending: number; active: number; suspended: number; expired: number; exempt: number }; registrations_last_30_days: number };
@@ -772,6 +772,11 @@ const [report, setReport] = useState<Report | null>(null);
   const [resolveNote, setResolveNote] = useState('');
   const [resolveSaving, setResolveSaving] = useState(false);
   const [accounts, setAccounts] = useState<{ accounts: Account[]; total: number; page: number; limit: number } | null>(null);
+  const [grantDaysAccount, setGrantDaysAccount] = useState<Account | null>(null);
+  const [grantDaysValue, setGrantDaysValue] = useState<number>(15);
+  const [grantDaysReason, setGrantDaysReason] = useState<string>('');
+  const [grantDaysLoading, setGrantDaysLoading] = useState<boolean>(false);
+  const [grantDaysError, setGrantDaysError] = useState<string>('');
   const [accountSearch, setAccountSearch] = useState('');
   const [accountStatus, setAccountStatus] = useState('');
   const [adminAccountDetailsOpen, setAdminAccountDetailsOpen] = useState(false);
@@ -1646,11 +1651,63 @@ const visibleTabs = (isAdmin
       setAdminExemptionReason('');
       setNotice(publicLanguage.t(grant ? 'subscriptionExemptionGranted' : 'subscriptionExemptionRevoked'));
       await loadAdminAccountDetails(userId);
+      void loadAccounts(accounts?.page || 1).catch(() => undefined);
     } catch (reasonError) {
       setAdminAccountDetailsError(reasonError instanceof Error ? reasonError.message : publicLanguage.t('adminAccountActionFailed'));
     } finally {
       setBusy(false);
     }
+  };
+
+  const openGrantDaysModal = (account: Account) => {
+    setGrantDaysAccount(account);
+    setGrantDaysValue(15);
+    setGrantDaysReason('');
+    setGrantDaysError('');
+  };
+
+  const submitGrantDays = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!grantDaysAccount) return;
+    if (!grantDaysValue || grantDaysValue <= 0 || grantDaysValue > 365) {
+      setGrantDaysError(publicLanguage.language === 'en' ? 'Days must be between 1 and 365' : 'Iminsi igomba kuba hagati ya 1 na 365');
+      return;
+    }
+    setGrantDaysLoading(true);
+    setGrantDaysError('');
+    try {
+      await api(`/api/admin/accounts/${grantDaysAccount.user_id}/extend-access`, json('POST', {
+        days: grantDaysValue,
+        reason: grantDaysReason.trim() || undefined,
+      }));
+      setNotice(publicLanguage.language === 'en' ? 'Access extended successfully' : 'Iminsi yongerewe neza');
+      setGrantDaysAccount(null);
+      await loadAccounts(accounts?.page || 1);
+    } catch (err: any) {
+      setGrantDaysError(err.message || 'Failed to extend access');
+    } finally {
+      setGrantDaysLoading(false);
+    }
+  };
+
+  const toggleExemption = async (account: Account) => {
+    const isExempt = Boolean(account.billing_exempt || account.effective_status === 'exempt');
+    const grant = !isExempt;
+    const promptMessage = publicLanguage.language === 'en'
+      ? (grant ? 'Enter reason for granting billing exemption (minimum 5 characters):' : 'Enter reason for revoking exemption (minimum 5 characters):')
+      : (grant ? 'Andika impamvu yo gutanga imbabazi zo kutishyura (byibura inyuguti 5):' : 'Andika impamvu yo gukuraho imbabazi (byibura inyuguti 5):');
+    const defaultReason = grant
+      ? (publicLanguage.language === 'en' ? 'Administrative exemption granted' : "Yahawe imbabazi n'ubuyobozi")
+      : (publicLanguage.language === 'en' ? 'Standard billing resumed' : 'Kwishyura birasubukuwe');
+    const reason = window.prompt(promptMessage, defaultReason);
+    if (!reason || reason.trim().length < 5) return;
+    await run(async () => {
+      await api(`/api/admin/accounts/${account.user_id}/${grant ? 'grant-exemption' : 'revoke-exemption'}`, json('POST', { reason: reason.trim() }));
+      setNotice(publicLanguage.language === 'en'
+        ? (grant ? 'Billing exemption granted successfully' : 'Billing exemption revoked successfully')
+        : (grant ? 'Yahawe imbabazi zo kutishyura neza' : 'Imbabazi zakuweho neza'));
+      await loadAccounts(accounts?.page || 1);
+    });
   };
 
   const loadAudit = async (page = 1) => {
@@ -2631,10 +2688,8 @@ const visibleTabs = (isAdmin
             ['name', publicLanguage.t('columnName')],
             ['phone', publicLanguage.t('columnPhone')],
             ['nationalId', publicLanguage.t('accountNationalId')],
-            ['collectionCenter', isDairy ? (publicLanguage.language === 'en' ? 'Center or Collector' : 'Ikigo cyangwa Umucunda') : publicLanguage.t('columnCenter')],
-            ['status', publicLanguage.t('statusLabel')],
           ] as const).map(([field, label]) => {
-            const sortable = field === 'name' || field === 'collectionCenter' || field === 'nationalId';
+            const sortable = field === 'name' || field === 'nationalId';
             const active = sortable && farmerSortBy === field;
             const SortIcon = active ? farmerSortDirection === 'asc' ? ArrowUp : ArrowDown : ArrowUpDown;
             return <th key={field} aria-sort={active ? farmerSortDirection === 'asc' ? 'ascending' : 'descending' : 'none'}>
@@ -2644,10 +2699,12 @@ const visibleTabs = (isAdmin
               }}>{label}<SortIcon size={13} aria-hidden="true" /></button> : label}
             </th>;
           })}
-          <th>{publicLanguage.t('actions')}</th>
+          <th>
+            <span className="sr-only">{publicLanguage.t('statusLabel')}</span>
+            {publicLanguage.t('actions')}
+          </th>
         </tr></thead><tbody>
           {(farmers?.data || []).map((farmer) => {
-            const assigned = Boolean(farmer.collectorUserId);
             return <tr key={farmer.id} className="farmer-directory-row">
               <td className="farmer-number-cell">
                 <input
@@ -2706,8 +2763,6 @@ const visibleTabs = (isAdmin
                 )}
               </td>
               <td><span className="font-mono">{farmer.nationalId || '—'}</span></td>
-              <td>{isDairy && farmer.collectorUserId ? getFarmerCollectorName(farmer.collectorUserId) : (farmer.collectionCenter || (isDairy ? activeCenterName : '') || '—')}</td>
-              <td>{assigned ? <span className="delivery-status-pill is-assigned">{publicLanguage.t('statusAssigned')}</span> : <span className="status-unassigned-pill">{publicLanguage.language === 'en' ? 'Unassigned' : 'Nta mucunda'}</span>}</td>
               <td className="actions-cell">
                 <button type="button" className="text-button" onClick={() => openFarmerHistory(farmer)}>{publicLanguage.t('viewFarmerHistory')}</button>
                 <button type="button" className="text-button" onClick={() => editFarmerStart(farmer)}>{publicLanguage.t('edit')}</button>
@@ -2717,25 +2772,17 @@ const visibleTabs = (isAdmin
           })}
         </tbody></table></div>
         {farmers ? farmers.data.length ? <div className="farmer-mobile-list">{farmers.data.map((farmer) => {
-          const isAssigned = Boolean(farmer.collectorUserId);
           return <article className="farmer-mobile-card" key={farmer.id}>
             <header>
               <div className="farmer-card-identity">
                 <span className="farmer-number-badge font-mono">{formatFarmerNumber(farmer.farmerNumber) || '—'}</span>
                 <b>{farmer.name}</b>
               </div>
-              {isAssigned ? (
-                <span className="delivery-status-pill is-assigned">{publicLanguage.t('statusAssigned')}</span>
-              ) : (
-                <span className="status-unassigned-pill">{publicLanguage.language === 'en' ? 'Unassigned' : 'Nta mucunda'}</span>
-              )}
             </header>
             <dl>
               <div><dt>{publicLanguage.t('columnLocation')}</dt><dd>{farmer.location || '—'}</dd></div>
               <div><dt>{publicLanguage.t('columnPhone')}</dt><dd>{farmer.phone || '—'}</dd></div>
               <div><dt>{publicLanguage.t('columnNationalId')}</dt><dd className="font-mono">{farmer.nationalId || '—'}</dd></div>
-              <div><dt>{publicLanguage.t('columnCenter')}</dt><dd>{farmer.collectionCenter || (isDairy && farmer.collectorUserId ? getFarmerCollectorName(farmer.collectorUserId) : '—')}</dd></div>
-              <div><dt>{publicLanguage.t('statusLabel')}</dt><dd>{isAssigned ? <span className="delivery-status-pill is-assigned">{publicLanguage.t('statusAssigned')}</span> : <span className="status-unassigned-pill">{publicLanguage.language === 'en' ? 'Unassigned' : 'Nta mucunda'}</span>}</dd></div>
             </dl>
             <footer>
               <button type="button" className="button button-secondary small-button" onClick={() => openFarmerHistory(farmer)}><History size={15} />{publicLanguage.t('viewFarmerHistory')}</button>
@@ -5164,7 +5211,180 @@ const visibleTabs = (isAdmin
 
   const renderAdminAccounts = () => {
     const totalPages = Math.max(1, Math.ceil((accounts?.total || 0) / ACCOUNT_PAGE_SIZE));
-    return <section className="panel"><div className="panel-heading"><div><span className="eyebrow">{publicLanguage.t('platform')}</span><h2>{publicLanguage.t('customerAccounts')}</h2></div><span className="count-label">{accounts ? `${accounts.total} ${publicLanguage.t('accountsCount')} ` : '…'}</span></div><div className="toolbar"><form className="search-form" onSubmit={(event) => { event.preventDefault(); void loadAccounts(1).catch((reason) => setError(reason.message)); }}><Search size={17} /><input placeholder={publicLanguage.t('searchNameEmail')} value={accountSearch} onChange={(event) => setAccountSearch(event.target.value)} /><button className="button button-secondary">{publicLanguage.t('search')}</button></form><select value={accountStatus} onChange={(event) => { const nextStatus = event.target.value; setAccountStatus(nextStatus); void loadAccounts(1, { status: nextStatus }).catch((reason) => setError(reason.message)); }}><option value="">{publicLanguage.t('allStatuses')}</option>{Object.keys(accountStatusCopy).map((status) => <option key={status} value={status}>{publicLanguage.t(accountStatusCopy[status as keyof typeof accountStatusCopy])}</option>)}</select></div><div className="table-scroll"><table><thead><tr><th>{publicLanguage.t('account')}</th><th>{publicLanguage.t('accountType')}</th><th>{publicLanguage.t('status')}</th><th>{publicLanguage.t('emailVerificationStatus')}</th><th>{publicLanguage.t('farmers')}</th><th>{publicLanguage.t('navCenters')}</th><th>{publicLanguage.t('actions')}</th></tr></thead><tbody>{accounts?.accounts.map((account) => <tr key={account.user_id}><td><b>{account.account_name}</b><small className="block-muted">{account.account_email}</small></td><td>{account.account_type === 'COLLECTION_CENTER' ? publicLanguage.t('collectionCenter') : publicLanguage.t('collector')}</td><td>{publicLanguage.t(accountStatusCopy[(account.effective_status || account.account_status) as keyof typeof accountStatusCopy] || 'statusActive')}{account.account_status === 'not_approved' ? <small className="block-muted">{publicLanguage.t('adminNotApprovedNoWorkflow')}</small> : null}</td><td>{account.email_verified ? publicLanguage.t('emailVerifiedValue') : publicLanguage.t('emailNotVerifiedValue')}</td><td>{account.farmer_count}</td><td>{account.center_count}</td><td className="actions-cell"><button type="button" className="text-button" onClick={() => { void loadAdminAccountDetails(account.user_id); }}>{publicLanguage.t('adminViewAccount')}</button>{account.email_verified ? null : <button type="button" className="text-button" onClick={() => void adminAction(account, 'resendVerification')} disabled={busy}>{publicLanguage.t('resendVerificationEmail')}</button>}<button className="text-button" onClick={() => adminAction(account, account.account_status === 'suspended' ? 'reactivate' : 'suspend')}>{publicLanguage.t(account.account_status === 'suspended' ? 'reactivate' : 'suspend')}</button></td></tr>)}</tbody></table></div>{accounts ? <div className="panel-footer admin-payment-pagination"><span>{accounts.page} / {totalPages}</span><div><button type="button" className="button button-secondary small-button" disabled={accounts.page <= 1} onClick={() => { void loadAccounts(accounts.page - 1).catch((reason) => setError(reason.message)); }}>{publicLanguage.t('previousPage')}</button><button type="button" className="button button-secondary small-button" disabled={accounts.page >= totalPages} onClick={() => { void loadAccounts(accounts.page + 1).catch((reason) => setError(reason.message)); }}>{publicLanguage.t('nextPage')}</button></div></div> : null}</section>;
+    return <section className="panel"><div className="panel-heading"><div><span className="eyebrow">{publicLanguage.t('platform')}</span><h2>{publicLanguage.t('customerAccounts')}</h2></div><span className="count-label">{accounts ? `${accounts.total} ${publicLanguage.t('accountsCount')} ` : '…'}</span></div><div className="toolbar"><form className="search-form" onSubmit={(event) => { event.preventDefault(); void loadAccounts(1).catch((reason) => setError(reason.message)); }}><Search size={17} /><input placeholder={publicLanguage.t('searchNameEmail')} value={accountSearch} onChange={(event) => setAccountSearch(event.target.value)} /><button className="button button-secondary">{publicLanguage.t('search')}</button></form><select value={accountStatus} onChange={(event) => { const nextStatus = event.target.value; setAccountStatus(nextStatus); void loadAccounts(1, { status: nextStatus }).catch((reason) => setError(reason.message)); }}><option value="">{publicLanguage.t('allStatuses')}</option>{Object.keys(accountStatusCopy).map((status) => <option key={status} value={status}>{publicLanguage.t(accountStatusCopy[status as keyof typeof accountStatusCopy])}</option>)}</select></div><div className="table-scroll admin-accounts-desktop-table"><table><thead><tr>
+      <th>#</th>
+      <th>{publicLanguage.language === 'en' ? 'Name' : 'Izina'}</th>
+      <th>{publicLanguage.language === 'en' ? 'Email / Phone' : 'Email / Telefone'}<span className="sr-only"> {publicLanguage.t('emailVerificationStatus')}</span></th>
+      <th>{publicLanguage.t('accountType')}</th>
+      <th>{publicLanguage.t('status')}</th>
+      <th>{publicLanguage.language === 'en' ? 'Subscription Status' : "Imiterere y'Ifatabuguzi"}</th>
+      <th>{publicLanguage.language === 'en' ? 'Payment Deadline' : 'Itariki yo Kwishyura'}</th>
+      <th>{publicLanguage.t('actions')}</th>
+    </tr></thead><tbody>
+      {(accounts?.accounts || []).map((account, idx) => {
+        const isExempt = Boolean(account.billing_exempt || account.effective_status === 'exempt');
+        const isActive = account.effective_status === 'active';
+        const isExpired = account.effective_status === 'expired' || (account.days_remaining != null && account.days_remaining <= 0);
+        const isSuspended = account.effective_status === 'suspended' || account.account_status === 'suspended';
+        const rowNumber = ((accounts?.page || 1) - 1) * ACCOUNT_PAGE_SIZE + idx + 1;
+
+        return <tr key={account.user_id}>
+          <td>
+            <span className="farmer-number-badge font-mono">{String(rowNumber).padStart(3, '0')}</span>
+          </td>
+          <td className="strong-cell">
+            <b>{account.account_name}</b>
+          </td>
+          <td>
+            <div>{account.account_email}</div>
+            {account.phone ? <small className="block-muted">{account.phone}</small> : null}
+            <small className="block-muted">
+              <span className="sr-only">{publicLanguage.t('emailVerificationStatus')}: </span>
+              {account.email_verified ? publicLanguage.t('emailVerifiedValue') : publicLanguage.t('emailNotVerifiedValue')}
+            </small>
+          </td>
+          <td>
+            {account.account_type === 'COLLECTION_CENTER' ? publicLanguage.t('collectionCenter') : publicLanguage.t('collector')}
+          </td>
+          <td>
+            <span className={`delivery-status-pill ${account.account_status === 'suspended' ? 'is-missing' : 'is-assigned'}`}>
+              {publicLanguage.t(accountStatusCopy[(account.account_status || 'active') as keyof typeof accountStatusCopy] || 'statusActive')}
+            </span>
+            {account.account_status === 'not_approved' ? <small className="block-muted">{publicLanguage.t('adminNotApprovedNoWorkflow')}</small> : null}
+          </td>
+          <td>
+            {isExempt ? (
+              <span className="delivery-status-pill is-assigned" style={{ background: '#e6f7ec', color: '#157f50', borderColor: '#b8e6c7' }}>
+                {publicLanguage.language === 'en' ? 'Exempt' : 'Yasonewe'}
+              </span>
+            ) : isActive ? (
+              <span className="delivery-status-pill is-assigned" style={{ background: '#e8f4ea', color: '#137333', borderColor: '#ceead6' }}>
+                {publicLanguage.language === 'en'
+                  ? `Active${account.days_remaining != null ? ` (${account.days_remaining}d left)` : ''}`
+                  : `Rirakora${account.days_remaining != null ? ` (iminsi ${account.days_remaining} isigaye)` : ''}`}
+              </span>
+            ) : isExpired ? (
+              <span className="delivery-status-pill is-missing" style={{ background: '#fef7e0', color: '#b06000', borderColor: '#fce8b2' }}>
+                {publicLanguage.language === 'en' ? 'Expired' : 'Ryarangiye'}
+              </span>
+            ) : isSuspended ? (
+              <span className="delivery-status-pill is-missing" style={{ background: '#fce8e6', color: '#c5221f', borderColor: '#fad2cf' }}>
+                {publicLanguage.language === 'en' ? 'Suspended' : 'Hagaritswe'}
+              </span>
+            ) : (
+              <span className="delivery-status-pill">
+                {publicLanguage.t(accountStatusCopy[(account.effective_status || account.account_status) as keyof typeof accountStatusCopy] || 'statusActive')}
+              </span>
+            )}
+          </td>
+          <td>
+            {isExempt ? (
+              <span className="block-muted">{publicLanguage.language === 'en' ? 'Exempt (No deadline)' : 'Yasonewe (Nta tariki)'}</span>
+            ) : account.payment_due_at ? (
+              <div>
+                <b>{formatDateLabel(account.payment_due_at, publicLanguage.language, { day: 'numeric', month: 'short', year: 'numeric' })}</b>
+                {account.days_remaining != null ? (
+                  <small className="block-muted" style={{ display: 'block' }}>
+                    {account.days_remaining > 0
+                      ? (publicLanguage.language === 'en' ? `${account.days_remaining} days left` : `hasigaye iminsi ${account.days_remaining}`)
+                      : (publicLanguage.language === 'en' ? 'Expired' : 'Ryarangiye')}
+                  </small>
+                ) : null}
+              </div>
+            ) : (
+              <span className="block-muted">—</span>
+            )}
+          </td>
+          <td className="actions-cell">
+            <button type="button" className="text-button" onClick={() => void loadAdminAccountDetails(account.user_id)}>
+              {publicLanguage.t('adminViewAccount')}
+            </button>
+            <button
+              type="button"
+              className="button button-secondary small-button"
+              style={{ fontSize: '0.75rem', padding: '2px 8px', borderRadius: 4 }}
+              onClick={() => openGrantDaysModal(account)}
+            >
+              + {publicLanguage.language === 'en' ? 'Grant Days' : 'Kongera Iminsi'}
+            </button>
+            <button type="button" className="text-button" onClick={() => void toggleExemption(account)}>
+              {isExempt
+                ? (publicLanguage.language === 'en' ? 'Revoke Exemption' : 'Kuraho Imbabazi')
+                : (publicLanguage.language === 'en' ? 'Grant Exemption' : 'Tanga Imbabazi')}
+            </button>
+            <button
+              type="button"
+              className="text-button danger-text"
+              onClick={() => void adminAction(account, account.account_status === 'suspended' ? 'reactivate' : 'suspend')}
+            >
+              {publicLanguage.t(account.account_status === 'suspended' ? 'reactivate' : 'suspend')}
+            </button>
+            {account.email_verified ? null : (
+              <button
+                type="button"
+                className="text-button"
+                onClick={() => void adminAction(account, 'resendVerification')}
+                disabled={busy}
+              >
+                {publicLanguage.t('resendVerificationEmail')}
+              </button>
+            )}
+          </td>
+        </tr>;
+      })}
+    </tbody></table></div>
+    <div className="admin-accounts-mobile-list">
+      {(accounts?.accounts || []).map((account) => {
+        const isExempt = Boolean(account.billing_exempt || account.effective_status === 'exempt');
+        const isActive = account.effective_status === 'active';
+        return (
+          <article key={account.user_id} className="admin-account-mobile-card">
+            <div>
+              <span className="eyebrow">{account.account_type === 'COLLECTION_CENTER' ? publicLanguage.t('collectionCenter') : publicLanguage.t('collector')}</span>
+              <h3>{account.account_name}</h3>
+              <small className="block-muted">{account.account_email}</small>
+            </div>
+            <dl>
+              <div>
+                <dt>{publicLanguage.t('status')}</dt>
+                <dd>{publicLanguage.t(accountStatusCopy[(account.account_status || 'active') as keyof typeof accountStatusCopy] || 'statusActive')}</dd>
+              </div>
+              <div>
+                <dt>{publicLanguage.language === 'en' ? 'Subscription' : 'Ifatabuguzi'}</dt>
+                <dd>
+                  {isExempt ? (publicLanguage.language === 'en' ? 'Exempt' : 'Yasonewe')
+                    : isActive ? (publicLanguage.language === 'en' ? `Active (${account.days_remaining != null ? `${account.days_remaining}d` : ''})` : `Rirakora (${account.days_remaining != null ? `${account.days_remaining}d` : ''})`)
+                    : (publicLanguage.language === 'en' ? 'Expired' : 'Ryarangiye')}
+                </dd>
+              </div>
+              <div>
+                <dt>{publicLanguage.language === 'en' ? 'Deadline' : 'Itariki yo Kwishyura'}</dt>
+                <dd>{account.payment_due_at ? formatDateLabel(account.payment_due_at, publicLanguage.language, { day: 'numeric', month: 'short', year: 'numeric' }) : '—'}</dd>
+              </div>
+              <div>
+                <dt>{publicLanguage.t('emailVerificationStatus')}</dt>
+                <dd>{account.email_verified ? publicLanguage.t('emailVerifiedValue') : publicLanguage.t('emailNotVerifiedValue')}</dd>
+              </div>
+            </dl>
+            <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 4 }}>
+              <button type="button" className="button button-secondary small-button" onClick={() => void loadAdminAccountDetails(account.user_id)}>
+                {publicLanguage.t('adminViewAccount')}
+              </button>
+              <button type="button" className="button button-secondary small-button" onClick={() => openGrantDaysModal(account)}>
+                + {publicLanguage.language === 'en' ? 'Grant Days' : 'Kongera Iminsi'}
+              </button>
+              <button type="button" className="button button-secondary small-button" onClick={() => void toggleExemption(account)}>
+                {isExempt ? (publicLanguage.language === 'en' ? 'Revoke Exemption' : 'Kuraho Imbabazi') : (publicLanguage.language === 'en' ? 'Grant Exemption' : 'Tanga Imbabazi')}
+              </button>
+              <button type="button" className="button button-secondary small-button danger-text" onClick={() => void adminAction(account, account.account_status === 'suspended' ? 'reactivate' : 'suspend')}>
+                {publicLanguage.t(account.account_status === 'suspended' ? 'reactivate' : 'suspend')}
+              </button>
+            </div>
+          </article>
+        );
+      })}
+    </div>
+    {accounts ? <div className="panel-footer admin-payment-pagination"><span>{accounts.page} / {totalPages}</span><div><button type="button" className="button button-secondary small-button" disabled={accounts.page <= 1} onClick={() => { void loadAccounts(accounts.page - 1).catch((reason) => setError(reason.message)); }}>{publicLanguage.t('previousPage')}</button><button type="button" className="button button-secondary small-button" disabled={accounts.page >= totalPages} onClick={() => { void loadAccounts(accounts.page + 1).catch((reason) => setError(reason.message)); }}>{publicLanguage.t('nextPage')}</button></div></div> : null}</section>;
   };
 
   const renderAdminAccountDetailsModal = () => (
@@ -5200,6 +5420,90 @@ const visibleTabs = (isAdmin
       </div> : null}
     </Modal>
   );
+
+  const renderGrantDaysModal = () => {
+    if (!grantDaysAccount) return null;
+    return (
+      <Modal
+        ariaLabel={publicLanguage.language === 'en' ? 'Grant Working Days' : 'Kongera Iminsi yo Gukora'}
+        onClose={() => { if (!grantDaysLoading) setGrantDaysAccount(null); }}
+        dismissible={!grantDaysLoading}
+      >
+        <div className="panel-heading">
+          <div>
+            <span className="eyebrow">{publicLanguage.t('platform')}</span>
+            <h2>+ {publicLanguage.language === 'en' ? 'Grant Days / Extend Access' : 'Kongera Iminsi / Kwagura Uburenganzira'}</h2>
+          </div>
+          <button
+            type="button"
+            className="icon-button"
+            onClick={() => setGrantDaysAccount(null)}
+            disabled={grantDaysLoading}
+            aria-label={publicLanguage.t('close')}
+          >
+            <X size={18} />
+          </button>
+        </div>
+        <p className="muted-note" style={{ marginBottom: 12 }}>
+          {publicLanguage.language === 'en' ? 'Account:' : 'Konti:'} <b>{grantDaysAccount.account_name}</b> ({grantDaysAccount.account_email})
+        </p>
+        <form className="form-stack compact" onSubmit={submitGrantDays}>
+          <div style={{ display: 'flex', gap: 8, marginBottom: 8, flexWrap: 'wrap' }}>
+            {[7, 15, 30].map((d) => (
+              <button
+                key={d}
+                type="button"
+                className={`button ${grantDaysValue === d ? 'button-primary' : 'button-secondary'} small-button`}
+                onClick={() => setGrantDaysValue(d)}
+              >
+                +{d} {publicLanguage.language === 'en' ? 'Days' : 'Iminsi'}
+              </button>
+            ))}
+          </div>
+          <label>
+            {publicLanguage.language === 'en' ? 'Custom Working Days to Add' : "Umubare w'Iminsi yo Kongeraho"}
+            <input
+              type="number"
+              min="1"
+              max="365"
+              step="1"
+              required
+              value={grantDaysValue}
+              onChange={(e) => setGrantDaysValue(Math.max(1, parseInt(e.target.value) || 1))}
+            />
+          </label>
+          <label>
+            {publicLanguage.language === 'en' ? 'Reason / Note (optional)' : 'Impamvu / Ibisobanuro (niba bihari)'}
+            <input
+              type="text"
+              maxLength={255}
+              placeholder={publicLanguage.language === 'en' ? 'e.g. Granted grace period' : "urugero: Igihe cy'inyongera"}
+              value={grantDaysReason}
+              onChange={(e) => setGrantDaysReason(e.target.value)}
+            />
+          </label>
+          {grantDaysError ? <p className="form-error" role="alert">{grantDaysError}</p> : null}
+          <div className="form-actions">
+            <button
+              type="button"
+              className="button button-secondary"
+              onClick={() => setGrantDaysAccount(null)}
+              disabled={grantDaysLoading}
+            >
+              {publicLanguage.t('cancel')}
+            </button>
+            <button
+              type="submit"
+              className="button button-primary"
+              disabled={grantDaysLoading || !grantDaysValue}
+            >
+              {grantDaysLoading ? publicLanguage.t('wait') : (publicLanguage.language === 'en' ? 'Confirm & Extend' : 'Emeza & Ongera Iminsi')}
+            </button>
+          </div>
+        </form>
+      </Modal>
+    );
+  };
 
   const renderAdminAudit = () => {
     const totalPages = Math.max(1, Math.ceil((auditRows?.total || 0) / (auditRows?.limit || 50)));
@@ -5543,6 +5847,7 @@ const visibleTabs = (isAdmin
           </motion.div>
         </AnimatePresence>
         {adminAccountDetailsOpen ? renderAdminAccountDetailsModal() : null}
+        {grantDaysAccount ? renderGrantDaysModal() : null}
       </section></div>
       {farmerHistoryOpen && farmerHistoryFarmer ? <Modal ariaLabel={publicLanguage.t('farmerHistoryTitle')} className="modal-panel-wide farmer-history-modal" onClose={() => setFarmerHistoryOpen(false)} dismissible={!farmerHistoryLoading}>{renderFarmerHistory()}</Modal> : null}
       {lossEventOpen && (

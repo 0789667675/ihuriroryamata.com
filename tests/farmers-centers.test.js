@@ -632,7 +632,7 @@ test('signed sessions reject tampering and expose a numeric user identity', () =
 });
 
 
-test('Aborozi directory implements 7-column hierarchy with neutral status pill for unassigned farmers', () => {
+test('Aborozi directory implements clean 5-column hierarchy with monospace numbering and no unassigned badge', () => {
   const workspace = fs.readFileSync(path.join(__dirname, '..', 'app', 'workspace.tsx'), 'utf8');
   const styles = fs.readFileSync(path.join(__dirname, '..', 'app', 'globals.css'), 'utf8');
   const farmerView = workspace.slice(workspace.indexOf('const renderFarmers'), workspace.indexOf('const renderCenters'));
@@ -646,9 +646,7 @@ test('Aborozi directory implements 7-column hierarchy with neutral status pill f
   assert.match(farmerTable, /publicLanguage\.t\('actions'\)/);
   assert.doesNotMatch(farmerTable, /assignedCollector/);
 
-  assert.match(farmerView, /status-unassigned-pill/);
-  assert.match(farmerView, /Nta mucunda/);
-  assert.match(styles, /\.status-unassigned-pill \{/);
+  assert.doesNotMatch(farmerView, /Nta mucunda/);
   assert.match(styles, /\.farmers-desktop-table tbody tr:hover/);
   assert.match(styles, /0 8px 24px -4px rgba\(22, 129, 171, 0\.08\)/);
 });

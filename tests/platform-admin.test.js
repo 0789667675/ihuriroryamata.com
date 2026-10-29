@@ -114,6 +114,63 @@ test('exemption repository updates and audits the same subscription transaction'
   assert.equal(result.billing_exempt, true);
 });
 
+
+test('Super Admin extend-access / grant-days validates days and delegates to audited repository operation', async () => {
+  const calls = [];
+  const testRepository = {
+    getAccountDetails: async () => owner,
+    extendSubscriptionAccess: async (input) => { calls.push(input); return { user_id: input.userId, status: 'active', payment_due_at: '2026-11-15T00:00:00Z' }; },
+  };
+
+  const res1 = await Admin.manageAccount({ userId: accountId, actorId: 9, action: 'extend-access', input: { days: 15, reason: 'Promotional grace' }, repository: testRepository });
+  const res2 = await Admin.manageAccount({ userId: accountId, actorId: 9, action: 'grant-days', input: { days: 30 }, repository: testRepository });
+
+  assert.equal(calls.length, 2);
+  assert.deepEqual(calls[0], { userId: accountId, actorId: 9, days: 15, reason: 'Promotional grace' });
+  assert.deepEqual(calls[1], { userId: accountId, actorId: 9, days: 30, reason: null });
+  assert.equal(res1.status, 'active');
+  assert.equal(res2.status, 'active');
+
+  await assert.rejects(() => Admin.manageAccount({ userId: accountId, actorId: 9, action: 'extend-access', input: { days: 0 }, repository: testRepository }), /Days must be a positive integer/);
+  await assert.rejects(() => Admin.manageAccount({ userId: accountId, actorId: 9, action: 'extend-access', input: { days: -5 }, repository: testRepository }), /Days must be a positive integer/);
+  await assert.rejects(() => Admin.manageAccount({ userId: accountId, actorId: 9, action: 'extend-access', input: { days: 'invalid' }, repository: testRepository }), /Days must be a positive integer/);
+});
+
+test('extendSubscriptionAccess updates payment_due_at, sets active status, and audits transaction', async () => {
+  const calls = [];
+  const previous = { id: 14, user_id: accountId, payment_due_at: '2026-10-15T00:00:00Z', status: 'expired' };
+  const client = {
+    query: async (text, values = []) => {
+      calls.push({ text, values });
+      if (text.includes('SELECT id FROM users')) return { rows: [{ id: accountId }] };
+      if (text.includes('SELECT * FROM user_subscriptions')) return { rows: [previous] };
+      if (text.includes('UPDATE user_subscriptions')) return { rows: [{ ...previous, payment_due_at: '2026-10-30T00:00:00Z', status: 'active' }] };
+      return { rows: [] };
+    },
+    release() {},
+  };
+  const result = await PlatformAdminRepository.extendSubscriptionAccess({
+    userId: accountId,
+    actorId: 9,
+    days: 15,
+    reason: 'Hardship grace',
+    poolProvider: () => ({ connect: async () => client }),
+  });
+  const audit = calls.find(({ text }) => text.includes('INSERT INTO audit_logs'));
+  assert.ok(calls.some(({ text }) => text === 'BEGIN'));
+  assert.ok(calls.some(({ text }) => text === 'COMMIT'));
+  assert.equal(audit.values[1], 'subscription_extended');
+  assert.equal(audit.values[3], 9);
+  assert.equal(audit.values[4], accountId);
+  assert.deepEqual(JSON.parse(audit.values[2]), {
+    days: 15,
+    previousDeadline: '2026-10-15T00:00:00Z',
+    newDeadline: '2026-10-30T00:00:00Z',
+    reason: 'Hardship grace',
+  });
+  assert.equal(result.status, 'active');
+});
+
 test('exemption action API remains Super Admin-only', () => {
   const route = fs.readFileSync(path.join(__dirname, '..', 'app', 'api', 'admin', 'accounts', '[userId]', '[action]', 'route.js'), 'utf8');
   assert.match(route, /actor\.role !== 'super_admin'/);
