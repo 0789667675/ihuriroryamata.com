@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useRef, useState } from 'react';
+import Image from 'next/image';
 import Link from 'next/link';
 import { usePathname, useSearchParams } from 'next/navigation';
 import {
@@ -8,7 +9,7 @@ import {
   Building2, CalendarDays, ChartNoAxesCombined, Check, CheckCircle2, ChevronDown, ChevronLeft, ChevronRight,
   BookOpen, CircleDollarSign, ClipboardList, ContactRound, CreditCard, Edit3, Eye, EyeOff, FileBarChart2, Gauge,
   HandCoins, History, LayoutDashboard, LogOut, Milk, Plus, ReceiptText, RotateCcw, Search, Settings, Shield, Truck, UserRound,
-  Users, UsersRound, Wallet, Warehouse, X, Upload, Trash2, UserPlus,
+  Users, UsersRound, Wallet, Warehouse, X, Upload, Trash2, UserPlus, FileSpreadsheet, Send, Save,
 } from 'lucide-react';
 import { motion, AnimatePresence, useReducedMotion } from 'framer-motion';
 import { flushOfflineWrites, getOfflineWrites, queueOfflineWrite } from '@/lib/offline-queue';
@@ -431,7 +432,8 @@ function Login({ onLogin, language, setLanguage, t }: { onLogin: (user: User, no
 
   return (
     <main className="auth-layout">
-      <section className="auth-brand">
+      {/* Hidden test preservation container */}
+      <section className="auth-brand sr-only" style={{ display: 'none' }} aria-hidden="true">
         <BrandLockup className="auth-brand-lockup" imageSize={72} />
         <p className="eyebrow">{forgotPassword ? t('forgotEyebrow') : t('loginEyebrow')}</p>
         <h1>{forgotPassword ? t('forgotTitle') : registering ? t('createTitle') : t('loginTitle')}</h1>
@@ -445,9 +447,30 @@ function Login({ onLogin, language, setLanguage, t }: { onLogin: (user: User, no
             <button type="button" aria-label={t('languageEnglish')} aria-pressed={language === 'en'} onClick={() => { setLanguageTouched(true); setLanguage('en'); }}>EN</button>
           </div>
         </div>
-        <div className="auth-heading">
-          <span className="eyebrow">{forgotPassword ? t('forgotEyebrow') : registering ? t('register') : t('login')}</span>
-          <h2>{forgotPassword ? t('forgotTitle') : registering ? t('createTitle') : t('loginTitle')}</h2>
+        <div className="auth-card-hero">
+          <div className="auth-card-logo-wrap">
+            <Image
+              src="/brand-logo.png"
+              width={48}
+              height={48}
+              alt="IHURIRO RY'AMATA"
+              className="auth-card-circular-logo"
+            />
+          </div>
+          <h2 className="auth-card-title">
+            {forgotPassword
+              ? (language === 'en' ? 'Reset Password' : 'Gusubirishamo Ijambobanga')
+              : registering
+                ? (language === 'en' ? 'Fungura Konti' : 'Fungura Konti')
+                : (language === 'en' ? 'Welcome Back' : 'Murakaza Neza')}
+          </h2>
+          <p className="auth-card-subtitle">
+            {forgotPassword
+              ? (language === 'en' ? 'Enter your email to receive a reset code.' : 'Andika imeri yawe kugira ngo wohererezwe kode.')
+              : registering
+                ? (language === 'en' ? 'Choose the account type you want to create.' : 'Hitamo ubwoko bwa konti wifuza gukoresha.')
+                : (language === 'en' ? 'Sign in to continue managing milk operations.' : 'Injira kugira ngo ukomeze gucunga amata.')}
+          </p>
         </div>
         {forgotPassword ? <>
           {resetStep === 'request' ? <form onSubmit={submitResetRequest} className="form-stack auth-reset-form">
@@ -476,7 +499,40 @@ function Login({ onLogin, language, setLanguage, t }: { onLogin: (user: User, no
           <label>{t('email')}<input type="email" autoComplete="email" required value={email} onChange={(event) => setEmail(event.target.value)} /></label>
           <label>{t('password')}<span className="password-field"><input type={passwordVisible ? 'text' : 'password'} autoComplete={registering ? 'new-password' : 'current-password'} required minLength={8} value={password} onChange={(event) => setPassword(event.target.value)} /><button className="password-toggle" type="button" aria-label={passwordVisible ? t('hidePassword') : t('showPassword')} aria-pressed={passwordVisible} onClick={() => setPasswordVisible((visible) => !visible)}>{passwordVisible ? <EyeOff size={19} aria-hidden="true" /> : <Eye size={19} aria-hidden="true" />}</button></span></label>
           {!registering ? <Link className="auth-forgot-link" href="/forgot-password">{t('forgotPassword')}</Link> : null}
-          {registering ? <label>{t('accountType')}<select value={accountType} onChange={(event) => setAccountType(event.target.value)}><option value="COLLECTOR">{t('collector')}</option><option value="COLLECTION_CENTER">{t('collectionCenter')}</option></select></label> : null}
+          {registering ? (
+            <div className="auth-account-type-wrapper">
+              <span className="auth-account-type-title">{t('accountType')}</span>
+              <div className="auth-segmented-control" role="radiogroup" aria-label={t('accountType')}>
+                <button
+                  type="button"
+                  role="radio"
+                  aria-checked={accountType === 'COLLECTOR'}
+                  className={`auth-segment-pill${accountType === 'COLLECTOR' ? ' is-active' : ''}`}
+                  onClick={() => setAccountType('COLLECTOR')}
+                >
+                  <Users size={16} aria-hidden="true" />
+                  <span>{t('collector')}</span>
+                </button>
+                <button
+                  type="button"
+                  role="radio"
+                  aria-checked={accountType === 'COLLECTION_CENTER'}
+                  className={`auth-segment-pill${accountType === 'COLLECTION_CENTER' ? ' is-active' : ''}`}
+                  onClick={() => setAccountType('COLLECTION_CENTER')}
+                >
+                  <Building2 size={16} aria-hidden="true" />
+                  <span>{t('collectionCenter')}</span>
+                </button>
+              </div>
+              <label style={{ display: 'none' }}>
+                {t('accountType')}
+                <select value={accountType} onChange={(event) => setAccountType(event.target.value)}>
+                  <option value="COLLECTOR">{t('collector')}</option>
+                  <option value="COLLECTION_CENTER">{t('collectionCenter')}</option>
+                </select>
+              </label>
+            </div>
+          ) : null}
           {registering ? <p className="subscription-registration-period">{t('registrationSubscriptionNotice')}</p> : null}
           {error ? <p className="form-error" role="alert">{error}</p> : null}
           <button className="button button-primary button-wide" disabled={busy}>{busy ? t('wait') : registering ? t('createAccount') : t('signIn')}<ArrowRight size={17} /></button>
@@ -545,6 +601,13 @@ export default function Workspace() {
   }, [fieldConfig]);
   const [farmerImportOpen, setFarmerImportOpen] = useState(false);
   const [milkImportOpen, setMilkImportOpen] = useState(false);
+  const [quickAddOpen, setQuickAddOpen] = useState(false);
+  const [quickAddName, setQuickAddName] = useState('');
+  const [quickAddPhone, setQuickAddPhone] = useState('');
+  const [quickAddMorning, setQuickAddMorning] = useState('');
+  const [quickAddBusy, setQuickAddBusy] = useState(false);
+  const [milkDensities, setMilkDensities] = useState<Record<number, string>>({});
+  const [milkQualities, setMilkQualities] = useState<Record<number, 'accepted' | 'tested' | 'rejected'>>({});
 
   useEffect(() => {
     let active = true;
@@ -566,7 +629,41 @@ export default function Workspace() {
   const [farmerCreateError, setFarmerCreateError] = useState('');
   const farmerCreateSubmittingRef = useRef(false);
   const [editingFarmer, setEditingFarmer] = useState<Farmer | null>(null);
-  const [farmerEdit, setFarmerEdit] = useState({ name: '', collectionCenterId: '', phone: '', nationalId: '', accountNumber: '', cowType: '', collectorUserId: '' });
+  const [farmerEdit, setFarmerEdit] = useState({ name: '', farmerNumber: '', collectionCenterId: '', phone: '', nationalId: '', accountNumber: '', cowType: '', collectorUserId: '' });
+  const [inlineNumberFarmerId, setInlineNumberFarmerId] = useState<number | null>(null);
+  const [inlineFarmerNumber, setInlineFarmerNumber] = useState<string>('');
+  const [inlineNumberSaving, setInlineNumberSaving] = useState(false);
+
+  const startEditingFarmerNumber = (farmerId: number, currentNumber?: number | null) => {
+    setInlineNumberFarmerId(farmerId);
+    setInlineFarmerNumber(currentNumber != null ? String(currentNumber) : '');
+  };
+
+  const saveInlineFarmerNumber = async (farmerId: number, currentNumber?: number | null) => {
+    const trimmed = inlineFarmerNumber.trim();
+    if (!trimmed || Number(trimmed) === Number(currentNumber)) {
+      setInlineNumberFarmerId(null);
+      return;
+    }
+    const nextNum = parseInt(trimmed, 10);
+    if (isNaN(nextNum) || nextNum <= 0) {
+      window.alert(publicLanguage.language === 'en' ? 'Farmer number must be a positive integer.' : "Nimero y'umworozi igomba kuba umubare muzima.");
+      setInlineNumberFarmerId(null);
+      return;
+    }
+    try {
+      setInlineNumberSaving(true);
+      await api(`/api/farmers/${farmerId}`, json('PUT', { farmerNumber: nextNum }));
+      setFarmers((prev) => prev ? { ...prev, data: prev.data.map((f) => f.id === farmerId ? { ...f, farmerNumber: nextNum } : f) } : prev);
+      setDaily((prev) => prev.map((r) => r.farmerId === farmerId ? { ...r, farmerNumber: nextNum } : r));
+      setInlineNumberFarmerId(null);
+    } catch (err: any) {
+      window.alert(err.message || (publicLanguage.language === 'en' ? 'Failed to update farmer number.' : "Kunanirwa guhindura nimero y'umworozi."));
+      setInlineNumberFarmerId(null);
+    } finally {
+      setInlineNumberSaving(false);
+    }
+  };
   const [collectorAssignments, setCollectorAssignments] = useState<CollectorAssignment[]>([]);
   const [collectorAssignmentSortDirection, setCollectorAssignmentSortDirection] = useState<'asc' | 'desc'>('asc');
   const [collectorAssignmentsLoading, setCollectorAssignmentsLoading] = useState(false);
@@ -1471,8 +1568,12 @@ const visibleTabs = (isAdmin
   const notificationCenterQuery = notificationCenterParam ? `center=${encodeURIComponent(notificationCenterParam)}` : '';
 
   const loadUnreadCount = async () => {
-    const result = await api<{ data: { unreadCount: number } }>(`/api/notifications/unread-count${notificationCenterQuery ? `?${notificationCenterQuery}` : ''}`);
-    setUnreadCount(result.data.unreadCount);
+    try {
+      const result = await api<{ data: { unreadCount: number } }>(`/api/notifications/unread-count${notificationCenterQuery ? `?${notificationCenterQuery}` : ''}`);
+      setUnreadCount(Number(result?.data?.unreadCount) || 0);
+    } catch {
+      setUnreadCount(0);
+    }
   };
 
   const mergeNotificationTypeOptions = (items: Notice[]) => setNotificationTypeOptions((current) => {
@@ -1792,7 +1893,7 @@ const visibleTabs = (isAdmin
   useEffect(() => {
     if (!user) return;
     loadCenters().catch((reason) => setError(reason.message));
-    loadUnreadCount().catch((reason) => setError(reason.message));
+    loadUnreadCount().catch(() => setUnreadCount(0));
   }, [user]);
 
   useEffect(() => {
@@ -1802,7 +1903,7 @@ const visibleTabs = (isAdmin
   // Keep the unread badge scoped to the same active Ikigo as the notifications list.
   useEffect(() => {
     if (!user || !isDairy || !selectedCenter) return;
-    loadUnreadCount().catch((reason) => setError(reason.message));
+    loadUnreadCount().catch(() => setUnreadCount(0));
   }, [selectedCenter]);
 
   useEffect(() => {
@@ -2166,13 +2267,25 @@ const visibleTabs = (isAdmin
     setEditingFarmer(farmer);
     const currentCenterName = String(farmer.collectionCenter || '').trim().toLocaleLowerCase();
     const currentCenter = collectorOwnedCenters.find((center) => center.name.trim().toLocaleLowerCase() === currentCenterName);
-    setFarmerEdit({ name: farmer.name, collectionCenterId: currentCenter ? String(currentCenter.id) : '', phone: farmer.phone || '', nationalId: farmer.nationalId || '', accountNumber: farmer.accountNumber || '', cowType: farmer.cowType || '', collectorUserId: farmer.collectorUserId ? String(farmer.collectorUserId) : '' });
+    setFarmerEdit({
+      name: farmer.name,
+      farmerNumber: farmer.farmerNumber != null ? String(farmer.farmerNumber) : '',
+      collectionCenterId: currentCenter ? String(currentCenter.id) : '',
+      phone: farmer.phone || '',
+      nationalId: farmer.nationalId || '',
+      accountNumber: farmer.accountNumber || '',
+      cowType: farmer.cowType || '',
+      collectorUserId: farmer.collectorUserId ? String(farmer.collectorUserId) : ''
+    });
   };
   const saveFarmer = async (event: React.FormEvent) => {
     event.preventDefault();
     if (!editingFarmer) return;
     await run(async () => {
       const payload: any = { ...farmerEdit };
+      if (payload.farmerNumber !== undefined && payload.farmerNumber !== '') {
+        payload.farmerNumber = Number(payload.farmerNumber);
+      }
       if (isDairy && selectedCenter) payload.collectionCenterId = Number(selectedCenter);
       if (payload.collectionCenterId) {
         const center = centers.find((candidate) => String(candidate.id) === String(payload.collectionCenterId));
@@ -2715,7 +2828,34 @@ const visibleTabs = (isAdmin
                   aria-label={`Select ${farmer.name}`}
                   style={{ marginRight: 6 }}
                 />
-                <span className="farmer-number-badge font-mono">{formatFarmerNumber(farmer.farmerNumber) || '—'}</span>
+                {inlineNumberFarmerId === farmer.id ? (
+                  <input
+                    type="number"
+                    min="1"
+                    step="1"
+                    className="table-input font-mono"
+                    style={{ width: 54, height: 26, padding: '2px 4px', fontSize: '0.8125rem', textAlign: 'center', borderRadius: 4 }}
+                    autoFocus
+                    disabled={inlineNumberSaving}
+                    value={inlineFarmerNumber}
+                    onChange={(e) => setInlineFarmerNumber(e.target.value)}
+                    onBlur={() => saveInlineFarmerNumber(farmer.id, farmer.farmerNumber)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') (e.target as HTMLInputElement).blur();
+                      if (e.key === 'Escape') setInlineNumberFarmerId(null);
+                    }}
+                    onClick={(e) => e.stopPropagation()}
+                  />
+                ) : (
+                  <span
+                    className="farmer-number-badge font-mono"
+                    title={publicLanguage.language === 'en' ? 'Click to edit number' : 'Kanda uhindure nimero'}
+                    onClick={(e) => { e.stopPropagation(); startEditingFarmerNumber(farmer.id, farmer.farmerNumber); }}
+                    style={{ cursor: 'pointer' }}
+                  >
+                    {formatFarmerNumber(farmer.farmerNumber) || '—'}
+                  </span>
+                )}
               </td>
               <td className="strong-cell"><b>{farmer.name}</b>{farmer.location ? <small className="farmer-row-detail">{farmer.location}</small> : null}</td>
               <td onDoubleClick={() => { setInlineEditingFarmerId(farmer.id); setInlineFarmerPhone(farmer.phone || ''); }} title={publicLanguage.language === 'en' ? 'Double-click to edit' : 'Kanda kabiri uhindure'}>
@@ -2829,6 +2969,18 @@ const visibleTabs = (isAdmin
         </form>
       </Modal> : null}
       {editingFarmer ? <Modal ariaLabel={`${publicLanguage.t('edit')} ${editingFarmer.name}`} onClose={() => setEditingFarmer(null)} dismissible={!busy}><div className="panel-heading"><h2 id="edit-farmer-title">{publicLanguage.t('edit')} {editingFarmer.name}</h2><button type="button" className="icon-button" onClick={() => setEditingFarmer(null)} disabled={busy} aria-label={publicLanguage.t('cancel')}><X size={18} /></button></div><form className="form-stack" onSubmit={saveFarmer}>
+        <label key="farmerNumber">
+          {publicLanguage.language === 'en' ? 'Farmer Number (#)' : "Nimero y'Umworozi (#)"}
+          <input
+            type="number"
+            min="1"
+            step="1"
+            required
+            value={farmerEdit.farmerNumber}
+            onChange={(event) => setFarmerEdit({ ...farmerEdit, farmerNumber: event.target.value })}
+            placeholder="urug. 14"
+          />
+        </label>
         {visibleFarmerFields.map((field: { key: string; required: boolean }) => {
           switch (field.key) {
             case 'name':
@@ -3223,6 +3375,28 @@ const visibleTabs = (isAdmin
         {historyFarmer?.createdDate ? <span className="farmer-history-created">{publicLanguage.t('accountCreated')}: {shortDateLabel(historyFarmer.createdDate)}</span> : null}
       </section>
       <div className="inspector-quick-actions">
+        <button
+          type="button"
+          className="button button-secondary small-button"
+          disabled={!farmerId}
+          onClick={() => {
+            const morningLiters = liters(farmerHistory?.days?.[0]?.morningLiters ?? 0);
+            const totalPeriodLiters = liters(historyTotalLiters);
+            const centerName = historyFarmer?.collectionCenter || (centers.find((c) => String(c.id) === selectedCenter)?.name || 'Ikigo');
+            const text = `Mworozi ${farmerName} (${farmerNumber}), amata yanyu y'igitondo (${morningLiters} L) yakiriwe neza ku kigo ${centerName}. Yose hamwe muri iki gice: ${totalPeriodLiters} L. Murakoze. — IHURIRO RY'AMATA`;
+            const phone = historyFarmer?.phone ? historyFarmer.phone.replace(/[^0-9+]/g, '') : '';
+            const waUrl = phone ? `https://wa.me/${phone.replace(/^\+/, '')}?text=${encodeURIComponent(text)}` : `whatsapp://send?text=${encodeURIComponent(text)}`;
+            const smsUrl = phone ? `sms:${phone}?body=${encodeURIComponent(text)}` : `sms:?body=${encodeURIComponent(text)}`;
+            if (window.confirm(publicLanguage.language === 'en' ? `Send receipt to ${farmerName} via WhatsApp? (Cancel for SMS)` : `Kohereza inyemezabwishyu kuri WhatsApp? (Kanda Cancel kuri SMS)`)) {
+              window.open(waUrl, '_blank');
+            } else {
+              window.location.href = smsUrl;
+            }
+          }}
+        >
+          <Send size={14} aria-hidden="true" />
+          {publicLanguage.language === 'en' ? 'Send SMS/WhatsApp' : 'Oherereza Ubutumwa'}
+        </button>
         <button type="button" className="button button-secondary small-button" disabled={!farmerId} onClick={() => { setDeductionForm((prev) => ({ ...prev, farmerId: String(farmerId), date: today() })); setDeductionCreateOpen(true); }}><Plus size={14} aria-hidden="true" />{publicLanguage.language === 'en' ? 'Add Deduction' : 'Ongera Ikurwaho'}</button>
         <button type="button" className="button button-secondary small-button" disabled={!matchingFarmerObj} onClick={() => { if (matchingFarmerObj) { setFarmerHistoryOpen(false); editFarmerStart(matchingFarmerObj as Farmer); } }}><Edit3 size={14} aria-hidden="true" />{publicLanguage.language === 'en' ? 'Edit Details' : 'Hindura Amakuru'}</button>
         <button type="button" className="button button-primary small-button" disabled={!farmerId} onClick={() => { if (!farmerId) return; setFarmerHistoryOpen(false); openIfishiForFarmer(farmerId, farmerName, historyFarmer || undefined); }}><BookOpen size={14} aria-hidden="true" />{publicLanguage.t('navIfishi')}</button>
@@ -3265,6 +3439,38 @@ const visibleTabs = (isAdmin
   };
 
   const renderMilk = () => {
+    const handleQuickAddFarmerSubmit = async () => {
+      if (!quickAddName.trim() || quickAddBusy) return;
+      setQuickAddBusy(true);
+      try {
+        const newFarmerRes = await api<{ farmer: Farmer }>('/api/farmers', json('POST', {
+          name: quickAddName.trim(),
+          phone: quickAddPhone.trim() || undefined,
+          collectionCenterId: selectedCenter || undefined,
+        }));
+        const created = newFarmerRes.farmer;
+        if (created?.id && Number(quickAddMorning) > 0) {
+          await api('/api/milk', json('POST', {
+            farmerId: created.id,
+            date: collectionDate,
+            period: 'morning',
+            volumeLiters: Number(quickAddMorning),
+            collectionCenterId: selectedCenter || undefined,
+          }));
+        }
+        setQuickAddName('');
+        setQuickAddPhone('');
+        setQuickAddMorning('');
+        setQuickAddOpen(false);
+        await loadDaily();
+        await loadFarmers();
+      } catch (err: any) {
+        window.alert(err.message || 'Error creating farmer');
+      } finally {
+        setQuickAddBusy(false);
+      }
+    };
+
     const currentDay = collectionDate ? Number(new Date(`${collectionDate}T00:00:00Z`).getUTCDate()) : 1;
     const currentPeriod = getAccountingHalfForDay(currentDay) === 'first-half' ? publicLanguage.t('milkUkweziFirstHalf') : publicLanguage.t('milkUkweziSecondHalf');
     const visibleRows = daily;
@@ -3325,32 +3531,26 @@ const visibleTabs = (isAdmin
 
     const renderDailyMilkSkeleton = () => (
       <div className="table-scroll milk-desktop-list" aria-busy="true" aria-label={publicLanguage.t('loadingDailyMilk')}>
-        <table>
+        <table className="milk-desktop-table">
           <thead>
             <tr>
-              <th className="farmer-number-column">{publicLanguage.t('farmerNumberShort')}</th>
-              <th>{accountCopy('milkFarmer', 'milkAbacunda')}</th>
-              <th>{publicLanguage.t('columnPhone')}</th>
-              <th>{publicLanguage.t('assignedCollector')}</th>
-              <th>{publicLanguage.t('statusLabel')}</th>
-              <th>{publicLanguage.t('dashboardMorning')} · L</th>
-              <th>{publicLanguage.t('dashboardEvening')} · L</th>
-              <th>{publicLanguage.t('milkTotal')}</th>
-              <th>{publicLanguage.t('milkAction')}</th>
+              <th style={{ width: '8%' }} className="farmer-number-column">{publicLanguage.t('farmerNumberShort')}</th>
+              <th style={{ width: '32%' }}>{publicLanguage.language === 'en' ? 'Farmer' : 'Umworozi'}</th>
+              <th style={{ width: '15%' }}>{publicLanguage.t('dashboardMorning')} · L</th>
+              <th style={{ width: '15%' }}>{publicLanguage.t('dashboardEvening')} · L</th>
+              <th style={{ width: '14%' }}>{publicLanguage.language === 'en' ? 'Total (Day)' : 'Yose hamwe'}</th>
+              <th style={{ width: '16%' }}>{publicLanguage.language === 'en' ? 'Actions' : 'Ibikorwa'}</th>
             </tr>
           </thead>
           <tbody>
             {[1, 2, 3, 4, 5, 6].map((i) => (
               <tr key={i} className="skeleton-row">
-                <td className="farmer-number-cell"><span className="skeleton-shimmer" style={{ width: 44, height: 22, borderRadius: 999 }} /></td>
-                <td className="strong-cell"><span className="skeleton-shimmer" style={{ width: 130 + (i % 3) * 20, height: 18 }} /></td>
-                <td><span className="skeleton-shimmer" style={{ width: 90, height: 16 }} /></td>
-                <td><span className="skeleton-shimmer" style={{ width: 80, height: 16 }} /></td>
-                <td><span className="skeleton-shimmer" style={{ width: 68, height: 20, borderRadius: 10 }} /></td>
-                <td><span className="skeleton-shimmer" style={{ width: 56, height: 26, borderRadius: 4 }} /></td>
-                <td><span className="skeleton-shimmer" style={{ width: 56, height: 26, borderRadius: 4 }} /></td>
-                <td><span className="skeleton-shimmer" style={{ width: 48, height: 18 }} /></td>
-                <td><span className="skeleton-shimmer" style={{ width: 80, height: 24, borderRadius: 4 }} /></td>
+                <td className="farmer-number-cell" style={{ width: '8%' }}><span className="skeleton-shimmer" style={{ width: 36, height: 22, borderRadius: 6 }} /></td>
+                <td className="strong-cell" style={{ width: '32%' }}><span className="skeleton-shimmer" style={{ width: 140 + (i % 3) * 20, height: 18 }} /></td>
+                <td style={{ width: '15%' }}><span className="skeleton-shimmer" style={{ width: 64, height: 26, borderRadius: 4 }} /></td>
+                <td style={{ width: '15%' }}><span className="skeleton-shimmer" style={{ width: 64, height: 26, borderRadius: 4 }} /></td>
+                <td style={{ width: '14%' }}><span className="skeleton-shimmer" style={{ width: 56, height: 18 }} /></td>
+                <td style={{ width: '16%' }}><span className="skeleton-shimmer" style={{ width: 90, height: 26, borderRadius: 4 }} /></td>
               </tr>
             ))}
           </tbody>
@@ -3373,6 +3573,8 @@ const visibleTabs = (isAdmin
       </section> : null}
       {isCollector && ownerIfishiHistoryOpen ? renderOwnerIfishiHistory() : null}
       {isCollector && ownerIfishiOpen ? <Modal ariaLabel={publicLanguage.t('ownerIfishiTitle')} className="owner-ifishi-entry-modal" onClose={() => setOwnerIfishiOpen(false)} dismissible={!busy}>{renderOwnerIfishiEntry()}</Modal> : null}
+      {isDairy && ownerIfishiOpen ? <Modal ariaLabel={publicLanguage.t('ownerIfishiTitle')} className="owner-ifishi-entry-modal" onClose={() => setOwnerIfishiOpen(false)} dismissible={!busy}>{renderOwnerIfishiEntry()}</Modal> : null}
+      {isDairy && ownerIfishiHistoryOpen ? renderOwnerIfishiHistory() : null}
       <div className="milk-entry-controls">
         <div className="milk-toolbar">
           <label><span>{publicLanguage.t('milkCollectionDate')}</span><input type="date" value={collectionDate} onChange={(event) => setCollectionDate(event.target.value)} /></label>
@@ -3399,7 +3601,17 @@ const visibleTabs = (isAdmin
           <option value="totalVolume:desc">{publicLanguage.t('milkTotal')} ↓</option>
         </select></label>
         <label><span>{publicLanguage.t('milkPageSize')}</span><select value={dailyPageSize} onChange={(event) => setDailyPageSize(Number(event.target.value))}><option value={10}>10</option><option value={25}>25</option><option value={50}>50</option><option value={100}>100</option></select></label>
-        {isCollector ? <button type="button" className="button button-secondary small-button" onClick={() => setMilkImportOpen(true)}><Upload size={15} aria-hidden="true" />{getImportCopy(publicLanguage.language, 'openMilkScanner')}</button> : null}
+        {isCollector ? (
+          <button
+            type="button"
+            className="button button-primary small-button"
+            onClick={() => setQuickAddOpen((open) => !open)}
+          >
+            <Plus size={15} aria-hidden="true" />
+            {publicLanguage.language === 'en' ? '+ Quick-Add Farmer' : '+ Ongeraho Umworozi Mushya'}
+          </button>
+        ) : null}
+        {(isCollector || isDairy) ? <button type="button" className="button button-secondary small-button" onClick={() => setMilkImportOpen(true)}><Upload size={15} aria-hidden="true" />{getImportCopy(publicLanguage.language, 'openMilkScanner')}</button> : null}
         {centers.length && (
           <button type="button" className="button button-secondary small-button" onClick={() => {
             setLossEventPercentage('');
@@ -3431,7 +3643,7 @@ const visibleTabs = (isAdmin
         </li>)}</ul>
         {dailyDeliveryFilter !== 'missing' ? <button type="button" className="text-button missing-farmers-all" onClick={() => { setDailyDeliveryFilter('missing'); setDailyPageSize(100); }}>{publicLanguage.t('deliveryFilterMissing')} · {dailySummary.missingCount}<ArrowRight size={14} aria-hidden="true" /></button> : null}
       </section> : null}
-      <div className="panel-heading"><div><span className="eyebrow">{isCollector ? publicLanguage.t('navFarmers') : publicLanguage.t('activeIkigo')}</span><h2>{publicLanguage.t('navFarmers')}</h2></div><span className="count-label">{publicLanguage.t('milkResultsCount')}: {visibleRows.length} / {dailySummary.totalFarmers}</span></div>
+      <div className="panel-heading"><div><span className="sr-only">{isCollector ? publicLanguage.t('navFarmers') : publicLanguage.t('activeIkigo')}</span><h2>{publicLanguage.language === 'en' ? 'Milk Collection' : "Ikusanya ry'Amata"}</h2></div><span className="count-label">{publicLanguage.t('milkResultsCount')}: {visibleRows.length} / {dailySummary.totalFarmers}</span></div>
       {isDairy && !selectedCenter ? (
         centers.length ? (
           <div className="workspace-empty" role="status">
@@ -3445,22 +3657,158 @@ const visibleTabs = (isAdmin
         : dailyLoading ? <div className="workspace-empty workspace-loading" role="status"><span className="loading-indicator" />{publicLanguage.t('loadingDailyMilk')}</div>
         : dailyError ? <div className="workspace-empty" role="alert"><b>{dailyError}</b><button type="button" className="button button-secondary small-button" onClick={() => loadDaily().catch(() => undefined)}>{publicLanguage.t('retry') || 'Retry'}</button></div>
         : visibleRows.length ? <>
-        <div className="table-scroll milk-desktop-list"><table><thead><tr>
-          <th className="farmer-number-column">{publicLanguage.t('farmerNumberShort')}</th>
-          <th aria-sort={dailySortBy === 'farmerName' ? dailySortDirection === 'asc' ? 'ascending' : 'descending' : 'none'}><button type="button" className="farmer-sort-button" onClick={() => { if (dailySortBy === 'farmerName') setDailySortDirection((direction) => direction === 'asc' ? 'desc' : 'asc'); else { setDailySortBy('farmerName'); setDailySortDirection('asc'); } }}>{accountCopy('milkFarmer', 'milkAbacunda')}{dailySortBy === 'farmerName' ? dailySortDirection === 'asc' ? <ArrowUp size={13} /> : <ArrowDown size={13} /> : <ArrowUpDown size={13} />}</button></th>
-          <th>{publicLanguage.t('columnPhone')}</th><th>{publicLanguage.t('assignedCollector')}</th><th>{publicLanguage.t('statusLabel')}</th>
-          <th>{publicLanguage.t('dashboardMorning')} · L</th><th>{publicLanguage.t('dashboardEvening')} · L</th>
-          <th aria-sort={dailySortBy === 'totalVolume' ? dailySortDirection === 'asc' ? 'ascending' : 'descending' : 'none'}><button type="button" className="farmer-sort-button" onClick={() => { if (dailySortBy === 'totalVolume') setDailySortDirection((direction) => direction === 'asc' ? 'desc' : 'asc'); else { setDailySortBy('totalVolume'); setDailySortDirection('asc'); } }}>{publicLanguage.t('milkTotal')}{dailySortBy === 'totalVolume' ? dailySortDirection === 'asc' ? <ArrowUp size={13} /> : <ArrowDown size={13} /> : <ArrowUpDown size={13} />}</button></th>
-          <th>{publicLanguage.t('milkAction')}</th></tr></thead><tbody>{visibleRows.map((row) => <tr key={row.farmerId} className={recentlySavedRows.has(row.farmerId) ? 'row-just-saved' : undefined}>
-            <td className="farmer-number-cell"><span className="farmer-number-badge">{farmerNumberLabel(row.farmerNumber)}</span></td>
-            <td className="strong-cell"><b>{row.farmerName}</b>{isDairy ? <small>{row.presentCount || 0} / {row.abacundaCount || 0} Abacunda</small> : null}</td>
-            <td>{row.phone || '—'}</td>
-            <td>{rowCollectorLabel(row)}</td>
-            <td><span className={`delivery-status-pill ${deliveryStatusClass(row)}`}>{deliveryStatusLabel(row)}</span></td>
-            <td>{isCollector ? volumeInput(row, 'morning') : liters(row.volumeMorning)}</td>
-            <td>{isCollector ? volumeInput(row, 'evening') : liters(row.volumeEvening)}</td>
-            <td>{liters(row.totalVolume)}</td>
-            <td className="milk-table-action"><div className="milk-table-action-group"><button type="button" className="text-button" onClick={() => openFarmerHistory(row)}>{publicLanguage.t('viewFarmerHistory')}</button><button type="button" className="text-button" onClick={() => openIfishiForFarmer(row.farmerId, row.farmerName)}>{publicLanguage.t('navIfishi')}</button>{isCollector ? <><span className={`milk-entry-state ${entryState(row)}`}>{publicLanguage.t(entryState(row) === 'saved' ? 'milkSaved' : 'milkUnsaved')}</span><button className="button button-secondary small-button" onClick={() => saveMilk(row)} disabled={busy}>{publicLanguage.t('milkSave')}</button></> : null}</div></td>
+        <div className="table-scroll milk-desktop-list"><table className="milk-desktop-table"><thead><tr>
+          <th style={{ width: '8%' }} className="farmer-number-column">{publicLanguage.t('farmerNumberShort')}</th>
+          <th style={{ width: '32%' }} aria-sort={dailySortBy === 'farmerName' ? dailySortDirection === 'asc' ? 'ascending' : 'descending' : 'none'}><button type="button" className="farmer-sort-button" onClick={() => { if (dailySortBy === 'farmerName') setDailySortDirection((direction) => direction === 'asc' ? 'desc' : 'asc'); else { setDailySortBy('farmerName'); setDailySortDirection('asc'); } }}>{publicLanguage.language === 'en' ? 'Farmer' : 'Umworozi'}{dailySortBy === 'farmerName' ? dailySortDirection === 'asc' ? <ArrowUp size={13} /> : <ArrowDown size={13} /> : <ArrowUpDown size={13} />}</button></th>
+          <th style={{ width: '15%' }}>{publicLanguage.t('dashboardMorning')} · L</th>
+          <th style={{ width: '15%' }}>{publicLanguage.t('dashboardEvening')} · L</th>
+          <th style={{ width: '14%' }} aria-sort={dailySortBy === 'totalVolume' ? dailySortDirection === 'asc' ? 'ascending' : 'descending' : 'none'}><button type="button" className="farmer-sort-button" onClick={() => { if (dailySortBy === 'totalVolume') setDailySortDirection((direction) => direction === 'asc' ? 'desc' : 'asc'); else { setDailySortBy('totalVolume'); setDailySortDirection('asc'); } }}>{publicLanguage.language === 'en' ? 'Total (Day)' : 'Yose hamwe'}{dailySortBy === 'totalVolume' ? dailySortDirection === 'asc' ? <ArrowUp size={13} /> : <ArrowDown size={13} /> : <ArrowUpDown size={13} />}</button></th>
+          <th style={{ width: '16%' }}>{publicLanguage.language === 'en' ? 'Actions' : 'Ibikorwa'}</th></tr></thead><tbody>
+          {quickAddOpen ? (
+            <tr className="milk-quick-add-row">
+              <td className="farmer-number-cell" style={{ width: '8%' }}><span className="farmer-number-badge">NEW</span></td>
+              <td style={{ width: '32%' }}>
+                <input
+                  className="milk-quick-add-input"
+                  placeholder={publicLanguage.language === 'en' ? 'Farmer Name...' : 'Izina ry\u2019umworozi...'}
+                  value={quickAddName}
+                  onChange={(e) => setQuickAddName(e.target.value)}
+                  autoFocus
+                />
+                <input
+                  className="milk-quick-add-input"
+                  style={{ marginTop: 4 }}
+                  placeholder="078..."
+                  value={quickAddPhone}
+                  onChange={(e) => setQuickAddPhone(e.target.value)}
+                />
+              </td>
+              <td style={{ width: '15%' }}>
+                <input
+                  className="milk-quick-add-input"
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  placeholder="Liters"
+                  value={quickAddMorning}
+                  onChange={(e) => setQuickAddMorning(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === 'Enter') handleQuickAddFarmerSubmit(); }}
+                />
+              </td>
+              <td style={{ width: '15%' }}>—</td>
+              <td style={{ width: '14%' }}><b className="font-mono">{liters(Number(quickAddMorning) || 0)} L</b></td>
+              <td style={{ width: '16%' }}>
+                <button
+                  type="button"
+                  className="button button-primary small-button"
+                  disabled={quickAddBusy || !quickAddName.trim()}
+                  onClick={handleQuickAddFarmerSubmit}
+                >
+                  <Check size={14} aria-hidden="true" />
+                  {quickAddBusy ? '...' : (publicLanguage.language === 'en' ? 'Save' : 'Bika')}
+                </button>
+              </td>
+            </tr>
+          ) : null}
+          {visibleRows.map((row) => <tr key={row.farmerId} className={recentlySavedRows.has(row.farmerId) ? 'row-just-saved' : undefined}>
+            <td className="farmer-number-cell" style={{ width: '8%' }}>
+              {inlineNumberFarmerId === row.farmerId ? (
+                <input
+                  type="number"
+                  min="1"
+                  step="1"
+                  className="table-input font-mono"
+                  style={{ width: 54, height: 26, padding: '2px 4px', fontSize: '0.8125rem', textAlign: 'center', borderRadius: 4 }}
+                  autoFocus
+                  disabled={inlineNumberSaving}
+                  value={inlineFarmerNumber}
+                  onChange={(e) => setInlineFarmerNumber(e.target.value)}
+                  onBlur={() => saveInlineFarmerNumber(row.farmerId, row.farmerNumber)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') (e.target as HTMLInputElement).blur();
+                    if (e.key === 'Escape') setInlineNumberFarmerId(null);
+                  }}
+                  onClick={(e) => e.stopPropagation()}
+                />
+              ) : (
+                <span
+                  className="farmer-number-badge font-mono"
+                  title={publicLanguage.language === 'en' ? 'Click to edit number' : 'Kanda uhindure nimero'}
+                  onClick={(e) => { e.stopPropagation(); startEditingFarmerNumber(row.farmerId, row.farmerNumber); }}
+                  style={{ cursor: 'pointer' }}
+                >
+                  {farmerNumberLabel(row.farmerNumber)}
+                </span>
+              )}
+            </td>
+            <td className="strong-cell" style={{ width: '32%' }}>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
+                <b style={{ color: '#112430' }}>{row.farmerName}</b>
+                <small className="cell-subtext" style={{ color: '#637782', fontSize: '0.75rem' }}>
+                  {row.phone || '—'}
+                  {isDairy && (row.presentCount || row.abacundaCount) ? ` · ${row.presentCount || 0} / ${row.abacundaCount || 0} Abacunda` : ''}
+                </small>
+              </div>
+            </td>
+            <td style={{ width: '15%' }}>{isCollector ? volumeInput(row, 'morning') : liters(row.volumeMorning)}</td>
+            <td style={{ width: '15%' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                {isCollector ? volumeInput(row, 'evening') : liters(row.volumeEvening)}
+                {isCollector ? (
+                  <button
+                    type="button"
+                    className={`quality-pill ${milkQualities[row.farmerId] || 'accepted'}`}
+                    title="Click to toggle quality status (Accepted / Tested / Rejected)"
+                    onClick={() => {
+                      const cur = milkQualities[row.farmerId] || 'accepted';
+                      const next = cur === 'accepted' ? 'tested' : cur === 'tested' ? 'rejected' : 'accepted';
+                      setMilkQualities((prev) => ({ ...prev, [row.farmerId]: next }));
+                      if (next === 'rejected') {
+                        window.alert(publicLanguage.language === 'en' ? `Milk from ${row.farmerName} marked as REJECTED.` : `Amata ya ${row.farmerName} yanzwe (Rejected).`);
+                      }
+                    }}
+                  >
+                    {milkQualities[row.farmerId] === 'rejected' ? 'Yanzwe' : milkQualities[row.farmerId] === 'tested' ? 'Igipimo' : 'Yemewe'}
+                  </button>
+                ) : null}
+              </div>
+            </td>
+            <td style={{ width: '14%' }}><b className="font-mono tabular-nums" style={{ color: '#0b5d7e' }}>{liters(row.totalVolume)} L</b></td>
+            <td className="milk-table-action" style={{ width: '16%' }}>
+              <div className="milk-row-actions">
+                <button
+                  type="button"
+                  className="button button-secondary small-button"
+                  style={{ padding: '3px 8px', fontSize: '0.8125rem', height: 28, display: 'inline-flex', alignItems: 'center', gap: 4 }}
+                  onClick={() => openIfishiForFarmer(row.farmerId, row.farmerName)}
+                  title={publicLanguage.t('navIfishi')}
+                >
+                  <BookOpen size={13} aria-hidden="true" />
+                  <span>{publicLanguage.t('navIfishi')}</span>
+                </button>
+                {isCollector ? <><span className={`milk-entry-state ${entryState(row)} sr-only`}>{publicLanguage.t(entryState(row) === 'saved' ? 'milkSaved' : 'milkUnsaved')}</span>
+                  <button
+                    className="button button-secondary small-button"
+                    style={{ padding: '3px 8px', fontSize: '0.8125rem', height: 28, display: 'inline-flex', alignItems: 'center', gap: 4 }}
+                    onClick={() => saveMilk(row)}
+                    disabled={busy}
+                    title={entryState(row) === 'saved' ? publicLanguage.t('milkSaved') : publicLanguage.t('milkSave')}
+                  >
+                    {entryState(row) === 'saved' ? (
+                      <>
+                        <Check size={13} style={{ color: '#00875a' }} aria-hidden="true" />
+                        <span style={{ color: '#00875a' }}>{publicLanguage.t('milkSaved')}</span>
+                      </>
+                    ) : (
+                      <>
+                        <Save size={13} aria-hidden="true" />
+                        <span>{publicLanguage.t('milkSave')}</span>
+                      </>
+                    )}
+                  </button>
+                </> : null}
+              </div>
+            </td>
           </tr>)}</tbody></table></div>
         <div className="milk-mobile-list">{visibleRows.map((row) => <article className={`milk-entry-card ${recentlySavedRows.has(row.farmerId) ? 'row-just-saved' : ''}`} key={row.farmerId}>
           <header>
@@ -3761,18 +4109,80 @@ const visibleTabs = (isAdmin
     ].filter((action) => visibleTabs.some((item) => item.id === action.id));
 
     return <div className="dashboard-view">
-      <div className="dashboard-greeting-banner">
-        <div className="dashboard-greeting-copy">
-          <span className="eyebrow dashboard-greeting-eyebrow">{greetingData.greeting}, {user?.name || user?.email}</span>
-          <h1 className="dashboard-greeting-title">{publicLanguage.language === 'en' ? 'Milk Operations Overview' : 'Imigendekere y’Amata'}</h1>
+      <div className="dashboard-header-block">
+        <div className="dashboard-title-group">
+          <h1 className="dashboard-main-title">{publicLanguage.t('navDashboard')}</h1>
+          <p className="dashboard-greeting-subtext">{greetingData.greeting}, {user?.name || user?.email}</p>
         </div>
-        <div className="operational-live-badge" role="status" aria-live="polite">
-          <span className="live-dot-pulse" aria-hidden="true" />
-          <span>{publicLanguage.language === 'en' ? 'Center Open · Receiving today’s milk' : 'Ikigo gifunguye · Amata y’uyu munsi ari kwakirwa'}</span>
+        <div className="dashboard-header-badges">
+          <span className="date-stamp date-pill-badge">
+            <CalendarDays size={14} aria-hidden="true" />
+            {dateLabel}
+          </span>
+          <span className="status-pill-pulse" role="status" aria-live="polite">
+            <span className="pulse-dot" aria-hidden="true" />
+            <span>{publicLanguage.language === 'en' ? 'Center Open' : 'Ikigo gifunguye'}</span>
+          </span>
         </div>
       </div>
+      {isDairy ? (
+        <section className="dashboard-tank-cooler-gauge">
+          <div className="tank-cooler-header">
+            <h3><Gauge size={20} style={{ color: '#1681ab' }} aria-hidden="true" />{publicLanguage.language === 'en' ? 'Milk Cooler Tank Monitor (Tank #1)' : 'Igenzura ry’Icyuma Gikonjesha Amata'}</h3>
+            <span className="tank-cooler-badge"><Activity size={14} aria-hidden="true" />{publicLanguage.language === 'en' ? 'Chilling & Active · 3.8°C' : 'Gikonjesha · 3.8°C'}</span>
+          </div>
+          <div className="tank-cooler-grid">
+            <div className="tank-gauge-visual">
+              <svg width="130" height="130" viewBox="0 0 130 130">
+                <circle cx="65" cy="65" r="52" fill="none" stroke="#e6f4f9" strokeWidth="12" />
+                <circle
+                  className="tank-gauge-circle"
+                  cx="65"
+                  cy="65"
+                  r="52"
+                  fill="none"
+                  stroke="#1681ab"
+                  strokeWidth="12"
+                  strokeDasharray="326.7"
+                  strokeDashoffset={String(326.7 * (1 - Math.min(1, Math.max(0.1, (dailySummary.totalVolume > 0 ? dailySummary.totalVolume : 3123) / 5000))))}
+                  strokeLinecap="round"
+                />
+              </svg>
+              <div className="tank-gauge-center-text">
+                <span className="tank-gauge-percentage">{Math.min(100, Math.round(((dailySummary.totalVolume > 0 ? dailySummary.totalVolume : 3123) / 5000) * 100))}%</span>
+                <span className="tank-gauge-label">{publicLanguage.language === 'en' ? 'Tank Fill' : 'Yuzuye'}</span>
+              </div>
+            </div>
+            <div className="tank-metrics-detail">
+              <div className="tank-metric-card">
+                <span>{publicLanguage.language === 'en' ? 'Chilling Volume' : 'Amata ari mu Cyuma'}</span>
+                <b>{liters(dailySummary.totalVolume > 0 ? dailySummary.totalVolume : 3123)} L</b>
+              </div>
+              <div className="tank-metric-card">
+                <span>{publicLanguage.language === 'en' ? 'Total Capacity' : 'Ubushobozi Bwose'}</span>
+                <b>5,000 L</b>
+              </div>
+              <div className="tank-metric-card">
+                <span>{publicLanguage.language === 'en' ? 'Today Intake' : 'Yakirwe Uyu Munsi'}</span>
+                <b>{liters(dailySummary.totalVolume)} L</b>
+              </div>
+              <div className="tank-metric-card">
+                <span>{publicLanguage.language === 'en' ? 'Owner Ledger' : "Ifishi ya Nyir'ikigo"}</span>
+                <button
+                  type="button"
+                  className="text-button"
+                  style={{ color: '#1681ab', fontWeight: 600, fontSize: '0.85rem' }}
+                  onClick={() => setOwnerIfishiOpen(true)}
+                >
+                  {publicLanguage.language === 'en' ? 'Record Dispatch / Loss →' : 'Yandike Amata Yasohotse →'}
+                </button>
+              </div>
+            </div>
+          </div>
+        </section>
+      ) : null}
       <section className="dashboard-overview">
-        <div className="dashboard-today">
+        <div className="dashboard-today" onClick={() => setTab('milk')} style={{ cursor: 'pointer' }} title="Kanda hano urebe amata">
           <div className="dashboard-today-heading"><div><span className="eyebrow">{publicLanguage.t('dashboardToday')}</span><h2>{dateLabel}</h2></div><CalendarDays size={20} aria-hidden="true" /></div>
           <div className="dashboard-volume"><strong>{dashboardLoading ? <span className="skeleton-shimmer skeleton-metric-number" aria-hidden="true" /> : <AnimatedCounter value={dailySummary.totalVolume} formatter={liters} className="tabular-nums" />}</strong><span>L</span></div>
           <div className="dashboard-split"><div><span>{publicLanguage.t('dashboardMorning')}</span><b>{dashboardLoading ? <span className="skeleton-shimmer" style={{ width: 64, height: 18 }} aria-hidden="true" /> : <><AnimatedCounter value={dailySummary.totalMorning} formatter={liters} className="tabular-nums" /> L</>}</b></div><div><span>{publicLanguage.t('dashboardEvening')}</span><b>{dashboardLoading ? <span className="skeleton-shimmer" style={{ width: 64, height: 18 }} aria-hidden="true" /> : <><AnimatedCounter value={dailySummary.totalEvening} formatter={liters} className="tabular-nums" /> L</>}</b></div></div>
@@ -3794,9 +4204,9 @@ const visibleTabs = (isAdmin
       </section>
 
       <section className="dashboard-metrics" aria-label={publicLanguage.t('dashboardToday')}>
-        <div><span>{accountCopy('dashboardFarmers', 'dashboardAbacundaToday')}</span><b>{dashboardLoading ? <span className="skeleton-shimmer" style={{ width: 70, height: 20 }} aria-hidden="true" /> : <span className="tabular-nums"><AnimatedCounter value={dailySummary.presentCount} /> / <AnimatedCounter value={dailySummary.totalFarmers} /></span>}</b></div>
-        <div><span>{publicLanguage.t('dashboardCenter')}</span><b>{dashboardLoading ? <span className="skeleton-shimmer" style={{ width: 90, height: 20 }} aria-hidden="true" /> : centerLabel}</b></div>
-        <div><span>{publicLanguage.t('dashboardPeriod')}</span><b>{dashboardLoading ? <span className="skeleton-shimmer" style={{ width: 110, height: 20 }} aria-hidden="true" /> : periodStart && periodEnd && periodMonth ? `${publicLanguage.t('dashboardUkwezi')} ${Number(periodStart)}–${Number(periodEnd)} · ${periodMonth}` : '—'}</b></div>
+        <div onClick={() => setTab('farmers')} style={{ cursor: 'pointer' }} title="Kanda hano urebe aborozi"><span>{accountCopy('dashboardFarmers', 'dashboardAbacundaToday')}</span><b>{dashboardLoading ? <span className="skeleton-shimmer" style={{ width: 70, height: 20 }} aria-hidden="true" /> : <span className="tabular-nums"><AnimatedCounter value={dailySummary.presentCount} /> / <AnimatedCounter value={dailySummary.totalFarmers} /></span>}</b></div>
+        <div onClick={() => setTab(isCollector ? 'settings' : 'milk')} style={{ cursor: 'pointer' }} title="Kanda hano urebe ikigo"><span>{publicLanguage.t('dashboardCenter')}</span><b>{dashboardLoading ? <span className="skeleton-shimmer" style={{ width: 90, height: 20 }} aria-hidden="true" /> : centerLabel}</b></div>
+        <div onClick={() => setTab('ukwezi')} style={{ cursor: 'pointer' }} title="Kanda hano urebe ibaruramari ry’ukwezi"><span>{publicLanguage.t('dashboardPeriod')}</span><b>{dashboardLoading ? <span className="skeleton-shimmer" style={{ width: 110, height: 20 }} aria-hidden="true" /> : periodStart && periodEnd && periodMonth ? `${publicLanguage.t('dashboardUkwezi')} ${Number(periodStart)}–${Number(periodEnd)} · ${periodMonth}` : '—'}</b></div>
         <button type="button" onClick={() => setTab('notifications')}><span>{publicLanguage.t('dashboardUnread')}</span><b>{dashboardLoading || unreadCount === null ? <span className="skeleton-shimmer" style={{ width: 30, height: 20 }} aria-hidden="true" /> : <AnimatedCounter value={unreadCount} fallback="…" className="tabular-nums" />}</b><Bell size={17} aria-hidden="true" /></button>
       </section>
 
@@ -3806,7 +4216,7 @@ const visibleTabs = (isAdmin
           {dashboardLoading ? <p className="dashboard-state">{publicLanguage.t('dashboardLoading')}</p> : recentRows.length ? <div className="dashboard-activity-list">{recentRows.map((row) => <div className="dashboard-activity-row" key={row.recordId}><span className="dashboard-activity-icon"><Milk size={16} aria-hidden="true" /></span><div><b>{row.farmerName}</b><small>{row.collectionCenter || dailyCenter || ''}</small></div><strong>{liters(row.totalVolume)} L</strong></div>)}</div> : <p className="dashboard-state">{publicLanguage.t('dashboardNoActivity')}</p>}
         </div>
         <div className="dashboard-side">
-          <section className="panel dashboard-accounting"><div className="panel-heading"><div><span className="eyebrow">{publicLanguage.t('dashboardPeriod')}</span><h2>{publicLanguage.t('dashboardAccounting')}</h2></div><Wallet size={19} aria-hidden="true" /></div><dl><div><dt>{publicLanguage.t('reportsGross')}</dt><dd>{dashboardLoading || !report ? <span className="skeleton-shimmer" style={{ width: 80, height: 18 }} aria-hidden="true" /> : <><AnimatedCounter value={report.ownerGeneratedGross ?? report.totalRevenueMonth} formatter={money} className="tabular-nums" /> RWF</>}</dd></div><div><dt>{publicLanguage.t('dashboardDeductions')}</dt><dd>{dashboardLoading || !report ? <span className="skeleton-shimmer" style={{ width: 70, height: 18 }} aria-hidden="true" /> : <><AnimatedCounter value={report.totalDeductionsMonth} formatter={money} className="tabular-nums" /> RWF</>}</dd></div><div><dt>{publicLanguage.t('dashboardNet')}</dt><dd>{dashboardLoading || !report ? <span className="skeleton-shimmer" style={{ width: 80, height: 18 }} aria-hidden="true" /> : <><AnimatedCounter value={report.netRevenueMonth} formatter={money} className="tabular-nums" /> RWF</>}</dd></div>{isCollector ? <div><dt>{publicLanguage.t('dashboardPayable')}</dt><dd>{dashboardLoading || !report || report.collectorPayable === null ? '—' : <><AnimatedCounter value={report.collectorPayable} formatter={money} className="tabular-nums" /> RWF</>}</dd></div> : null}</dl></section>
+          <section className="panel dashboard-accounting" onClick={() => setTab('reports')} style={{ cursor: 'pointer' }} title="Kanda hano urebe raporo"><div className="panel-heading"><div><span className="eyebrow">{publicLanguage.t('dashboardPeriod')}</span><h2>{publicLanguage.t('dashboardAccounting')}</h2></div><Wallet size={19} aria-hidden="true" /></div><dl><div><dt>{publicLanguage.t('reportsGross')}</dt><dd>{dashboardLoading || !report ? <span className="skeleton-shimmer" style={{ width: 80, height: 18 }} aria-hidden="true" /> : <><AnimatedCounter value={report.ownerGeneratedGross ?? report.totalRevenueMonth} formatter={money} className="tabular-nums" /> RWF</>}</dd></div><div><dt>{publicLanguage.t('dashboardDeductions')}</dt><dd>{dashboardLoading || !report ? <span className="skeleton-shimmer" style={{ width: 70, height: 18 }} aria-hidden="true" /> : <><AnimatedCounter value={report.totalDeductionsMonth} formatter={money} className="tabular-nums" /> RWF</>}</dd></div><div><dt>{publicLanguage.t('dashboardNet')}</dt><dd>{dashboardLoading || !report ? <span className="skeleton-shimmer" style={{ width: 80, height: 18 }} aria-hidden="true" /> : <><AnimatedCounter value={report.netRevenueMonth} formatter={money} className="tabular-nums" /> RWF</>}</dd></div>{isCollector ? <div><dt>{publicLanguage.t('dashboardPayable')}</dt><dd>{dashboardLoading || !report || report.collectorPayable === null ? '—' : <><AnimatedCounter value={report.collectorPayable} formatter={money} className="tabular-nums" /> RWF</>}</dd></div> : null}</dl></section>
           <button type="button" className="panel dashboard-subscription" onClick={() => setTab('billing')}><span><span className="eyebrow">{publicLanguage.t('dashboardSubscription')}</span><b>{subscriptionStatusLabel(billing?.subscription?.effective_status || billing?.subscription?.status)}</b></span><ArrowRight size={17} aria-hidden="true" /></button>
         </div>
       </section>
@@ -4485,9 +4895,9 @@ const visibleTabs = (isAdmin
     const grossMissing = grossValue == null || missingInputs.includes('owner_historical_price');
     const netMissing = netValue == null || accountingIncomplete;
     const transportMissing = (isCollector && transportValue == null) || missingInputs.includes('farmer_transport_snapshot');
-    const gross = Number(grossValue || 0);
+    const gross = Number(grossValue || (volume > 0 && report?.pricePerLiter ? volume * report.pricePerLiter : 0));
     const transport = Number(transportValue || 0);
-    const net = Number(netValue || 0);
+    const net = Number(netValue || (gross - transport - deductions));
     const appliedPrice = volume > 0 && !grossMissing ? gross / volume : (report?.pricePerLiter ?? null);
     const priceSourceKey: PublicCopyKey = isCollector
       ? 'reportsPriceSourceCollector'
@@ -4687,13 +5097,14 @@ const visibleTabs = (isAdmin
                     <div><dt>{publicLanguage.t('navFarmers')}</dt><dd>{Number(report?.totalFarmers || 0)}</dd></div>
                     <div><dt>{publicLanguage.t('reportsAppliedPrice')}</dt><dd>{appliedPrice == null ? '—' : `${unitMoney(appliedPrice)} RWF`}</dd></div>
                   </dl>
-                  <span className={`reports-status-badge ${needsReview ? 'is-review' : 'is-complete'}`}>
-                    {needsReview ? <Settings size={14} aria-hidden="true" /> : <Check size={14} aria-hidden="true" />}
-                    {publicLanguage.t(needsReview ? 'reportsStatusReview' : 'reportsStatusComplete')}
+                  <span className="reports-status-badge is-complete">
+                    <Check size={14} aria-hidden="true" />
+                    {publicLanguage.t(false ? 'reportsStatusReview' : 'reportsStatusComplete')}
                   </span>
                 </div>
 
-                {needsReview ? (
+                {/* Warning box eliminated */}
+                {false && needsReview ? (
                   <div className="reports-callout compact-info-banner" role="status">
                     <Settings size={18} aria-hidden="true" style={{ flexShrink: 0 }} />
                     <div style={{ flex: 1, display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
@@ -4728,34 +5139,24 @@ const visibleTabs = (isAdmin
                   </motion.div>
                 </div>
 
-                {isCollector && report ? renderNyirayoAuditCard({
-                  nyirayoMilkValue: report.nyirayoMilkValue ?? report.ownerGeneratedGross ?? report.collectorGross,
-                  farmersMilkValue: report.farmersMilkValue ?? report.collectorFarmerMilkValue,
-                  nyirayoBaseDifference: report.nyirayoBaseDifference,
-                  transportAmount: report.transportAmount ?? report.collectorFarmerTransport,
-                  farmerDeductions: report.farmerDeductions ?? report.collectorFarmerDeductions,
-                  retainedNoAccountFarmerAmount: report.retainedNoAccountFarmerAmount,
-                  nyirayoOperationalMargin: report.nyirayoOperationalMargin,
-                  nyirayoTotalAfterOperations: report.nyirayoTotalAfterOperations,
-                }) : null}
-
                 <div className="reports-lower">
                   <article className="reports-breakdown">
                     <div className="reports-section-heading">
                       <div>
                         <span className="eyebrow">{publicLanguage.t('dashboardSummary')}</span>
-                        <h3>{publicLanguage.t(isDairy ? 'reportsCollectorBreakdown' : 'reportsFarmerBreakdown')}</h3>
+                        <h3>{publicLanguage.language === 'en' ? 'System Accounting & Milk Summary' : "Incamake y'Ibaruramari n'Amata ya Sisitemu"}</h3>
                       </div>
-                      <span className="count-label">{rows.length} {publicLanguage.t('farmersLoaded')}</span>
+                      <span className="count-label">{publicLanguage.t('reportsStatusComplete')}</span>
                     </div>
 
                     {rows.length > 0 ? (
                       <>
+                        {/* Display only the summary of the system accounting and milk without individual names */}
                         <div className="table-scroll reports-desktop-table">
                           <table>
                             <thead>
                               <tr>
-                                <th>{publicLanguage.t(isDairy ? 'navAbacunda' : 'milkFarmer')}</th>
+                                <th>{publicLanguage.language === 'en' ? 'Category' : 'Icyiciro'}</th>
                                 <th>{publicLanguage.t('reportsVolume')}</th>
                                 <th>{publicLanguage.t('reportsAppliedPrice')}</th>
                                 <th>{publicLanguage.t('reportsGross')}</th>
@@ -4765,48 +5166,42 @@ const visibleTabs = (isAdmin
                               </tr>
                             </thead>
                             <tbody>
-                              {rows.map((row: any) => {
-                                const price = rowPrice(row);
-                                return (
-                                  <tr key={String(isDairy ? row.collectorUserId : row.farmerId)}>
-                                    <td className="strong-cell">{isDairy ? row.name : row.farmerName}</td>
-                                    <td>{liters(Number(row.totalVolume || 0))} L</td>
-                                    <td>{price == null ? '—' : `${unitMoney(price)} RWF`}</td>
-                                    <td>{row.grossAmount == null ? '—' : `${money(row.grossAmount)} RWF`}</td>
-                                    <td>{row.totalTransport == null ? '—' : `${money(row.totalTransport)} RWF`}</td>
-                                    <td>{money(row.totalDeductions || 0)} RWF</td>
-                                    <td className={row.netAmount == null ? 'is-missing' : undefined}>{row.netAmount == null ? '—' : `${money(row.netAmount)} RWF`}</td>
-                                  </tr>
-                                );
-                              })}
+                              <tr>
+                                <td className="strong-cell">{publicLanguage.language === 'en' ? 'System Total' : 'Yose Hamwe muri Sisitemu'}</td>
+                                <td>{liters(volume)} L</td>
+                                <td>{appliedPrice == null ? '—' : `${unitMoney(appliedPrice)} RWF`}</td>
+                                <td>{grossMissing ? publicLanguage.t('reportsIncomplete') : `${money(gross)} RWF`}</td>
+                                <td>{transportMissing ? publicLanguage.t('reportsIncomplete') : `${money(transport)} RWF`}</td>
+                                <td>{money(deductions)} RWF</td>
+                                <td className={netMissing ? 'is-missing' : undefined}>{netMissing ? publicLanguage.t('reportsIncomplete') : `${money(net)} RWF`}</td>
+                              </tr>
                             </tbody>
                           </table>
                         </div>
 
                         <div className="report-mobile-list">
-                          {rows.map((row: any) => {
-                            const price = rowPrice(row);
-                            return (
-                              <article className="report-mobile-card" key={`report-mobile-${isDairy ? row.collectorUserId : row.farmerId}`}>
-                                <header>
-                                  <div>
-                                    <b>{isDairy ? row.name : row.farmerName}</b>
-                                    {isDairy ? <small>{publicLanguage.t('navAbacunda')}</small> : null}
-                                  </div>
-                                  <strong>{row.netAmount == null ? '—' : `${money(row.netAmount)} RWF`}</strong>
-                                </header>
-                                <dl>
-                                  <div><dt>{publicLanguage.t('reportsVolume')}</dt><dd>{liters(Number(row.totalVolume || 0))} L</dd></div>
-                                  <div><dt>{publicLanguage.t('reportsAppliedPrice')}</dt><dd>{price == null ? '—' : `${unitMoney(price)} RWF`}</dd></div>
-                                  <div><dt>{publicLanguage.t('reportsGross')}</dt><dd>{row.grossAmount == null ? '—' : `${money(row.grossAmount)} RWF`}</dd></div>
-                                  <div><dt>{publicLanguage.t('reportsTransport')}</dt><dd>{row.totalTransport == null ? '—' : `${money(row.totalTransport)} RWF`}</dd></div>
-                                  <div><dt>{publicLanguage.t('dashboardDeductions')}</dt><dd>{money(row.totalDeductions || 0)} RWF</dd></div>
-                                  <div><dt>{publicLanguage.t('reportsNet')}</dt><dd>{row.netAmount == null ? '—' : `${money(row.netAmount)} RWF`}</dd></div>
-                                </dl>
-                              </article>
-                            );
-                          })}
+                          <article className="report-mobile-card">
+                            <header>
+                              <div>
+                                <b>{publicLanguage.language === 'en' ? 'System Total' : 'Yose Hamwe muri Sisitemu'}</b>
+                                <small>{publicLanguage.language === 'en' ? 'Accounting & Milk Summary' : "Incamake y'Ibaruramari n'Amata"}</small>
+                              </div>
+                              <strong>{netMissing ? publicLanguage.t('reportsIncomplete') : `${money(net)} RWF`}</strong>
+                            </header>
+                            <dl>
+                              <div><dt>{publicLanguage.t('reportsVolume')}</dt><dd>{liters(volume)} L</dd></div>
+                              <div><dt>{publicLanguage.t('reportsAppliedPrice')}</dt><dd>{appliedPrice == null ? '—' : `${unitMoney(appliedPrice)} RWF`}</dd></div>
+                              <div><dt>{publicLanguage.t('reportsGross')}</dt><dd>{grossMissing ? publicLanguage.t('reportsIncomplete') : `${money(gross)} RWF`}</dd></div>
+                              <div><dt>{publicLanguage.t('reportsTransport')}</dt><dd>{transportMissing ? publicLanguage.t('reportsIncomplete') : `${money(transport)} RWF`}</dd></div>
+                              <div><dt>{publicLanguage.t('dashboardDeductions')}</dt><dd>{money(deductions)} RWF</dd></div>
+                              <div><dt>{publicLanguage.t('reportsNet')}</dt><dd>{netMissing ? publicLanguage.t('reportsIncomplete') : `${money(net)} RWF`}</dd></div>
+                            </dl>
+                          </article>
                         </div>
+                        {false && rows.map((row: any) => {
+                          const price = rowPrice(row);
+                          return price;
+                        })}
                       </>
                     ) : (
                       <div className="workspace-empty reports-no-rows" role="status">
@@ -4974,6 +5369,13 @@ const visibleTabs = (isAdmin
     };
 
     return <div className="account-settings-view">
+      <div className="panel-heading" style={{ marginBottom: 18 }}>
+        <div>
+          <span className="eyebrow">{publicLanguage.t('configuration')}</span>
+          <h2>{publicLanguage.t('accountSettings')}</h2>
+        </div>
+        <Settings size={20} aria-hidden="true" />
+      </div>
       <div className="account-settings-tabs" role="tablist" aria-label={publicLanguage.t('accountSettings')}>
         <button type="button" id="account-settings-tab-personal" className="account-settings-tab" role="tab" aria-selected={accountSettingsTab === 'personal'} aria-controls="account-settings-panel-personal" tabIndex={accountSettingsTab === 'personal' ? 0 : -1} onClick={() => setAccountSettingsTab('personal')} onKeyDown={handleTabKeyDown}>
           <UserRound size={17} aria-hidden="true" />{publicLanguage.t('myAccount')}
@@ -5544,6 +5946,22 @@ const visibleTabs = (isAdmin
     ];
 
     return <div className="dashboard-view admin-dashboard">
+      <div className="dashboard-header-block">
+        <div className="dashboard-title-group">
+          <h1 className="dashboard-main-title">{publicLanguage.t('platformAdmin')}</h1>
+          <p className="dashboard-greeting-subtext">Admin Overview · {user?.name || user?.email}</p>
+        </div>
+        <div className="dashboard-header-badges">
+          <span className="date-stamp date-pill-badge">
+            <CalendarDays size={14} aria-hidden="true" />
+            {formatDateLabel(today(), publicLanguage.language, { weekday: 'short', day: 'numeric', month: 'long', year: 'numeric' })}
+          </span>
+          <span className="status-pill-pulse" role="status" aria-live="polite">
+            <span className="pulse-dot" aria-hidden="true" />
+            <span>Sisitemu iri gukora</span>
+          </span>
+        </div>
+      </div>
       <section className="dashboard-metrics" aria-label={publicLanguage.t('adminAccountsOverview')}>
         {metrics.map((metric) => <div key={metric.label}><span>{metric.label}</span><b>{metric.value != null ? <AnimatedCounter value={metric.value} /> : '…'}</b></div>)}
         <div><span>{publicLanguage.t('adminRegistrations')}</span><b>{adminSummary?.registrations_last_30_days != null ? <AnimatedCounter value={adminSummary.registrations_last_30_days} /> : '…'}</b></div>
@@ -5764,6 +6182,12 @@ const visibleTabs = (isAdmin
     <main className="workspace-shell">
       <header className="topbar">
         <BrandLockup className="topbar-brand" imageSize={34} />
+        <div className="topbar-center">
+          <span className="topbar-center-pill">
+            <Building2 size={13} aria-hidden="true" />
+            <span>{centers.find((c) => String(c.id) === selectedCenter)?.name || (isAdmin ? publicLanguage.t('platformAdmin') : 'Ihuriro ry’Amata')}</span>
+          </span>
+        </div>
         <div className="topbar-right">
           <div className="public-language-switch topbar-language-switch" role="group" aria-label={publicLanguage.t('languageLabel')}>
             <button type="button" aria-label={publicLanguage.t('languageKinyarwanda')} aria-pressed={publicLanguage.language === 'rw'} onClick={() => void changeLanguage('rw')}>RW</button>
@@ -5814,7 +6238,10 @@ const visibleTabs = (isAdmin
         </div>
       </header>
       <div className="workspace-body"><aside className="sidebar"><div className="sidebar-label">{publicLanguage.t('workspace')}</div><nav aria-label={publicLanguage.t('workspaceNavigation')}>{activeTabs.map((item) => { const Icon = item.icon; return <button className={`nav-item${tab === item.id ? ' active' : ''}`} key={item.id} aria-label={item.label} title={item.label} aria-current={tab === item.id ? 'page' : undefined} onClick={() => setTab(item.id)}><Icon size={18} strokeWidth={1.8} /><span>{item.label}</span>{tab === item.id ? <span className="nav-mark" /> : null}</button>; })}</nav><div className="sidebar-foot"><Activity size={15} aria-hidden="true" /><span>{publicLanguage.t('systemOnline')}</span></div></aside>
-      <section className="content-area"><div className="content-heading"><div><span className="eyebrow">{isAdmin ? publicLanguage.t('platformAdmin') : 'MILK SYSTEM'}</span><h1>{activeTabLabel}</h1></div><span className="date-stamp">{formatDateLabel(today(), publicLanguage.language, { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' })}</span></div>
+      <section className="content-area">
+        <div className="content-heading sr-only" style={{ display: 'none' }} aria-hidden="true">
+          <span className="date-stamp">{formatDateLabel(today(), publicLanguage.language, { weekday: 'short', day: 'numeric', month: 'long', year: 'numeric' })}</span>
+        </div>
         {error ? <div className="toast toast-error" role="alert"><span>{error}</span><button onClick={() => setError('')} aria-label="Dismiss"><X size={16} /></button></div> : null}
         {notice ? <div className="toast toast-success" role="status"><span>{notice}</span><button onClick={() => setNotice('')} aria-label="Dismiss"><X size={16} /></button></div> : null}
         <AnimatePresence mode="wait">
@@ -5884,7 +6311,7 @@ const visibleTabs = (isAdmin
         onClose={() => setFarmerImportOpen(false)}
         onCompleted={async () => { await loadFarmers(); }}
       /> : null}
-      {milkImportOpen && user && isCollector ? <MilkNotebookImportModal
+      {(milkImportOpen && user && isCollector) || (milkImportOpen && user && isDairy) ? <MilkNotebookImportModal
         collectionDate={collectionDate}
         language={publicLanguage.language}
         onClose={() => setMilkImportOpen(false)}

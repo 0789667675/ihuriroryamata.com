@@ -14,8 +14,10 @@ export async function GET(request) {
     const user = await getAuthenticatedUser(request);
     if (!user) return NextResponse.json({ success: false, message: 'Not authenticated.' }, { status: 401 });
     const params = new URL(request.url).searchParams;
+    const isSuperAdmin = user.role === 'super_admin';
     const data = await Notifications.getNotifications({
       ownerUserId: user.id,
+      isSuperAdmin,
       center: params.get('center'),
       status: params.get('status'),
       priority: params.get('priority'),

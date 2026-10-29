@@ -35,3 +35,20 @@ self.addEventListener('fetch', (event) => {
     return cached || network;
   }));
 });
+
+self.addEventListener('push', (event) => {
+  const data = event.data ? event.data.json() : {};
+  event.waitUntil(
+    self.registration.showNotification(data.title || "IHURIRO RY'AMATA", {
+      body: data.message || 'Mufite ubutumwa bushya.',
+      icon: '/logo.png',
+      badge: '/logo.png',
+      data: { url: data.actionUrl || '/dashboard?tab=notifications' }
+    })
+  );
+});
+
+self.addEventListener('notificationclick', (event) => {
+  event.notification.close();
+  event.waitUntil(clients.openWindow(event.notification.data.url || '/dashboard'));
+});

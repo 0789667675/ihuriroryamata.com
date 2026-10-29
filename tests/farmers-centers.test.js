@@ -418,6 +418,15 @@ test('farmer update rejects invalid input and translates database constraints in
     () => Farmers.updateFarmer({ id: 7, ownerUserId: owner.id, input: { name: 'Renamed Farmer' }, repository }),
     (error) => error.statusCode === 409 && /already exists for this account/i.test(error.message)
   );
+
+  const duplicateNumberRepo = {
+    getFarmer: async () => currentFarmer,
+    updateFarmer: async () => { throw Object.assign(new Error('duplicate key'), { code: '23505', constraint: 'uq_farmers_owner_farmer_number' }); },
+  };
+  await assert.rejects(
+    () => Farmers.updateFarmer({ id: 7, ownerUserId: owner.id, input: { farmerNumber: 42 }, repository: duplicateNumberRepo }),
+    (error) => error.statusCode === 409 && /Iyi nimero irasanzwe ikoreshwa/i.test(error.message)
+  );
 });
 
 test('farmer SQL update is owner scoped, keeps collector links, and writes the existing audit trail', async () => {
