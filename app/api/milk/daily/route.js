@@ -106,16 +106,30 @@ export async function GET(request) {
     });
     return NextResponse.json(result);
   } catch (error) {
-    const statusCode = error.statusCode || (error.code === 'DATABASE_NOT_CONFIGURED' || error.code === 'SESSION_SECRET_NOT_CONFIGURED' ? 503 : 500);
+    console.error('[API 500 ERROR in GET /api/milk/daily]:', error);
+    console.error('[milk/daily] Failed to load daily collection.', {
+      name: error.name || 'UnknownError',
+      code: error.code || null,
+      message: error.message || null,
+      stack: error.stack || null,
+    });
+    const statusCode = error.statusCode || (
+      error.code === 'SUBSCRIPTION_EXPIRED' ? 403 :
+      error.code === 'DATABASE_NOT_CONFIGURED' || error.code === 'SESSION_SECRET_NOT_CONFIGURED' ? 503 :
+      500
+    );
+    const code = error.code || (statusCode === 503 ? 'SERVICE_UNAVAILABLE' : statusCode === 403 ? 'FORBIDDEN' : statusCode === 400 ? 'BAD_REQUEST' : 'INTERNAL_SERVER_ERROR');
     const message = error.statusCode && error.statusCode < 500
       ? error.message
       : 'Failed to load daily collection.';
-    if (statusCode >= 500) {
-      console.error('[milk/daily] Failed to load daily collection.', {
-        name: error.name || 'UnknownError',
-        code: error.code || null,
-      });
-    }
-    return NextResponse.json({ message }, { status: statusCode });
+    return NextResponse.json(
+      {
+        ok: false,
+        error: message,
+        message,
+        code,
+      },
+      { status: statusCode }
+    );
   }
 }

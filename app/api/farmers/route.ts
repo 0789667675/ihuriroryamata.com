@@ -16,10 +16,25 @@ const sanitizeParam = (val: unknown): string => {
   return str;
 };
 
-const respondWithError = (error: any, fallback: string) => NextResponse.json(
-  { message: error.statusCode && error.statusCode < 500 ? error.message : fallback },
-  { status: error.statusCode || (error.code === 'DATABASE_NOT_CONFIGURED' || error.code === 'SESSION_SECRET_NOT_CONFIGURED' ? 503 : 500) }
-);
+const respondWithError = (error: any, fallback: string, route: string = 'GET /api/farmers') => {
+  console.error(`[API 500 ERROR in ${route}]:`, error);
+  const statusCode = error?.statusCode || (
+    error?.code === 'SUBSCRIPTION_EXPIRED' ? 403 :
+    error?.code === 'DATABASE_NOT_CONFIGURED' || error?.code === 'SESSION_SECRET_NOT_CONFIGURED' ? 503 :
+    500
+  );
+  const code = error?.code || (statusCode === 503 ? 'SERVICE_UNAVAILABLE' : statusCode === 403 ? 'FORBIDDEN' : statusCode === 400 ? 'BAD_REQUEST' : 'INTERNAL_SERVER_ERROR');
+  const message = error?.statusCode && error.statusCode < 500 ? error.message : fallback;
+  return NextResponse.json(
+    {
+      ok: false,
+      error: error?.message || message,
+      message,
+      code,
+    },
+    { status: statusCode }
+  );
+};
 
 export async function GET(request: Request) {
   try {
@@ -60,7 +75,7 @@ export async function GET(request: Request) {
     });
     return NextResponse.json(result);
   } catch (error) {
-    return respondWithError(error, 'Failed to load farmers.');
+    return respondWithError(error, 'Failed to load farmers.', 'GET /api/farmers');
   }
 }
 
@@ -82,6 +97,6 @@ export async function POST(request: Request) {
     }
     return NextResponse.json(farmer, { status: 201 });
   } catch (error) {
-    return respondWithError(error, 'Failed to create farmer.');
+    return respondWithError(error, 'Failed to create farmer.', 'POST /api/farmers');
   }
 }
