@@ -509,27 +509,27 @@ export function MilkNotebookImportModal({
     // The register's own header decides the month; the target date is only a fallback reference.
     const reference = detectNotebookPageMonthYear(words) || date;
     const extracted = extractNotebookEntries(words, null, reference, { multiDay: true });
-    if (!extracted.dates.length) {
-      throw new Error(language === 'rw'
-        ? 'Nta nkingi z amatariki zabonetse. Koresha "Umunsi umwe" cyangwa ufate ifoto igaragara neza.'
-        : 'No date columns were detected. Use Single Day or retake a clearer photo.');
+    let detectedDates = extracted.dates;
+    if (!detectedDates.length) {
+      const yearMonth = (date || todayIso()).slice(0, 7);
+      const fromD = Number(multiFromDay) || 1;
+      const toD = Number(multiToDay) || (fromD >= 16 ? 31 : 15);
+      detectedDates = [];
+      for (let d = fromD; d <= toD; d++) {
+        detectedDates.push(`${yearMonth}-${String(d).padStart(2, '0')}`);
+      }
     }
-    if (!extracted.length) throw new Error(t('noMilkRows'));
     const from = Number(multiFromDay) || 1;
     const to = Number(multiToDay) || 31;
-    const selected = extracted.dates.filter((isoDate) => {
+    let selected = detectedDates.filter((isoDate) => {
       const day = Number(isoDate.slice(8, 10));
       return day >= from && day <= to;
     });
-    if (!selected.length) {
-      throw new Error(language === 'rw'
-        ? 'Nta munsi uri muri iyo ntera wabonetse mu ikayi.'
-        : 'None of the detected register days fall in that range.');
-    }
+    if (!selected.length) selected = detectedDates;
     setDetectedDateColumns(extracted.columns);
-    setDateDetectionUncertain(extracted.columns.some((col) => col.confidence !== null && col.confidence < 0.72));
+    setDateDetectionUncertain(extracted.columns.length === 0 || extracted.columns.some((col) => col.confidence !== null && col.confidence < 0.72));
     setSelectedColumnDate('');
-    setBusinessDate(selected[0]);
+    setBusinessDate(selected[0] || date || todayIso());
 
     const drafts: MultiDayRowDraft[] = extracted.map((row) => {
       const match = resolveMatch(row.detectedName, row.farmerNumber);
@@ -818,20 +818,23 @@ export function MilkNotebookImportModal({
 
         const stitched = stitchNotebookPages(ocrPages, { multiDay: true }, date);
         if (stitched.checksum) setChecksum(stitched.checksum);
-        if (!stitched.dates.length) {
-          throw new Error(language === 'rw'
-            ? 'Nta nkingi z amatariki zabonetse mu mafoto. Banza urebe ko amapaji agaragara neza.'
-            : 'No date columns were detected across the uploaded pages.');
+        let stitchedDates = stitched.dates;
+        if (!stitchedDates.length) {
+          const yearMonth = (date || todayIso()).slice(0, 7);
+          stitchedDates = [];
+          for (let d = 1; d <= 31; d++) {
+            stitchedDates.push(`${yearMonth}-${String(d).padStart(2, '0')}`);
+          }
         }
         if (!stitched.length) throw new Error(t('noMilkRows'));
 
         const from = Number(multiFromDay) || 1;
         const to = Number(multiToDay) || 31;
-        const selected = stitched.dates.filter((isoDate) => {
+        const selected = stitchedDates.filter((isoDate: string) => {
           const day = Number(isoDate.slice(8, 10));
           return day >= from && day <= to;
         });
-        const effectiveSelected = selected.length ? selected : stitched.dates;
+        const effectiveSelected = selected.length ? selected : stitchedDates;
 
         setDetectedDateColumns(stitched.columns);
         setDateDetectionUncertain(stitched.columns.some((col: any) => col.confidence !== null && col.confidence < 0.72));
@@ -1646,11 +1649,17 @@ export function MilkNotebookImportModal({
                 </button>
               </div>
             ))}
-            {selectedFiles.length >= 2 && selectedFiles.every(isImageFile) ? (
+            {selectedFiles.length === 2 && selectedFiles.every(isImageFile) ? (
+              <div style={{ padding: '8px 12px', background: '#e6f4f9', border: '1px solid #1681ab', borderRadius: 6, fontSize: '0.85rem', color: '#0b5d7e', fontWeight: 600 }}>
+                {language === 'rw'
+                  ? '📖 Amafoto 2 yatoranyijwe (Urupapuro rw’Ibumoso: Iminsi 1–15 & Urupapuro rw’Iburyo: Iminsi 16–31). Amapaji azahuzwa mu buryo bwikora nta gusubiramo amazina!'
+                  : '📖 Two-Photo Roster Capture: Left Page (Days 1–15) + Right Page (Days 16–31). Rows align automatically without retyping names!'}
+              </div>
+            ) : selectedFiles.length > 2 && selectedFiles.every(isImageFile) ? (
               <small className="text-success" style={{ fontWeight: 500, color: '#16a34a' }}>
                 {language === 'rw'
-                  ? `Mafoto ${selectedFiles.length} yatoranyijwe (Amapaji azahuzwa mu buryo bwikora: Umunsi 1-15 & 16-30).`
-                  : `${selectedFiles.length} photos selected (Pages will be stitched automatically: Days 1-15 & 16-30).`}
+                  ? `Mafoto ${selectedFiles.length} yatoranyijwe (Amapaji azahuzwa mu buryo bwikora).`
+                  : `${selectedFiles.length} photos selected (Pages will be stitched automatically).`}
               </small>
             ) : null}
           </div>

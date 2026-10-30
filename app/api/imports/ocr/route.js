@@ -10,8 +10,8 @@ export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
 
 const attempts = new Map();
-const MAX_BODY_BYTES = 13 * 1024 * 1024;
-const MAX_IMAGE_BUFFER_BYTES = 5 * 1024 * 1024;
+const MAX_BODY_BYTES = 35 * 1024 * 1024;
+const MAX_IMAGE_BUFFER_BYTES = 30 * 1024 * 1024;
 
 const consumeAttempt = (userId) => {
   const now = Date.now();
@@ -75,7 +75,7 @@ export async function POST(request) {
     const bufferBytes = Buffer.byteLength(cleanBase64, 'base64');
     if (bufferBytes > MAX_IMAGE_BUFFER_BYTES) {
       return NextResponse.json({
-        message: 'The image is too large. Images must be under 5MB.',
+        message: 'The image is too large. Images must be under 30MB.',
         code: 'OCR_IMAGE_TOO_LARGE',
       }, { status: 413 });
     }

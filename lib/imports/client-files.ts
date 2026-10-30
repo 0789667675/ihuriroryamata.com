@@ -1,6 +1,6 @@
 'use client';
 
-const MAX_SOURCE_BYTES = 20 * 1024 * 1024;
+const MAX_SOURCE_BYTES = 50 * 1024 * 1024;
 const MAX_IMAGE_EDGE = 2400;
 
 export type PreparedImage = {
@@ -76,7 +76,7 @@ export async function compressImageForOcr(file: File, maxWidth = 2048, quality =
  */
 export const prepareImageForOcr = async (file: File): Promise<PreparedImage> => {
   if (!file.type.startsWith('image/')) throw new Error('Choose a JPEG, PNG or WebP photo.');
-  if (file.size > MAX_SOURCE_BYTES) throw new Error('The photo is larger than 20 MB.');
+  if (file.size > MAX_SOURCE_BYTES) throw new Error('The photo is larger than 50 MB.');
   const loaded = await loadImage(file);
   try {
     const scale = Math.min(1, 2048 / Math.max(loaded.width, loaded.height));
@@ -117,4 +117,4 @@ export const isPdfFile = (file: File | null | undefined) => Boolean(file && (/\.
 export const isCsvFile = (file: File | null | undefined) => Boolean(file && (/\.(csv|txt)$/i.test(file.name) || file.type === 'text/csv' || file.type === 'text/plain'));
 export const isImageFile = (file: File | null | undefined) => Boolean(file && (file.type.startsWith('image/') || /\.(jpe?g|png|webp|bmp|tiff?|heic)$/i.test(file.name)));
 
-export const IMPORT_MAX_FILE_BYTES = 8 * 1024 * 1024;
+export const IMPORT_MAX_FILE_BYTES = 50 * 1024 * 1024;

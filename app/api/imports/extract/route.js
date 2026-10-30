@@ -8,7 +8,7 @@ const { extractFile } = require('@/lib/imports/server-extraction.js');
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
-const MAX_BYTES = 8 * 1024 * 1024;
+const MAX_BYTES = 50 * 1024 * 1024;
 
 const errorResponse = (error, fallback) => NextResponse.json({
   message: error.statusCode && error.statusCode < 500 ? error.message : fallback,
@@ -25,7 +25,7 @@ export async function POST(request) {
     await requireActiveSubscription(user);
 
     if (Number(request.headers.get('content-length') || 0) > MAX_BYTES + 512 * 1024) {
-      return NextResponse.json({ message: 'The selected file is larger than 8 MB.', code: 'FILE_TOO_LARGE' }, { status: 413 });
+      return NextResponse.json({ message: 'The selected file is larger than 50 MB.', code: 'FILE_TOO_LARGE' }, { status: 413 });
     }
     const form = await request.formData().catch(() => null);
     const file = form?.get('file');
@@ -37,7 +37,7 @@ export async function POST(request) {
       return NextResponse.json({ message: 'The selected file is empty.', code: 'FILE_EMPTY' }, { status: 422 });
     }
     if (buffer.length > MAX_BYTES) {
-      return NextResponse.json({ message: 'The selected file is larger than 8 MB.', code: 'FILE_TOO_LARGE' }, { status: 413 });
+      return NextResponse.json({ message: 'The selected file is larger than 50 MB.', code: 'FILE_TOO_LARGE' }, { status: 413 });
     }
     const result = await extractFile({ buffer, name: file.name, mimeType: file.type });
     if (!result) {

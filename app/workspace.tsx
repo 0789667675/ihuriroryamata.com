@@ -19,6 +19,7 @@ import { BrandLockup } from '@/components/brand-lockup';
 import { Modal } from '@/components/ui/modal';
 import { FarmerBulkImportModal } from '@/components/imports/farmer-bulk-import';
 import { MilkNotebookImportModal } from '@/components/imports/milk-notebook-import';
+import { DigitalNotebookMatrix } from '@/components/milk/digital-notebook-matrix';
 import { defaultFieldConfig, resolveFieldConfig, enabledFields } from '@/lib/imports/farmer-field-config';
 import { getImportCopy } from '@/lib/i18n/import-copy';
 import { AnimatedCounter } from '@/components/ui/animated-counter';
@@ -603,6 +604,7 @@ export default function Workspace() {
   }, [fieldConfig]);
   const [farmerImportOpen, setFarmerImportOpen] = useState(false);
   const [milkImportOpen, setMilkImportOpen] = useState(false);
+  const [milkViewMode, setMilkViewMode] = useState<'matrix' | 'daily'>('matrix');
   const [quickAddOpen, setQuickAddOpen] = useState(false);
   const [quickAddName, setQuickAddName] = useState('');
   const [quickAddPhone, setQuickAddPhone] = useState('');
@@ -3772,7 +3774,47 @@ const visibleTabs = (isAdmin
       <section className="panel milk-workspace">
       <div className="milk-workspace-header">
         <div className="panel-heading"><div><span className="eyebrow">{publicLanguage.t('navMilk')}</span><h2>{publicLanguage.t('milkEntries')}</h2></div><span className="milk-period-badge"><CalendarDays size={15} aria-hidden="true" />{currentPeriod}</span></div>
+        <div className="milk-view-mode-toggle" style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 12 }}>
+          <button
+            type="button"
+            className={`button ${milkViewMode === 'matrix' ? 'button-primary' : 'button-secondary'}`}
+            style={{ minHeight: 44, fontWeight: 600, display: 'inline-flex', alignItems: 'center', gap: 6 }}
+            onClick={() => setMilkViewMode('matrix')}
+          >
+            <ClipboardList size={16} aria-hidden="true" />
+            <span>{publicLanguage.language === 'en' ? "📋 Milk Notebook (15-Day Matrix)" : "📋 Ikaye y'Amata (15-Day Matrix)"}</span>
+          </button>
+          <button
+            type="button"
+            className={`button ${milkViewMode === 'daily' ? 'button-primary' : 'button-secondary'}`}
+            style={{ minHeight: 44, fontWeight: 600, display: 'inline-flex', alignItems: 'center', gap: 6 }}
+            onClick={() => setMilkViewMode('daily')}
+          >
+            <CalendarDays size={16} aria-hidden="true" />
+            <span>{publicLanguage.language === 'en' ? "📅 Single-Day Overview" : "📅 Amata y'Uyu Munsi"}</span>
+          </button>
+          <button
+            type="button"
+            className="button button-secondary"
+            style={{ minHeight: 44, fontWeight: 600, display: 'inline-flex', alignItems: 'center', gap: 6 }}
+            onClick={() => setMilkImportOpen(true)}
+          >
+            <Upload size={16} aria-hidden="true" />
+            <span>{publicLanguage.language === 'en' ? "📷 Camera Scanner (OCR)" : "📷 Fata Ifoto y'Ikaye (OCR Scan)"}</span>
+          </button>
+        </div>
       </div>
+      {milkViewMode === 'matrix' ? (
+        <DigitalNotebookMatrix
+          language={publicLanguage.language as 'rw' | 'en' | 'fr'}
+          centers={centers}
+          selectedCenterId={selectedCenter}
+          onCenterChange={(cid) => setSelectedCenter(cid)}
+          onOpenScanner={() => setMilkImportOpen(true)}
+          onSaveSuccess={() => { loadDaily().catch(() => {}); }}
+        />
+      ) : null}
+      <div style={{ display: milkViewMode === 'daily' ? 'block' : 'none' }}>
       {isCollector ? <section className="panel owner-account-panel">
         <div className="panel-heading"><div><span className="eyebrow">{publicLanguage.t('ownerIfishiTitle')} / {publicLanguage.t('account')}</span><h2>{user?.name || user?.email}</h2></div><UserRound size={19} aria-hidden="true" /></div>
         <div className="metric-strip milk-summary owner-account-summary"><div><span>{publicLanguage.t('ownerIfishiOwnerMilk')}</span><b>{collectorMilkEntry ? `${liters(Number(collectorMilkEntry.effectiveVolumeLiters ?? collectorMilkEntry.volumeLiters))} L` : '—'}</b></div></div>
@@ -4031,6 +4073,7 @@ const visibleTabs = (isAdmin
         </article>)}</div>
       </> : emptyState}
       {dailyHasMore ? <div className="panel-footer"><button className="button button-secondary" onClick={() => dailyCursor && loadDaily(dailyCursor, true)}>{publicLanguage.t('milkLoadMore')} <ChevronDown size={16} /></button></div> : null}
+      </div>
       </section>
       {ifishiOpen ? <Modal ariaLabel={publicLanguage.t('navIfishi')} className="modal-panel-wide ifishi-modal" onClose={() => setIfishiOpen(false)} dismissible={!busy}>{renderIfishi()}</Modal> : null}
     </>;

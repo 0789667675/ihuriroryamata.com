@@ -12,6 +12,9 @@ const nextConfig = {
   experimental: {
     typedRoutes: false,
     serverComponentsExternalPackages: ['pdfkit'],
+    serverActions: {
+      bodySizeLimit: '50mb',
+    },
   },
 };
 
