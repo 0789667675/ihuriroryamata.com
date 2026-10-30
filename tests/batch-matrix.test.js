@@ -109,3 +109,27 @@ test('Scanner payload limits: extract route accepts up to 50MB and OCR accepts 3
   const nextConfig = fs.readFileSync('next.config.mjs', 'utf8');
   assert.match(nextConfig, /bodySizeLimit:\s*['"]50mb['"]/, 'next.config.mjs should set bodySizeLimit to 50mb');
 });
+
+test('Batch Matrix API: exports robust GET and POST handlers', () => {
+  const fs = require('fs');
+  const routeContent = fs.readFileSync('app/api/milk/batch-matrix/route.js', 'utf8');
+  assert.match(routeContent, /export async function GET/, 'Route must export GET handler');
+  assert.match(routeContent, /export async function POST/, 'Route must export POST handler');
+  assert.match(routeContent, /dynamic\s*=\s*['"]force-dynamic['"]/, 'Route must be force-dynamic');
+  assert.match(routeContent, /public\.farmers/, 'Route queries public.farmers table');
+  assert.match(routeContent, /public\.milk_records/, 'Route queries public.milk_records table');
+  assert.doesNotMatch(routeContent, /is_active\s*=\s*(TRUE|true)/, 'Route must not query nonexistent is_active column on farmers');
+});
+
+test('Security & DB: authenticate and postgres exports support batch matrix ingestion', () => {
+  const { authenticate, getAuthenticatedUser, isCollectionCenterAuthenticationPath } = require('../lib/security/authenticate.js');
+  assert.equal(typeof authenticate, 'function', 'authenticate function must be exported');
+  assert.equal(typeof getAuthenticatedUser, 'function', 'getAuthenticatedUser function must be exported');
+  assert.equal(isCollectionCenterAuthenticationPath('/api/milk/batch-matrix'), true, 'COLLECTION_CENTER must be authorized on /api/milk/batch-matrix');
+
+  const { getPool, query, pool } = require('../lib/postgres.js');
+  assert.equal(typeof getPool, 'function', 'getPool must be exported');
+  assert.equal(typeof query, 'function', 'query must be exported');
+  assert.equal(typeof pool.connect, 'function', 'pool.connect must be a function');
+});
+

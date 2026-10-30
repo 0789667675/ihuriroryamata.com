@@ -4809,6 +4809,32 @@ input[type="submit"] {
   opacity: 0.8;
 }
 
+.matrix-status-content-wrap {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.matrix-retry-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  border-radius: 6px;
+  border: 1px solid #dc2626;
+  background: #ffffff;
+  color: #dc2626;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.matrix-retry-link:hover {
+  background: #fee2e2;
+}
+
 .matrix-table-wrapper {
   position: relative;
   min-height: 320px;

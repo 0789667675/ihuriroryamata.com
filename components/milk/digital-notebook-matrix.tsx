@@ -100,28 +100,56 @@ export function DigitalNotebookMatrix({
     setStatusMessage(null);
     try {
       const params = new URLSearchParams({
-        year: String(year),
         month: String(month),
+        year: String(year),
         periodType,
-        collectionCenterId: String(centerId),
       });
+      if (centerId && String(centerId).trim() !== '' && String(centerId) !== '0') {
+        params.append('centerId', String(centerId));
+        params.append('collectionCenterId', String(centerId));
+      }
+
       const res = await fetch(`/api/milk/batch-matrix?${params.toString()}`, {
         credentials: 'include',
       });
       if (!res.ok) {
-        throw new Error('Failed to load notebook matrix data.');
+        const errJson = await res.json().catch(() => ({}));
+        throw new Error(errJson.error || errJson.message || errJson.details || `Server returned ${res.status}`);
       }
       const data = await res.json();
 
-      const rawFarmers: MatrixFarmer[] = Array.isArray(data.farmers) ? data.farmers : [];
+      const rawFarmers: MatrixFarmer[] = (Array.isArray(data.farmers) ? data.farmers : []).map((f: any) => ({
+        farmerId: Number(f.farmerId ?? f.id),
+        farmerNumber: f.farmerNumber ?? f.farmer_number ? Number(f.farmerNumber ?? f.farmer_number) : null,
+        farmerName: f.farmerName || f.names || f.name || `Umworozi #${f.id || f.farmerId}`,
+        phone: f.phone || null,
+        collectionCenter: f.collectionCenter || f.collection_center || '',
+        days: f.days || {},
+        totalLiters: Number(f.totalLiters || 0),
+        expectedTotal: f.expectedTotal !== undefined ? f.expectedTotal : null,
+      }));
       setFarmers(rawFarmers);
 
       const newMatrix: Record<number, Record<string, MatrixDayEntry>> = {};
       const newExpected: Record<number, number | null> = {};
 
       for (const f of rawFarmers) {
-        newMatrix[f.farmerId] = f.days || {};
-        newExpected[f.farmerId] = f.expectedTotal ?? null;
+        const fid = f.farmerId;
+        if (data.matrix && data.matrix[fid]) {
+          const dayEntries: Record<string, MatrixDayEntry> = {};
+          for (const [d, vals] of Object.entries<any>(data.matrix[fid])) {
+            dayEntries[String(d)] = {
+              morning: vals && vals.morning > 0 ? String(vals.morning) : '',
+              evening: vals && vals.evening > 0 ? String(vals.evening) : '',
+              total: Number(vals?.total || 0),
+              recordId: vals?.recordId,
+            };
+          }
+          newMatrix[fid] = dayEntries;
+        } else {
+          newMatrix[fid] = f.days || {};
+        }
+        newExpected[fid] = f.expectedTotal ?? null;
       }
 
       setMatrixData(newMatrix);
@@ -133,9 +161,10 @@ export function DigitalNotebookMatrix({
         setCenterName(data.center.name);
       }
     } catch (err: any) {
+      console.error('Matrix load failure:', err);
       setStatusMessage({
         type: 'error',
-        text: err.message || (language === 'rw' ? 'Gufungura ikaye byanze.' : 'Failed to load notebook matrix.'),
+        text: err.message || (language === 'rw' ? "Ntibyakunze gufata amakuru y'ikaye." : 'Failed to load notebook matrix data.'),
       });
     } finally {
       setLoading(false);
@@ -458,8 +487,21 @@ export function DigitalNotebookMatrix({
 
       {/* Notification Banner */}
       {statusMessage && (
-        <div className={`matrix-status-banner ${statusMessage.type === 'error' ? 'is-error' : 'is-success'}`}>
-          <span>{statusMessage.text}</span>
+        <div className={`matrix-status-banner ${statusMessage.type === 'error' ? 'is-error' : 'is-success'}`} role="alert">
+          <div className="matrix-status-content-wrap">
+            <span>{statusMessage.text}</span>
+            {statusMessage.type === 'error' && (
+              <button
+                type="button"
+                className="matrix-retry-link"
+                onClick={loadMatrixData}
+                disabled={loading}
+              >
+                <RefreshCw size={12} className={loading ? 'animate-spin' : ''} />
+                <span>{language === 'rw' ? 'Ongera ugerageze' : 'Retry'}</span>
+              </button>
+            )}
+          </div>
           <button
             type="button"
             className="matrix-banner-dismiss"
