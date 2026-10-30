@@ -464,3 +464,70 @@ test('Paper-Efficient Bank-Ready PDF includes bank endorsement blocks, only veri
   assert.doesNotMatch(text, /SACCO/i);
   assert.doesNotMatch(text, /Ejo\s*Heza/i);
 });
+
+test('Collection Center statement renders Abacunda Settlement Statement with center endorsement blocks and safe numbers', async () => {
+  const dairyReport = {
+    rangeStart: '2026-10-01',
+    rangeEnd: '2026-10-15',
+    totalVolume: 5000,
+    pricePerLiter: 400,
+    grossAmount: 2000000,
+    totalRevenueMonth: 2000000,
+    totalDeductionsMonth: 50000,
+    totalDeductions: 50000,
+    netRevenueMonth: 1950000,
+    netAmount: 1950000,
+    collectorSettlementRows: [
+      {
+        collectorUserId: 101,
+        name: 'Jean Claude (Koperative)',
+        collectorName: 'Jean Claude (Koperative)',
+        phone: '0788123456',
+        accountNumber: '400111222333',
+        totalVolume: 3000,
+        validVolumeLiters: 3000,
+        pricePerLiter: 400,
+        grossAmount: 1200000,
+        adjustments: 30000,
+        netAmount: 1170000,
+      },
+      {
+        collectorUserId: 102,
+        name: 'Marie Rose',
+        collectorName: 'Marie Rose',
+        phone: '0788654321',
+        accountNumber: null,
+        totalVolume: 2000,
+        validVolumeLiters: 2000,
+        pricePerLiter: 400,
+        grossAmount: null, // Test safe numeric calculation fallback
+        adjustments: 20000,
+        netAmount: null, // Test safe numeric calculation fallback
+      },
+    ],
+  };
+
+  const pdfRw = await renderUkweziPdf({
+    report: dairyReport,
+    user: { id: 50, name: 'MAVA MILK', accountType: 'COLLECTION_CENTER' },
+    query: { month: '10', year: '2026', periodType: 'first-half', collectionCenter: 'MAVA MILK', language: 'rw' },
+  });
+
+  const pdfEn = await renderUkweziPdf({
+    report: dairyReport,
+    user: { id: 50, name: 'MAVA MILK', accountType: 'COLLECTION_CENTER' },
+    query: { month: '10', year: '2026', periodType: 'first-half', collectionCenter: 'MAVA MILK', language: 'en' },
+  });
+
+  assert.equal(pdfRw.subarray(0, 5).toString('ascii'), '%PDF-');
+  assert.equal(pdfEn.subarray(0, 5).toString('ascii'), '%PDF-');
+  assert.ok(pdfRw.length > 3000);
+  assert.ok(pdfEn.length > 3000);
+
+  // Check source code has Center Director, Chief Accountant, and Auditor blocks
+  const source = fs.readFileSync(path.join(__dirname, '..', 'lib', 'services', 'ukwezi-pdf-service.js'), 'utf8');
+  assert.match(source, /text\.dairyDirector/);
+  assert.match(source, /text\.dairyChiefAccountant/);
+  assert.match(source, /text\.dairyAuditor/);
+  assert.match(source, /text\.dairyTitle/);
+});

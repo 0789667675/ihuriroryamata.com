@@ -82,6 +82,7 @@ export type NotebookMultiDayRow = {
   dayStatuses: Record<string, string>;
   status: string;
   totalPeriodLiters: number;
+  recordedTotal?: number | null;
   y: number;
 };
 

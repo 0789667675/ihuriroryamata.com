@@ -42,6 +42,33 @@ const loadImage = async (file: File): Promise<{ source: CanvasImageSource; width
   };
 };
 
+export async function compressImageForOcr(file: File, maxWidth = 2048, quality = 0.82): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.readAsDataURL(file);
+    reader.onload = (event) => {
+      const img = new Image();
+      img.src = event.target?.result as string;
+      img.onload = () => {
+        let { width, height } = img;
+        if (width > maxWidth) {
+          height = Math.round((height * maxWidth) / width);
+          width = maxWidth;
+        }
+        const canvas = document.createElement('canvas');
+        canvas.width = width;
+        canvas.height = height;
+        const ctx = canvas.getContext('2d');
+        if (!ctx) return reject(new Error('Canvas context unavailable'));
+        ctx.drawImage(img, 0, 0, width, height);
+        resolve(canvas.toDataURL('image/jpeg', quality));
+      };
+      img.onerror = (err) => reject(err);
+    };
+    reader.onerror = (err) => reject(err);
+  });
+}
+
 /**
  * Rotate/scale a selected photo in browser memory, then return a JPEG base64
  * payload for the OCR endpoint. No copy is written to local/session storage or
@@ -52,7 +79,7 @@ export const prepareImageForOcr = async (file: File): Promise<PreparedImage> => 
   if (file.size > MAX_SOURCE_BYTES) throw new Error('The photo is larger than 20 MB.');
   const loaded = await loadImage(file);
   try {
-    const scale = Math.min(1, MAX_IMAGE_EDGE / Math.max(loaded.width, loaded.height));
+    const scale = Math.min(1, 2048 / Math.max(loaded.width, loaded.height));
     const width = Math.max(1, Math.round(loaded.width * scale));
     const height = Math.max(1, Math.round(loaded.height * scale));
     const canvas = document.createElement('canvas');
@@ -63,7 +90,7 @@ export const prepareImageForOcr = async (file: File): Promise<PreparedImage> => 
     context.fillStyle = '#ffffff';
     context.fillRect(0, 0, width, height);
     context.drawImage(loaded.source, 0, 0, width, height);
-    const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, 'image/jpeg', 0.88));
+    const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, 'image/jpeg', 0.82));
     if (!blob) throw new Error('The photo could not be converted.');
     const dataUrl = await blobToDataUrl(blob);
     return {

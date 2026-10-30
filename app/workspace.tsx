@@ -2827,9 +2827,11 @@ const visibleTabs = (isAdmin
               else { setFarmerSortBy('nationalId'); setFarmerSortDirection('asc'); }
             }}>{publicLanguage.t('accountNationalId')}{farmerSortBy === 'nationalId' ? (farmerSortDirection === 'asc' ? <ArrowUp size={13} aria-hidden="true" /> : <ArrowDown size={13} aria-hidden="true" />) : <ArrowUpDown size={13} aria-hidden="true" />}</button>
           </th>
-          <th style={{ width: '20%', textAlign: 'right' }}>
-            <span className="sr-only">{publicLanguage.t('statusLabel')}</span>
-            {publicLanguage.t('actions')}
+          <th className="px-4 py-3 text-left min-w-[110px]" style={{ minWidth: 110 }}>
+            {publicLanguage.t('statusLabel') || 'Imiterere'}
+          </th>
+          <th className="px-4 py-3 text-right min-w-[180px]" style={{ minWidth: 180, textAlign: 'right' }}>
+            {publicLanguage.t('actions') || 'Ibikorwa'}
           </th>
         </tr></thead><tbody>
           {(farmers?.data || []).map((farmer) => {
@@ -2918,10 +2920,18 @@ const visibleTabs = (isAdmin
                 )}
               </td>
               <td style={{ fontFamily: 'var(--font-mono)', whiteSpace: 'nowrap' }}><span className="font-mono">{farmer.nationalId || '—'}</span></td>
-              <td className="actions-cell" style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, whiteSpace: 'nowrap' }}>
-                <button type="button" className="text-button" onClick={() => openFarmerHistory(farmer)}>{publicLanguage.t('viewFarmerHistory')}</button>
-                <button type="button" className="text-button" onClick={() => editFarmerStart(farmer)}>{publicLanguage.t('edit')}</button>
-                <button type="button" className="text-button danger-text" onClick={() => deleteFarmer(farmer)}>{publicLanguage.t('delete')}</button>
+              <td className="px-4 py-3 text-left" style={{ minWidth: 110 }}>
+                <span className="farmer-status-badge farmer-status-active inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-medium bg-emerald-50 text-emerald-700 border border-emerald-200" style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '2px 8px', borderRadius: 9999, fontSize: '0.75rem', fontWeight: 500, backgroundColor: '#ecfdf5', color: '#065f46', border: '1px solid #a7f3d0' }}>
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" style={{ width: 6, height: 6, borderRadius: '50%', backgroundColor: '#10b981' }} />
+                  {publicLanguage.language === 'en' ? 'Active' : 'Arakora'}
+                </span>
+              </td>
+              <td className="actions-cell px-4 py-3 text-right" style={{ minWidth: 180 }}>
+                <div className="flex items-center justify-end gap-2 whitespace-nowrap" style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 8, whiteSpace: 'nowrap' }}>
+                  <button type="button" className="text-button" onClick={() => openFarmerHistory(farmer)}>{publicLanguage.t('viewFarmerHistory')}</button>
+                  <button type="button" className="text-button" onClick={() => editFarmerStart(farmer)}>{publicLanguage.t('edit')}</button>
+                  <button type="button" className="text-button danger-text" onClick={() => deleteFarmer(farmer)}>{publicLanguage.t('delete')}</button>
+                </div>
               </td>
             </tr>;
           })}
@@ -4339,7 +4349,7 @@ const visibleTabs = (isAdmin
           <section className="dashboard-tank-cooler-gauge">
             <div className="tank-cooler-header">
               <h3><Gauge size={20} style={{ color: '#1681ab' }} aria-hidden="true" />{publicLanguage.language === 'en' ? 'Milk Cooler Tank Monitor (Tank #1)' : 'Igenzura ry’Icyuma Gikonjesha Amata'}</h3>
-              <span className="tank-cooler-badge"><Activity size={14} aria-hidden="true" />{publicLanguage.language === 'en' ? 'Tank Active' : 'Icyuma kirakora'}</span>
+              <span className="tank-cooler-badge"><Activity size={14} aria-hidden="true" />{chillingVolume > 0 ? (publicLanguage.language === 'en' ? 'Chilling Securely' : 'Bifunze neza') : (publicLanguage.language === 'en' ? 'Awaiting Milk' : 'Bitegereje amata')}</span>
             </div>
             <div className="tank-cooler-grid">
               <div className="tank-gauge-visual">

@@ -1052,7 +1052,7 @@ export function FarmerBulkImportModal({
           <label className="import-file-button">
             <Upload size={18} aria-hidden="true" />
             <span>{selectedFiles.length ? t('changeFile') : t('chooseFile')}</span>
-            <input type="file" accept="image/*,application/pdf,.xlsx,.xls,.csv,.txt" multiple onChange={(event) => {
+            <input type="file" accept=".jpg,.jpeg,.png,.webp,.pdf,.xlsx,.xls,.csv,.txt,image/*,application/pdf" multiple onChange={(event) => {
               const files = Array.from(event.target.files || []);
               event.currentTarget.value = '';
               selectFiles(files);

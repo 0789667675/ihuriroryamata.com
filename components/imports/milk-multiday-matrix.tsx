@@ -115,7 +115,18 @@ export function MultiDayReviewMatrix({
             {cell?.raw && state !== 'record' && state !== 'empty' ? <small title={cell.raw}>OCR: {cell.raw}</small> : null}
           </td>;
         })}
-        <td><b className="multiday-total">{formatNumber(assessed.totalLiters)} L</b></td>
+        <td>
+          <b className="multiday-total">{formatNumber(assessed.totalLiters)} L</b>
+          {assessed.checksumStatus === 'verified' ? (
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3, marginLeft: 6, fontSize: '0.75rem', color: '#16a34a', fontWeight: 600 }}>
+              <Check size={12} /> {language === 'rw' ? 'Yemejwe' : 'Verified'}
+            </span>
+          ) : assessed.checksumStatus === 'mismatch' ? (
+            <div style={{ fontSize: '0.75rem', color: '#d97706', fontWeight: 500, marginTop: 2 }}>
+              ⚠️ {language === 'rw' ? `Total idahuye (${assessed.recordedTotal} L)` : `Mismatch (${assessed.recordedTotal} L)`}
+            </div>
+          ) : null}
+        </td>
         <td className="import-status-cell">
           <ImportStatus status={assessed.status} label={statusLabel(assessed.status)} />
           {needsConfirm ? <button type="button" className="button button-secondary small-button" disabled={disabled} onClick={() => onConfirmRow(row.uid)}><Check size={12} aria-hidden="true" /> {t('confirmRow')}</button> : null}

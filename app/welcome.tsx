@@ -109,7 +109,7 @@ export default function WelcomePage({ copyrightYear }: { copyrightYear: number }
           </div>
 
           {/* Cow illustration on Mobile (Hidden on mobile via CSS so buttons connect directly to metrics) */}
-          <div className="welcome-mobile-cow-badge welcome-hero-illustration welcome-illustration-card hero-visual" aria-hidden="true">
+          <div className="welcome-mobile-cow-badge welcome-hero-illustration hero-visual" aria-hidden="true" style={{ display: 'none' }}>
             <Image
               src="/brand-logo.png"
               width={140}

@@ -549,6 +549,7 @@ export function MilkNotebookImportModal({
         matchStatus: match.matchStatus,
         matchReason: match.matchReason,
         include: hasLitres,
+        recordedTotal: typeof row.recordedTotal === 'number' ? row.recordedTotal : null,
         days,
       };
     });
@@ -858,6 +859,7 @@ export function MilkNotebookImportModal({
             matchStatus: match.matchStatus,
             matchReason: match.matchReason,
             include: hasLitres,
+            recordedTotal: typeof row.recordedTotal === 'number' ? row.recordedTotal : null,
             days,
           };
         });
@@ -1521,6 +1523,54 @@ export function MilkNotebookImportModal({
         <button type="button" role="radio" aria-checked={scanMode === 'single'} className={scanMode === 'single' ? 'active' : ''} onClick={() => setScanMode('single')} disabled={busy}>{language === 'rw' ? 'Umunsi umwe' : 'Single Day'}</button>
         <button type="button" role="radio" aria-checked={scanMode === 'multi'} className={scanMode === 'multi' ? 'active' : ''} onClick={() => setScanMode('multi')} disabled={busy}>{language === 'rw' ? 'Iminsi myinshi icyarimwe' : 'Multi-Day Batch'}</button>
       </div> : null}
+      {sourceMode === 'photo' ? (
+        <div style={{ marginTop: 8, marginBottom: 12 }}>
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 10 }}>
+            <button
+              type="button"
+              className={`button button-secondary ${scanMode === 'multi' && multiFromDay === '1' && multiToDay === '15' ? 'active-range font-bold text-[#0b5d7e] bg-[#e6f4f9] border-[#1681ab]' : ''}`}
+              onClick={() => {
+                setScanMode('multi');
+                setMultiFromDay('1');
+                setMultiToDay('15');
+              }}
+              style={{ flex: '1 1 auto', minHeight: 40, fontSize: '0.85rem', padding: '6px 12px' }}
+            >
+              {language === 'rw' ? "📖 Urupapuro rw'Ibumoso: Iminsi 1–15" : "📖 Left Page: Days 1–15"}
+            </button>
+            <button
+              type="button"
+              className={`button button-secondary ${scanMode === 'multi' && multiFromDay === '16' && (multiToDay === '31' || multiToDay === '30') ? 'active-range font-bold text-[#0b5d7e] bg-[#e6f4f9] border-[#1681ab]' : ''}`}
+              onClick={() => {
+                setScanMode('multi');
+                setMultiFromDay('16');
+                setMultiToDay('31');
+              }}
+              style={{ flex: '1 1 auto', minHeight: 40, fontSize: '0.85rem', padding: '6px 12px' }}
+            >
+              {language === 'rw' ? "📖 Urupapuro rw'Iburyo: Iminsi 16–31" : "📖 Right Page: Days 16–31"}
+            </button>
+          </div>
+          <div style={{
+            backgroundColor: '#fffbeb',
+            border: '1px solid #fde68a',
+            borderRadius: '6px',
+            padding: '8px 12px',
+            fontSize: '0.85rem',
+            color: '#92400e',
+            display: 'flex',
+            alignItems: 'center',
+            gap: 8
+          }}>
+            <span aria-hidden="true" style={{ fontSize: '1.05rem', flexShrink: 0 }}>⚠️</span>
+            <span>
+              {language === 'rw'
+                ? 'Ntukafotore amapaji abiri icyarimwe. Buri rupapuro rugomba gufatwa ukwarwo kugira ngo imibare isomeke neza.'
+                : 'Do not photograph both pages simultaneously. Each page must be captured separately for accurate number recognition.'}
+            </span>
+          </div>
+        </div>
+      ) : null}
       {sourceMode === 'photo' && scanMode === 'multi' ? <div className="import-milk-meta import-multiday-range">
         <label>{language === 'rw' ? 'Kuva ku munsi (si ngombwa)' : 'From day (optional)'}<input type="number" min="1" max="31" inputMode="numeric" placeholder="20" value={multiFromDay} onChange={(event) => setMultiFromDay(event.target.value)} /></label>
         <label>{language === 'rw' ? 'Kugeza ku munsi (si ngombwa)' : 'To day (optional)'}<input type="number" min="1" max="31" inputMode="numeric" placeholder="24" value={multiToDay} onChange={(event) => setMultiToDay(event.target.value)} /></label>
@@ -1555,7 +1605,7 @@ export function MilkNotebookImportModal({
             <span>{selectedFiles.length ? t('changeFile') : t('chooseFile')}</span>
             <input
               type="file"
-              accept="image/*,application/pdf,.xlsx,.xls,.csv,.txt"
+              accept=".jpg,.jpeg,.png,.webp,.pdf,.xlsx,.xls,.csv,.txt,image/*,application/pdf"
               multiple
               onChange={(event) => {
                 const files = Array.from(event.target.files || []);

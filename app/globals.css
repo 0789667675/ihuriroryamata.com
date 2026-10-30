@@ -533,14 +533,15 @@ button:active, .btn-primary:active, .filter-chip:active {
 .milk-summary > div { padding: 11px 13px; }
 .milk-desktop-list { width: 100%; margin: 0; border-top: 0; }
 .milk-desktop-list table { table-layout: fixed; }
-.farmers-desktop-table { width: 100%; overflow-x: hidden; border: 1px solid var(--line); border-radius: var(--radius-md); }
-.farmers-desktop-table table { table-layout: fixed; white-space: normal; }
-.farmers-desktop-table th, .farmers-desktop-table td { height: auto; padding: 11px 13px; white-space: normal; overflow-wrap: anywhere; }
-.farmers-desktop-table th:nth-child(1), .farmers-desktop-table td:nth-child(1) { width: 10%; }
-.farmers-desktop-table th:nth-child(2), .farmers-desktop-table td:nth-child(2) { width: 30%; }
-.farmers-desktop-table th:nth-child(3), .farmers-desktop-table td:nth-child(3) { width: 18%; }
-.farmers-desktop-table th:nth-child(4), .farmers-desktop-table td:nth-child(4) { width: 22%; }
-.farmers-desktop-table th:nth-child(5), .farmers-desktop-table td:nth-child(5) { width: 20%; text-align: right; }
+.farmers-desktop-table { width: 100%; overflow-x: auto; -webkit-overflow-scrolling: touch; border: 1px solid var(--line); border-radius: var(--radius-md); }
+.farmers-desktop-table table { table-layout: fixed; min-width: 780px; width: 100%; white-space: normal; }
+.farmers-desktop-table th, .farmers-desktop-table td { height: auto; padding: 11px 13px; white-space: normal; }
+.farmers-desktop-table th:nth-child(1), .farmers-desktop-table td:nth-child(1) { width: 7%; }
+.farmers-desktop-table th:nth-child(2), .farmers-desktop-table td:nth-child(2) { width: 25%; }
+.farmers-desktop-table th:nth-child(3), .farmers-desktop-table td:nth-child(3) { width: 15%; }
+.farmers-desktop-table th:nth-child(4), .farmers-desktop-table td:nth-child(4) { width: 18%; }
+.farmers-desktop-table th:nth-child(5), .farmers-desktop-table td:nth-child(5) { width: 15%; min-width: 110px; }
+.farmers-desktop-table th:nth-child(6), .farmers-desktop-table td:nth-child(6) { width: 20%; min-width: 180px; text-align: right; }
 .farmers-desktop-table tbody tr { transition: background-color 0.15s ease; }
 .farmers-desktop-table tbody tr:hover { background-color: #f7fbfd; }
 .farmers-desktop-table tbody tr:hover td { background-color: #f7fbfd; }
@@ -4059,7 +4060,7 @@ button:active, .button:active {
   .topbar-brand .brand-lockup-copy strong {
     font-size: 0.9375rem !important;
     font-weight: 700 !important;
-    color: #112430 !important;
+    color: #1681ab !important;
     white-space: nowrap !important;
     display: inline-block !important;
   }

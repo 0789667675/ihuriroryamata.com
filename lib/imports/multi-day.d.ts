@@ -22,6 +22,7 @@ export type MultiDayRowDraft = {
   matchStatus: string;
   matchReason: string;
   include: boolean;
+  recordedTotal?: number | null;
   days: Record<string, MultiDayCellDraft>;
 };
 
@@ -33,6 +34,8 @@ export type MultiDayAssessment = {
   totalLiters: number;
   recordCount: number;
   existingCount: number;
+  checksumStatus?: 'verified' | 'mismatch' | 'none';
+  recordedTotal?: number | null;
   blocking: boolean;
 };
 

@@ -5,7 +5,7 @@ export const metadata: Metadata = {
   metadataBase: new URL('https://www.ihuriroryamata.com'),
   title: "IHURIRO RY'AMATA | Milk System",
   description: 'Ihuriro ry’Amata (Ihuriroryamata), rizwi nka Milk System, rifasha abacunda n’ibigo by’ikusanyirizo gucunga aborozi, ikusanya n’inyandiko z’amata, n’ibaruramari ry’ukwezi.',
-  applicationName: "IHURIRO RY'AMATA | Milk System",
+  applicationName: "IHURIRO RY'AMATA",
   manifest: '/manifest.webmanifest',
   icons: {
     icon: [
@@ -17,7 +17,7 @@ export const metadata: Metadata = {
   openGraph: {
     type: 'website',
     locale: 'rw_RW',
-    siteName: 'Milk System',
+    siteName: "IHURIRO RY'AMATA",
     title: "IHURIRO RY'AMATA | Milk System",
     description: 'Ihuriro ry’Amata (Ihuriroryamata), rizwi nka Milk System, rifasha abacunda n’ibigo by’ikusanyirizo gucunga aborozi, ikusanya n’inyandiko z’amata, n’ibaruramari ry’ukwezi.',
     images: [{ url: 'https://www.ihuriroryamata.com/brand-logo-512.png', width: 512, height: 512, alt: "IHURIRO RY'AMATA | Milk System" }],
@@ -30,7 +30,7 @@ export const metadata: Metadata = {
   },
 };
 
-export const viewport: Viewport = { themeColor: '#1681ab' };
+export const viewport: Viewport = { themeColor: '#ffffff' };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
