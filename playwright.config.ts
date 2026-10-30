@@ -45,7 +45,10 @@ export default defineConfig({
     baseURL,
     trace: 'retain-on-failure',
   },
-  projects: [{ name: 'chromium', use: { ...devices['Desktop Chrome'] } }],
+  projects: [
+    { name: 'chromium', use: { ...devices['Desktop Chrome'] } },
+    { name: 'Mobile Chrome', use: { ...devices['Pixel 7'] } },
+  ],
   webServer: {
     command: `npm run dev -- --hostname 127.0.0.1 --port ${testPort}`,
     url: `${baseURL}/manifest.webmanifest`,

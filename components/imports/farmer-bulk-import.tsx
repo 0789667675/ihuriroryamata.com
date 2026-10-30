@@ -34,12 +34,14 @@ import {
   groupWordsIntoLines,
   linesToRowCells,
   parseTextRows,
+  stripSummaryRows,
+  SUMMARY_ROW_PATTERN,
 } from '@/lib/imports/text-parsing';
 
 type CenterOption = { id: number | string; name: string; owner_user_id?: number };
 type Account = { id: number; accountType: string };
 
-type ImportTarget = 'exclude' | 'farmerNumber' | 'name' | 'phone' | 'nationalId' | 'accountNumber' | 'collectionCenter' | 'cowType';
+type ImportTarget = 'exclude' | 'farmerNumber' | 'name' | 'phone' | 'nationalId' | 'accountNumber' | 'collectionCenter' | 'cowType' | 'volume' | 'netPayable';
 
 type FieldConfig = {
   key: string;
@@ -111,6 +113,8 @@ const fieldCopyKey = (fieldKey: string): ImportCopyKey | null => {
 
 const fieldLabel = (language: PublicLanguage, fieldKey: string) => {
   if (fieldKey === 'farmerNumber') return getImportCopy(language, 'farmerNumber');
+  if (fieldKey === 'volume') return language === 'rw' ? 'Litiro' : 'Volume (Liters)';
+  if (fieldKey === 'netPayable') return language === 'rw' ? 'Asigaye' : 'Net payable';
   const key = fieldCopyKey(fieldKey);
   if (!key) return fieldKey;
   return getImportCopy(language, key);
@@ -119,6 +123,8 @@ const fieldLabel = (language: PublicLanguage, fieldKey: string) => {
 const targetOptionLabel = (language: PublicLanguage, target: ImportTarget) => {
   if (target === 'exclude') return getImportCopy(language, 'excludeColumn');
   if (target === 'farmerNumber') return getImportCopy(language, 'farmerNumber');
+  if (target === 'volume') return language === 'rw' ? 'Litiro' : 'Volume (Liters)';
+  if (target === 'netPayable') return language === 'rw' ? 'Asigaye' : 'Net payable';
   return fieldLabel(language, target);
 };
 
@@ -160,6 +166,8 @@ export function FarmerBulkImportModal({
   const [sourceMode, setSourceMode] = useState<'paste' | 'file'>('paste');
   const [pasteText, setPasteText] = useState('');
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
+  const [dragOver, setDragOver] = useState(false);
   const [previewUrl, setPreviewUrl] = useState('');
   const [tableRows, setTableRows] = useState<string[][]>([]);
   // Parallel OCR confidence matrix (same shape as tableRows); null where not OCR-extracted.
@@ -169,6 +177,7 @@ export function FarmerBulkImportModal({
   const [columnInterpretations, setColumnInterpretations] = useState<ColumnInterpretation[]>([]);
   // column index -> target ('' = not decided yet, 'exclude' = excluded)
   const [columnDecision, setColumnDecision] = useState<Record<number, ImportTarget | ''>>({});
+  const [checksum, setChecksum] = useState<{ checksumLiters?: number | null; checksumGross?: number | null; checksumNet?: number | null } | null>(null);
   const [defaultCenterId, setDefaultCenterId] = useState(defaultFromWorkspace);
   const [rows, setRows] = useState<ImportRow[]>([]);
   const [fieldConfig, setFieldConfig] = useState<FieldConfig[]>([]);
@@ -326,6 +335,9 @@ export function FarmerBulkImportModal({
     setHeaders([]);
     setColumnInterpretations([]);
     setColumnDecision({});
+    setChecksum(null);
+    setSelectedFiles([]);
+    setDragOver(false);
     setRows([]);
     setDraftConfig(fieldConfig);
     setError('');
@@ -377,17 +389,21 @@ export function FarmerBulkImportModal({
       setError(t('errorNoRows'));
       return;
     }
-    if (clean.length > 1000) {
-      setError(`${t('errorNoRows')} ${t('rowLimitNotice')}`);
-      return;
-    }
     const detected = detectHeader(clean);
     const headerRow = detected.hasHeader ? clean[0] : [];
     const synthesized = headerRow.length
       ? headerRow
       : clean[0].map((_, index) => `${t('column')} ${index + 1}`);
-    setTableRows(clean);
-    setCellConfidence(confidenceMatrix);
+
+    const { rows: dataRows, checksum: detectedChecksum } = stripSummaryRows(clean, synthesized);
+    if (detectedChecksum) setChecksum(detectedChecksum);
+
+    if (dataRows.length > 1000) {
+      setError(`${t('errorNoRows')} ${t('rowLimitNotice')}`);
+      return;
+    }
+    setTableRows(dataRows);
+    setCellConfidence(confidenceMatrix.slice(0, dataRows.length));
     setHasHeader(detected.hasHeader);
     setHeaders(synthesized);
     const interpretations = interpretColumns(synthesized, language);
@@ -418,10 +434,12 @@ export function FarmerBulkImportModal({
   };
 
   const handleFileRead = async () => {
-    if (!selectedFile) {
+    const filesToRead = selectedFiles.length > 0 ? selectedFiles : (selectedFile ? [selectedFile] : []);
+    if (!filesToRead.length) {
       setError(t('noFile'));
       return;
     }
+    const firstFile = filesToRead[0];
     setError('');
     setWarning('');
     abortRef.current?.abort();
@@ -429,13 +447,52 @@ export function FarmerBulkImportModal({
     abortRef.current = controller;
     setBusy(true);
     try {
-      if (isImageFile(selectedFile)) {
+      if (filesToRead.length >= 2 && filesToRead.every(isImageFile)) {
+        if (ocrConfigured === false) {
+          setError(t('ocrDisabled'));
+          return;
+        }
+        const combinedTable: string[][] = [];
+        const combinedConfidence: (CellConfidence | null)[][] = [];
+
+        for (let i = 0; i < filesToRead.length; i++) {
+          setBusyLabel(`${t('scanning')} (${i + 1}/${filesToRead.length})...`);
+          const prepared = await prepareImageForOcr(filesToRead[i]);
+          if (i === 0) replacePreview(prepared.previewUrl);
+          const result = await postJson<{ text: string; words: Array<{ text: string; x: number; y: number; width: number; height: number; confidence?: number }> }>(
+            '/api/imports/ocr',
+            { imageBase64: prepared.base64, mimeType: prepared.mimeType },
+            controller.signal
+          );
+          if (!result.words?.length && !result.text) throw new Error(`${filesToRead[i].name}: ${t('errorOcr')}`);
+          const lines = result.words?.length ? groupWordsIntoLines(result.words) : [];
+          const rowCells = lines.length ? linesToRowCells(lines) : null;
+          const table = rowCells ? rowCells.map((cells) => cells.map((cell) => cell.text)) : parseTextRows(result.text);
+          const confidenceMatrix = rowCells ? rowCells.map((cells) => cells.map((cell) => cell.confidence)) : [];
+
+          if (i === 0) {
+            combinedTable.push(...table);
+            combinedConfidence.push(...confidenceMatrix);
+          } else {
+            const hasHdr = table.length > 1 && detectHeader(table).hasHeader;
+            const rowsToAdd = hasHdr ? table.slice(1) : table;
+            const confToAdd = hasHdr ? confidenceMatrix.slice(1) : confidenceMatrix;
+            combinedTable.push(...rowsToAdd);
+            combinedConfidence.push(...confToAdd);
+          }
+        }
+        prepareTable(combinedTable, combinedConfidence);
+        if (!combinedTable.length) setError(t('errorNoRows'));
+        return;
+      }
+
+      if (isImageFile(firstFile)) {
         if (ocrConfigured === false) {
           setError(t('ocrDisabled'));
           return;
         }
         setBusyLabel(t('scanning'));
-        const prepared = await prepareImageForOcr(selectedFile);
+        const prepared = await prepareImageForOcr(firstFile);
         replacePreview(prepared.previewUrl);
         const result = await postJson<{ text: string; words: Array<{ text: string; x: number; y: number; width: number; height: number; confidence?: number }> }>(
           '/api/imports/ocr',
@@ -449,16 +506,16 @@ export function FarmerBulkImportModal({
         const confidenceMatrix = rowCells ? rowCells.map((cells) => cells.map((cell) => cell.confidence)) : [];
         prepareTable(table, confidenceMatrix);
         if (!table.length) setError(t('errorNoRows'));
-      } else if (isCsvFile(selectedFile)) {
-        if (selectedFile.size > IMPORT_MAX_FILE_BYTES) throw new Error(t('fileTooLarge'));
+      } else if (isCsvFile(firstFile)) {
+        if (firstFile.size > IMPORT_MAX_FILE_BYTES) throw new Error(t('fileTooLarge'));
         setBusyLabel(t('readingFile'));
-        const text = await readTextFile(selectedFile);
+        const text = await readTextFile(firstFile);
         prepareTable(parseTextRows(text));
-      } else if (isSpreadsheetFile(selectedFile) || isPdfFile(selectedFile)) {
-        if (selectedFile.size > IMPORT_MAX_FILE_BYTES) throw new Error(t('fileTooLarge'));
+      } else if (isSpreadsheetFile(firstFile) || isPdfFile(firstFile)) {
+        if (firstFile.size > IMPORT_MAX_FILE_BYTES) throw new Error(t('fileTooLarge'));
         setBusyLabel(t('readingFile'));
         const form = new FormData();
-        form.append('file', selectedFile);
+        form.append('file', firstFile);
         const response = await fetch('/api/imports/extract', {
           method: 'POST',
           credentials: 'include',
@@ -662,6 +719,9 @@ export function FarmerBulkImportModal({
 
       const base = { ...row, ...duplicate, match, duplicateOf, duplicateField, nameDuplicateOf, lockedDuplicate, detail, warnings };
       if (!row.include) return { ...base, status: 'excluded' };
+      if (row.values.name && SUMMARY_ROW_PATTERN.test(row.values.name)) {
+        return { ...base, include: false, status: 'excluded', detail: language === 'rw' ? 'Umurongo w\'igiteranyo wakuwemo' : 'Summary row excluded' };
+      }
       return { ...base, status };
     });
   }, [enabledConfig, requiredConfig, reviewEnabledFields, farmerIndex, t]);
@@ -788,15 +848,19 @@ export function FarmerBulkImportModal({
         }>('/api/farmers/import', {
           batchKey: `${batchKeyRef.current}-${Math.floor(offset / chunkSize)}`,
           dryRun: false,
-          rows: chunk.map((row) => ({
-            rowNumber: row.rowNumber,
-            name: row.values.name,
-            phone: row.values.phone,
-            nationalId: row.values.nationalId,
-            accountNumber: row.values.accountNumber,
-            cowType: '',
-            collectionCenterId: Number(row.centerId || defaultCenterId || ''),
-          })),
+          rows: chunk.map((row) => {
+            const rawFarmerNum = row.values.farmerNumber ? Number(String(row.values.farmerNumber).replace(/[#.\s]/g, '')) : null;
+            return {
+              rowNumber: row.rowNumber,
+              name: row.values.name,
+              phone: row.values.phone,
+              nationalId: row.values.nationalId,
+              accountNumber: row.values.accountNumber,
+              cowType: row.values.cowType || '',
+              collectionCenterId: Number(row.centerId || defaultCenterId || ''),
+              ...(rawFarmerNum && Number.isSafeInteger(rawFarmerNum) && rawFarmerNum > 0 ? { farmerNumber: rawFarmerNum } : {}),
+            };
+          }),
         }, controller.signal);
         const chunkResults = Array.isArray(result.rows) ? result.rows : [];
         collected.push(...chunkResults);
@@ -851,12 +915,28 @@ export function FarmerBulkImportModal({
     abortRef.current?.abort();
   };
 
-  const selectFile = (file: File | null) => {
-    setSelectedFile(file);
+  const selectFiles = (files: File[]) => {
+    if (!files.length) {
+      setSelectedFile(null);
+      setSelectedFiles([]);
+      replacePreview('');
+      return;
+    }
+    setSelectedFiles(files);
+    setSelectedFile(files[0]);
     setError('');
     setWarning('');
-    if (file?.type.startsWith('image/')) replacePreview(URL.createObjectURL(file));
+    if (files[0]?.type.startsWith('image/')) replacePreview(URL.createObjectURL(files[0]));
     else replacePreview('');
+  };
+
+  const removeFile = (index: number) => {
+    const next = selectedFiles.filter((_, i) => i !== index);
+    selectFiles(next);
+  };
+
+  const selectFile = (file: File | null) => {
+    selectFiles(file ? [file] : []);
   };
 
   // Field configuration draft handling
@@ -957,35 +1037,79 @@ export function FarmerBulkImportModal({
         </label>
         <p className="muted-note">{t('pasteHint')}</p>
         <div className="import-actions"><button type="button" className="button button-primary" onClick={handlePaste} disabled={busy || !pasteText.trim() || farmersLoading || Boolean(farmersError)}><FileText size={16} aria-hidden="true" />{t('readList')}</button></div>
-      </section> : <section className="import-source-card">
+      </section> : <section
+        className={`import-source-card ${dragOver ? 'import-drag-over' : ''}`}
+        onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
+        onDragLeave={(e) => { e.preventDefault(); setDragOver(false); }}
+        onDrop={(e) => {
+          e.preventDefault();
+          setDragOver(false);
+          const dropped = Array.from(e.dataTransfer.files || []);
+          if (dropped.length) selectFiles(dropped);
+        }}
+      >
         <div className="import-file-picker">
           <label className="import-file-button">
             <Upload size={18} aria-hidden="true" />
-            <span>{selectedFile ? t('changeFile') : t('chooseFile')}</span>
-            <input type="file" accept=".csv,.txt,.xlsx,.xls,.pdf,image/jpeg,image/png,image/webp" onChange={(event) => {
-              const file = event.target.files?.[0] || null;
+            <span>{selectedFiles.length ? t('changeFile') : t('chooseFile')}</span>
+            <input type="file" accept="image/*,application/pdf,.xlsx,.xls,.csv,.txt" multiple onChange={(event) => {
+              const files = Array.from(event.target.files || []);
               event.currentTarget.value = '';
-              selectFile(file);
+              selectFiles(files);
             }} disabled={busy} />
           </label>
           <label className="button button-secondary import-camera-button">
             <Camera size={18} aria-hidden="true" />
             <span>{t('takePhoto')}</span>
-            <input type="file" accept="image/jpeg,image/png,image/webp" capture="environment" onChange={(event) => {
-              const file = event.target.files?.[0] || null;
+            <input type="file" accept="image/*" capture="environment" multiple onChange={(event) => {
+              const files = Array.from(event.target.files || []);
               event.currentTarget.value = '';
-              selectFile(file);
+              selectFiles(files);
             }} disabled={busy} />
           </label>
-          {selectedFile ? <div className="import-file-name">{isSpreadsheetFile(selectedFile) ? <FileSpreadsheet size={16} /> : isImageFile(selectedFile) ? <ImageIcon size={16} /> : <FileText size={16} />}<span>{selectedFile.name}</span><button type="button" className="text-button" onClick={() => { setSelectedFile(null); replacePreview(''); }} disabled={busy} aria-label={t('removeRow')}><X size={14} /></button></div> : null}
         </div>
+
+        {selectedFiles.length > 0 ? (
+          <div className="import-selected-files-list" style={{ marginTop: 12, display: 'flex', flexDirection: 'column', gap: 6 }}>
+            {selectedFiles.map((file, idx) => (
+              <div key={`${file.name}-${idx}`} className="import-file-pill" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '6px 12px', background: '#f1f5f9', borderRadius: 6, fontSize: '0.85rem' }}>
+                <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  {isSpreadsheetFile(file) ? <FileSpreadsheet size={16} /> : isImageFile(file) ? <ImageIcon size={16} /> : <FileText size={16} />}
+                  <strong>{file.name}</strong> <small className="text-muted">({(file.size / 1024).toFixed(1)} KB)</small>
+                </span>
+                <button type="button" className="text-button" onClick={() => removeFile(idx)} style={{ cursor: 'pointer', color: '#64748b' }}>
+                  <X size={14} />
+                </button>
+              </div>
+            ))}
+            {selectedFiles.length >= 2 && selectedFiles.every(isImageFile) ? (
+              <small className="text-success" style={{ fontWeight: 500, color: '#16a34a' }}>
+                {language === 'rw'
+                  ? `Mafoto ${selectedFiles.length} yatoranyijwe (Amapaji azahuzwa mu buryo bwikora).`
+                  : `${selectedFiles.length} photos selected (Pages will be scanned and combined automatically).`}
+              </small>
+            ) : null}
+          </div>
+        ) : null}
+
         {previewUrl ? <div className="import-photo-preview"><img src={previewUrl} alt="" /></div> : null}
+        <p className="muted-note">
+          {language === 'rw'
+            ? "Shyiramo ifoto (JPG/PNG), dosiye ya PDF, cyangwa Excel (.xlsx) y'urutonde rw'aborozi."
+            : "Upload photo (JPG/PNG), PDF document, or Excel spreadsheet (.xlsx) of farmers."}
+        </p>
         <p className="muted-note">{isImageFile(selectedFile) ? t('photoHint') : t('fileHint')}</p>
         {isImageFile(selectedFile) && ocrConfigured === false ? <ImportNotice tone="warning">{t('ocrNotConfigured')} {t('ocrSetup')}{ocrSetup.length ? <code>{ocrSetup.join(' / ')}</code> : null}</ImportNotice> : null}
         <div className="import-actions">
           <button type="button" className="button button-primary" onClick={handleFileRead} disabled={busy || !selectedFile || (isImageFile(selectedFile) && ocrConfigured === false) || farmersLoading || Boolean(farmersError)}>
             {isImageFile(selectedFile) ? <ImageIcon size={16} aria-hidden="true" /> : <FileText size={16} aria-hidden="true" />}
-            {busy ? busyLabel : isImageFile(selectedFile) ? t('scanPage') : t('readList')}
+            {busy
+              ? busyLabel
+              : selectedFiles.length >= 2 && selectedFiles.every(isImageFile)
+              ? (language === 'rw' ? `Gusoma Amapaji Yose (${selectedFiles.length})` : `Scan All Pages (${selectedFiles.length})`)
+              : isImageFile(selectedFile)
+              ? t('scanPage')
+              : t('readList')}
           </button>
           {busy ? <button type="button" className="button button-secondary" onClick={() => abortRef.current?.abort()}>{t('cancel')}</button> : null}
         </div>
@@ -1088,6 +1212,17 @@ export function FarmerBulkImportModal({
     {step === 3 ? <div className="import-review">
       {saveRunning ? <ImportProgress value={savedProcessed} max={saveTotal} label={t('progress', { done: savedProcessed, total: saveTotal })} /> : null}
       {saveAttempted && !saveRunning && (saveError || (completedSummary && completedSummary.failed > 0)) ? <ImportNotice tone="warning">{t('reviewHint')} You can correct and retry failed rows in this session.</ImportNotice> : null}
+      {checksum && (checksum.checksumLiters || checksum.checksumGross || checksum.checksumNet) ? (
+        <div className="import-checksum-banner" style={{ padding: '8px 12px', background: '#f8fafc', borderRadius: 6, marginBottom: 12, border: '1px solid #e2e8f0', display: 'flex', gap: 16, alignItems: 'center', fontSize: '0.875rem' }}>
+          <strong>{language === 'rw' ? "Igiteranyo cy'inyandiko (TOTAL)" : "Document Summary Total"}:</strong>
+          {checksum.checksumLiters ? <span>{language === 'rw' ? 'Litiro' : 'Liters'}: <b>{checksum.checksumLiters}</b></span> : null}
+          {checksum.checksumGross ? <span>{language === 'rw' ? 'Amafaranga Yose' : 'Gross'}: <b>{checksum.checksumGross}</b></span> : null}
+          {checksum.checksumNet ? <span>{language === 'rw' ? 'Asigaye' : 'Net'}: <b>{checksum.checksumNet}</b></span> : null}
+          <span className="badge badge-success" style={{ marginLeft: 'auto', display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+            <Check size={14} /> {language === 'rw' ? 'Byakuwemo mu borozi' : 'Excluded from farmers'}
+          </span>
+        </div>
+      ) : null}
       <div className="import-review-toolbar">
         <div className="import-counts">
           <span><b>{counts.total}</b> {t('allRows')}</span>

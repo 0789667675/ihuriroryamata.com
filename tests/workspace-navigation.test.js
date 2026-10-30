@@ -1,14 +1,29 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { resolveWorkspaceTab } = require('../lib/workspace-navigation');
+const {
+  resolveWorkspaceTab,
+  COLLECTOR_TABS,
+  DAIRY_TABS,
+  ADMIN_TABS,
+} = require('../lib/workspace-navigation');
 
-const collectorTabs = ['dashboard', 'farmers', 'milk', 'deductions', 'reports', 'ukwezi', 'settlements', 'settings'];
-const adminTabs = ['dashboard', 'accounts', 'audit', 'config', 'settings', 'system-health', 'notifications-admin'];
+const collectorTabs = COLLECTOR_TABS || ['dashboard', 'farmers', 'milk', 'deductions', 'reports', 'ukwezi', 'settlements', 'settings'];
+const dairyTabs = DAIRY_TABS || ['dashboard', 'centers', 'milk', 'ukwezi', 'settlements', 'reports', 'billing', 'notifications', 'settings'];
+const adminTabs = ADMIN_TABS || ['dashboard', 'accounts', 'audit', 'config', 'settings', 'system-health', 'notifications-admin'];
 
 test('workspace URL tabs resolve direct navigation case-insensitively to supported tabs', () => {
   assert.equal(resolveWorkspaceTab('ukwezi', collectorTabs), 'ukwezi');
   assert.equal(resolveWorkspaceTab('SETTLEMENTS', collectorTabs), 'settlements');
   assert.equal(resolveWorkspaceTab('system-health', adminTabs), 'system-health');
+  assert.equal(resolveWorkspaceTab('centers', dairyTabs), 'centers');
+  assert.equal(resolveWorkspaceTab('settlements', dairyTabs), 'settlements');
+});
+
+test('Collection Center mirror tabs exclude flat farmers tab and resolve collectors as primary directory', () => {
+  assert.equal(resolveWorkspaceTab('farmers', dairyTabs), 'dashboard');
+  assert.equal(resolveWorkspaceTab('centers', dairyTabs), 'centers');
+  assert.equal(resolveWorkspaceTab('milk', dairyTabs), 'milk');
+  assert.equal(resolveWorkspaceTab('settlements', dairyTabs), 'settlements');
 });
 
 test('unknown, malformed, empty, and role-restricted workspace tabs fall back safely', () => {
@@ -16,6 +31,7 @@ test('unknown, malformed, empty, and role-restricted workspace tabs fall back sa
     assert.equal(resolveWorkspaceTab(requestedTab, collectorTabs), 'dashboard');
   }
   assert.equal(resolveWorkspaceTab('farmers', adminTabs), 'dashboard');
+  assert.equal(resolveWorkspaceTab('farmers', dairyTabs), 'dashboard');
 });
 
 test('workspace tab URL updates preserve required query parameters and never store modal state', () => {

@@ -12,7 +12,7 @@ test('homepage metadata declares the site canonical and accurate product descrip
   const copy = read('lib/i18n/public-copy.ts');
 
   assert.match(layout, /metadataBase: new URL\('https:\/\/www\.ihuriroryamata\.com'\)/);
-  assert.match(layout, /title: "Ihuriro ry'Amata \| Milk System"/);
+  assert.match(layout, /title: "(?:Ihuriro ry'Amata|IHURIRO RY'AMATA) \| Milk System"/);
   assert.match(layout, /url: 'https:\/\/www\.ihuriroryamata\.com\/brand-logo-512\.png'/);
   assert.match(layout, /images: \['https:\/\/www\.ihuriroryamata\.com\/brand-logo-512\.png'\]/);
   assert.match(home, /alternates: \{ canonical: '\/' \}/);

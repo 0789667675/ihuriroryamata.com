@@ -331,7 +331,7 @@ test('Collector Settings exposes only owned collection sites while Dairy has no 
   assert.match(workspace, /collectorOwnedCenters\.map\(\(center\)/);
   assert.match(workspace, /collectorOwnedCenters\.find\(\(center\)/);
   const dairyTabs = workspace.slice(workspace.indexOf('const dairyTabs'), workspace.indexOf('const navigationCopy'));
-  assert.doesNotMatch(dairyTabs, /id: 'settlements'/);
+  assert.match(dairyTabs, /id: 'settlements'/);
   assert.match(dairyTabs, /id: 'settings'/);
   assert.match(centers, /onSubmit=\{createCenter\}/);
 });
@@ -467,8 +467,8 @@ test('Collector settlements owns operational reconciliation while Ukwezi retains
   assert.match(settlementView, /settlementsDebtOutstanding/);
   assert.doesNotMatch(ukweziView, /settlementAccounting\.farmers|settlementsCashApprovedAmount|settlementsDebtOutstanding/);
   assert.match(ukweziView, /ukwezi-settlement-table/);
-  assert.doesNotMatch(dairyTabs, /id: 'settlements'/);
-  assert.match(workspace, /tab === 'settlements' && isCollector \? renderSettlements\(\) : null/);
+  assert.match(dairyTabs, /id: 'settlements'/);
+  assert.match(workspace, /tab === 'settlements' && \(isCollector \|\| isDairy\) \? renderSettlements\(\) : null/);
 });
 
 test('tables use mobile cards on phones and retain table layout outside the phone breakpoint', () => {

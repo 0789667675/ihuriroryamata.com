@@ -88,6 +88,6 @@ export const readTextFile = (file: File) => new Promise<string>((resolve, reject
 export const isSpreadsheetFile = (file: File | null | undefined) => Boolean(file && /\.(xlsx|xls)$/i.test(file.name));
 export const isPdfFile = (file: File | null | undefined) => Boolean(file && (/\.pdf$/i.test(file.name) || file.type === 'application/pdf'));
 export const isCsvFile = (file: File | null | undefined) => Boolean(file && (/\.(csv|txt)$/i.test(file.name) || file.type === 'text/csv' || file.type === 'text/plain'));
-export const isImageFile = (file: File | null | undefined) => Boolean(file && file.type.startsWith('image/'));
+export const isImageFile = (file: File | null | undefined) => Boolean(file && (file.type.startsWith('image/') || /\.(jpe?g|png|webp|bmp|tiff?|heic)$/i.test(file.name)));
 
 export const IMPORT_MAX_FILE_BYTES = 8 * 1024 * 1024;

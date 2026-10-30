@@ -95,3 +95,35 @@ export const postJson = <T>(url: string, body: unknown, signal?: AbortSignal) =>
   body: JSON.stringify(body),
   signal,
 });
+
+export type ExtractResult = {
+  type?: string;
+  kind?: string;
+  name?: string;
+  rows?: string[][];
+  headers?: string[];
+  text?: string;
+  sheetCount?: number;
+  truncated?: boolean;
+  checksum?: { checksumLiters?: number | null; checksumGross?: number | null; checksumNet?: number | null } | null;
+};
+
+export const extractImportDocument = async (file: File, signal?: AbortSignal): Promise<ExtractResult> => {
+  const form = new FormData();
+  form.append('file', file);
+  const response = await fetch('/api/imports/extract', {
+    method: 'POST',
+    credentials: 'include',
+    body: form,
+    signal,
+  });
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    const error = Object.assign(new Error(payload.message || 'The file could not be read.'), {
+      code: payload.code,
+      status: response.status,
+    });
+    throw error;
+  }
+  return payload as ExtractResult;
+};

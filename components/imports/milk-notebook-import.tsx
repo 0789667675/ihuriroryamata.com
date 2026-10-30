@@ -1,17 +1,43 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Camera, Check, Image as ImageIcon, Plus, X } from 'lucide-react';
+import { Camera, Check, FileSpreadsheet, FileText, Image as ImageIcon, Plus, Upload, X } from 'lucide-react';
 import { ImportFrame, ImportNotice, ImportPager, ImportProgress, ImportStatus, ImportSteps } from '@/components/imports/import-ui';
 import { getImportCopy, type ImportCopyKey } from '@/lib/i18n/import-copy';
 import type { PublicLanguage } from '@/lib/i18n/public-copy';
-import { prepareImageForOcr } from '@/lib/imports/client-files';
-import { loadImportFarmers, loadRecordedFarmerIds, postJson, type ImportFarmer } from '@/lib/imports/client-api';
+import {
+  IMPORT_MAX_FILE_BYTES,
+  isCsvFile,
+  isImageFile,
+  isPdfFile,
+  isSpreadsheetFile,
+  prepareImageForOcr,
+} from '@/lib/imports/client-files';
+import {
+  extractImportDocument,
+  loadImportFarmers,
+  loadRecordedFarmerIds,
+  postJson,
+  type ImportFarmer,
+} from '@/lib/imports/client-api';
 import { buildFarmerIndex, farmerLabel, matchFarmer } from '@/lib/imports/farmer-matching';
-import { detectNotebookDateColumns, detectNotebookPageMonthYear, extractNotebookEntries, parseNotebookPage } from '@/lib/imports/notebook';
+import {
+  detectNotebookDateColumns,
+  detectNotebookPageMonthYear,
+  extractNotebookEntries,
+  parseNotebookPage,
+  stitchNotebookMultiDay,
+  stitchNotebookPages,
+} from '@/lib/imports/notebook';
 import { assessMultiDayRow, buildMultiDayDraftDays, buildMultiDayEntries, chunkMultiDayEntries, type MultiDayRowDraft } from '@/lib/imports/multi-day';
 import { MultiDayReviewMatrix } from '@/components/imports/milk-multiday-matrix';
-import { detectHeader, normalizeHeader, parseTextRows } from '@/lib/imports/text-parsing';
+import {
+  detectHeader,
+  normalizeHeader,
+  parseTextRows,
+  stripSummaryRows,
+  SUMMARY_ROW_PATTERN,
+} from '@/lib/imports/text-parsing';
 import { getAccountingDate } from '@/lib/utils/accounting-period.js';
 
 type DetectedDateCol = {
@@ -95,15 +121,35 @@ const milkHeaderIndex = (header: string[], aliases: string[]) => header.findInde
 });
 
 const parseMilkPaste = (rows: string[][], session: 'morning' | 'evening') => {
-  if (!rows.length) return { rows: [] as Array<{ name: string; morning: string; evening: string; raw: string; quantityRaw: string; invalidQuantity: boolean }>, warning: '' };
-  const detected = detectHeader(rows);
-  const width = rows.reduce((max, row) => Math.max(max, row.length), 0);
-  const header = rows[0] || [];
+  if (!rows.length) return {
+    rows: [] as Array<{
+      name: string;
+      farmerNumber?: number | null;
+      detectedPhone?: string | null;
+      detectedNationalId?: string | null;
+      detectedAccountNumber?: string | null;
+      morning: string;
+      evening: string;
+      raw: string;
+      quantityRaw: string;
+      invalidQuantity: boolean;
+    }>,
+    warning: '',
+    checksum: null,
+  };
+  const { rows: strippedRows, checksum } = stripSummaryRows(rows);
+  const detected = detectHeader(strippedRows);
+  const width = strippedRows.reduce((max, row) => Math.max(max, row.length), 0);
+  const header = strippedRows[0] || [];
   const mapping = detected.mapping as Record<string, number | undefined>;
   const nameIndex = mapping.name ?? 0;
+  const farmerNumberIndex = mapping.farmerNumber ?? milkHeaderIndex(header, ['no', 'no.', 'nambara', 'lineno', 'number', 'nimero']);
   const morningIndex = milkHeaderIndex(header, ['morning', 'ijoro', 'amata y ijoro', 'morning milk', 'morning qty']);
   const eveningIndex = milkHeaderIndex(header, ['evening', 'nimugoroba', 'umugoroba', 'amata y nimugoroba', 'evening milk', 'evening qty']);
-  const quantityIndex = milkHeaderIndex(header, ['quantity', 'ingano', 'total', 'amata', 'liters', 'litres', 'volume', 'umubare', 'umubare w amata']);
+  const quantityIndex = milkHeaderIndex(header, ['quantity', 'ingano', 'total', 'amata', 'liters', 'litres', 'litiro', 'volume', 'umubare', 'umubare w amata']);
+  const phoneIndex = mapping.phone ?? milkHeaderIndex(header, ['telephone', 'telefone', 'phone', 'tel', 'mobile']);
+  const nationalIdIndex = mapping.nationalId ?? milkHeaderIndex(header, ['indangamuntu', 'nationalid', 'nid', 'id', 'cni']);
+  const accountIndex = mapping.accountNumber ?? milkHeaderIndex(header, ['nimero ya konti', 'konti', 'account', 'compte', 'accountnumber', 'bankaccount', 'bank account']);
   const hasMilkHeader = morningIndex >= 0 || eveningIndex >= 0 || quantityIndex >= 0;
   const hasHeader = detected.hasHeader || hasMilkHeader;
   let resolvedMorning = morningIndex;
@@ -115,9 +161,14 @@ const parseMilkPaste = (rows: string[][], session: 'morning' | 'evening') => {
   } else if (!hasHeader) {
     resolvedQuantity = width > 1 ? 1 : -1;
   }
-  const dataRows = hasHeader ? rows.slice(1) : rows;
+  const dataRows = hasHeader ? strippedRows.slice(1) : strippedRows;
   const parsed = dataRows.map((row) => {
     const name = String(row[nameIndex] ?? '').trim();
+    const rawNum = farmerNumberIndex >= 0 ? String(row[farmerNumberIndex] ?? '').replace(/[#.\s]/g, '') : '';
+    const farmerNumber = rawNum && /^\d+$/.test(rawNum) ? Number(rawNum) : null;
+    const detectedPhone = phoneIndex >= 0 ? String(row[phoneIndex] ?? '').trim() : null;
+    const detectedNationalId = nationalIdIndex >= 0 ? String(row[nationalIdIndex] ?? '').trim() : null;
+    const detectedAccountNumber = accountIndex >= 0 ? String(row[accountIndex] ?? '').trim() : null;
     const morningRaw = resolvedMorning >= 0 ? String(row[resolvedMorning] ?? '') : '';
     const eveningRaw = resolvedEvening >= 0 ? String(row[resolvedEvening] ?? '') : '';
     const quantityRaw = resolvedQuantity >= 0 ? String(row[resolvedQuantity] ?? '') : '';
@@ -133,17 +184,21 @@ const parseMilkPaste = (rows: string[][], session: 'morning' | 'evening') => {
     }
     return {
       name,
+      farmerNumber,
+      detectedPhone,
+      detectedNationalId,
+      detectedAccountNumber,
       morning,
       evening,
       raw: row.join(' · '),
       quantityRaw: hasSplit ? `${morningRaw || '0'} / ${eveningRaw || '0'}` : quantityRaw,
       invalidQuantity: morningParsed.invalid || eveningParsed.invalid || (!hasSplit && quantityParsed.invalid),
     };
-  }).filter((row) => row.name || row.morning || row.evening);
+  }).filter((row) => (row.name || row.morning || row.evening) && !SUMMARY_ROW_PATTERN.test(row.name));
   const warning = !hasHeader
     ? (width === 3 ? 'noHeaderSplit' : 'noHeaderQuantity')
     : '';
-  return { rows: parsed, warning };
+  return { rows: parsed, warning, checksum };
 };
 
 export function MilkNotebookImportModal({
@@ -170,7 +225,10 @@ export function MilkNotebookImportModal({
   const [session, setSession] = useState<'morning' | 'evening'>('morning');
   const [pasteText, setPasteText] = useState('');
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
+  const [dragOver, setDragOver] = useState(false);
   const [previewUrl, setPreviewUrl] = useState('');
+  const [checksum, setChecksum] = useState<{ checksumLiters?: number | null; checksumGross?: number | null; checksumNet?: number | null } | null>(null);
   const [busy, setBusy] = useState(false);
   const [busyLabel, setBusyLabel] = useState('');
   const [error, setError] = useState('');
@@ -282,7 +340,10 @@ export function MilkNotebookImportModal({
     setSession('morning');
     setPasteText('');
     setSelectedFile(null);
+    setSelectedFiles([]);
+    setDragOver(false);
     replacePreview('');
+    setChecksum(null);
     setError('');
     setWarning('');
     setRows([]);
@@ -594,11 +655,16 @@ export function MilkNotebookImportModal({
       setError(t('noDate'));
       return;
     }
-    if (!selectedFile) {
+    const filesToScan = selectedFiles.length > 0 ? selectedFiles : (selectedFile ? [selectedFile] : []);
+    if (!filesToScan.length) {
       setError(t('noFile'));
       return;
     }
-    if (ocrConfigured !== true) {
+
+    const firstFile = filesToScan[0];
+    const isDoc = isSpreadsheetFile(firstFile) || isPdfFile(firstFile) || isCsvFile(firstFile);
+
+    if (!isDoc && ocrConfigured !== true) {
       setError(t('ocrDisabled'));
       return;
     }
@@ -608,16 +674,207 @@ export function MilkNotebookImportModal({
     const controller = new AbortController();
     abortRef.current = controller;
     setBusy(true);
-    setBusyLabel(t('scanning'));
+
     try {
-      const prepared = await prepareImageForOcr(selectedFile);
+      // 1. Non-image document routing (PDF, Excel .xlsx/.xls, CSV, TXT)
+      if (isDoc) {
+        if (firstFile.size > IMPORT_MAX_FILE_BYTES) throw new Error(t('fileTooLarge'));
+        setBusyLabel(t('readingFile'));
+        const extractResult = await extractImportDocument(firstFile, controller.signal);
+        const rawRows: string[][] = extractResult.rows || [];
+        if (!rawRows.length) throw new Error(t('errorNoRows'));
+
+        if (extractResult.checksum) {
+          setChecksum(extractResult.checksum);
+        }
+
+        const { rows: strippedRows, checksum: detectedChecksum } = stripSummaryRows(rawRows);
+        if (detectedChecksum) setChecksum(detectedChecksum);
+
+        // Check if table contains multiple day columns
+        const header: string[] = strippedRows[0] || [];
+        const isDayCol = (val: string) => {
+          const clean = String(val ?? '').trim();
+          return /^0?[1-9]$|^[12][0-9]$|^3[01]$/.test(clean) || /^\d{4}-\d{2}-\d{2}$/.test(clean);
+        };
+        const dayCols = header.map((h: string, i: number) => ({ col: h, index: i })).filter((c: { col: string; index: number }) => isDayCol(c.col));
+
+        if (dayCols.length >= 2 || scanMode === 'multi') {
+          const yearMonth = (date || todayIso()).slice(0, 7);
+          const allDates = dayCols.map((c: { col: string; index: number }) => {
+            const clean = String(c.col).trim();
+            if (/^\d{4}-\d{2}-\d{2}$/.test(clean)) return clean;
+            const dayNum = Number(clean);
+            return `${yearMonth}-${String(dayNum).padStart(2, '0')}`;
+          });
+
+          const detected = detectHeader(strippedRows);
+          const mapping = detected.mapping as Record<string, number | undefined>;
+          const nameIndex = mapping.name ?? (dayCols[0]?.index > 1 ? 1 : 0);
+          const farmerNumberIndex = mapping.farmerNumber ?? milkHeaderIndex(header, ['no', 'no.', 'nambara', 'lineno', 'number', 'nimero']);
+          const phoneIndex = mapping.phone ?? milkHeaderIndex(header, ['telephone', 'telefone', 'phone', 'tel', 'mobile']);
+          const nationalIdIndex = mapping.nationalId ?? milkHeaderIndex(header, ['indangamuntu', 'nationalid', 'nid', 'id', 'cni']);
+          const accountIndex = mapping.accountNumber ?? milkHeaderIndex(header, ['nimero ya konti', 'konti', 'account', 'compte', 'accountnumber', 'bankaccount']);
+
+          const dataRows = (detected.hasHeader || dayCols.length > 0) ? strippedRows.slice(1) : strippedRows;
+          const multiDrafts: MultiDayRowDraft[] = dataRows.map((r, rIdx) => {
+            const name = String(r[nameIndex] ?? '').trim();
+            const rawNum = farmerNumberIndex >= 0 ? String(r[farmerNumberIndex] ?? '').replace(/[#.\s]/g, '') : '';
+            const farmerNum = rawNum && /^\d+$/.test(rawNum) ? Number(rawNum) : null;
+            const match = resolveMatch(name, farmerNum);
+            const days: Record<string, { morning: string; evening: string; raw: string; status: string; verified: boolean }> = {};
+            dayCols.forEach((dc: { col: string; index: number }, dIdx: number) => {
+              const iso = allDates[dIdx];
+              const cellVal = String(r[dc.index] ?? '').trim();
+              const parsedV = parseVolume(cellVal);
+              days[iso] = {
+                morning: parsedV.present && !parsedV.invalid && parsedV.value > 0 ? String(parsedV.value) : '',
+                evening: '',
+                raw: cellVal,
+                status: parsedV.invalid ? 'unreadable' : (parsedV.value > 0 ? 'ok' : 'empty'),
+                verified: parsedV.present && !parsedV.invalid && parsedV.value > 0,
+              };
+            });
+            const hasLitres = allDates.some((d: string) => Number(days[d]?.morning || 0) > 0);
+            return {
+              uid: uidRef.current += 1,
+              rowNumber: rIdx + 1,
+              farmerNumber: farmerNum,
+              detectedPhone: phoneIndex >= 0 ? String(r[phoneIndex] ?? '').trim() : null,
+              detectedNationalId: nationalIdIndex >= 0 ? String(r[nationalIdIndex] ?? '').trim() : null,
+              detectedAccountNumber: accountIndex >= 0 ? String(r[accountIndex] ?? '').trim() : null,
+              nameText: name,
+              rawText: r.join(' • '),
+              farmerId: match.exactId ? String(match.exactId) : '',
+              candidates: match.candidates,
+              matchStatus: match.matchStatus,
+              matchReason: match.matchReason,
+              include: hasLitres,
+              days,
+            };
+          }).filter((row) => row.nameText && !SUMMARY_ROW_PATTERN.test(row.nameText));
+
+          scannedAtRef.current = new Date().toISOString();
+          batchKeyRef.current = `milk_doc_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
+          await openMultiReview(multiDrafts, allDates, allDates);
+          return;
+        }
+
+        // Single collection list or SACCO sheet
+        const parsed = parseMilkPaste(strippedRows, session);
+        if (!parsed.rows.length) throw new Error(t('noMilkRows'));
+        if (parsed.warning === 'noHeaderSplit') setWarning(t('noHeaderSplit'));
+        else if (parsed.warning === 'noHeaderQuantity') setWarning(t('noHeaderQuantity'));
+
+        scannedAtRef.current = new Date().toISOString();
+        batchKeyRef.current = `milk_doc_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
+        setBusinessDate(date);
+        setSelectedColumnDate('');
+
+        const drafts = parsed.rows.map((row, index) => {
+          const morning = parseVolume(row.morning);
+          const evening = parseVolume(row.evening);
+          const total = morning.value + evening.value;
+          const initialLitres = total > 0 ? (morning.value > 0 ? String(morning.value) : String(evening.value)) : '';
+          return matchDraft(row.name, {
+            rowNumber: index + 1,
+            farmerNumber: row.farmerNumber,
+            detectedPhone: row.detectedPhone,
+            detectedNationalId: row.detectedNationalId,
+            detectedAccountNumber: row.detectedAccountNumber,
+            rawText: row.raw,
+            quantityRaw: row.quantityRaw,
+            ocrStatus: row.invalidQuantity ? 'unreadable' : total > 0 ? 'ok' : 'unreadable',
+            confidence: null,
+            dateColumnFound: true,
+            businessDate: date,
+            session: morning.value > 0 ? 'morning' : 'evening',
+            litres: initialLitres,
+            morning: row.morning,
+            evening: row.evening,
+            include: total > 0 && !row.invalidQuantity,
+            verified: total > 0 && !row.invalidQuantity,
+          });
+        });
+        await openReview(drafts, date);
+        return;
+      }
+
+      // 2. Multi-image stitching (e.g. Left Page Days 1-15 & Right Page Days 16-30)
+      if (filesToScan.length >= 2 && filesToScan.every(isImageFile)) {
+        const ocrPages: Array<Array<{ text: string; x: number; y: number; width: number; height: number; confidence?: number }>> = [];
+        for (let i = 0; i < filesToScan.length; i++) {
+          setBusyLabel(`${t('scanning')} (${i + 1}/${filesToScan.length})...`);
+          const prepared = await prepareImageForOcr(filesToScan[i]);
+          if (i === 0) replacePreview(prepared.previewUrl);
+          const res = await postJson<{
+            text: string;
+            words: Array<{ text: string; x: number; y: number; width: number; height: number; confidence?: number }>;
+          }>('/api/imports/ocr', { imageBase64: prepared.base64, mimeType: prepared.mimeType }, controller.signal);
+          if (!res.words?.length) throw new Error(`${filesToScan[i].name}: ${t('errorOcr')}`);
+          ocrPages.push(res.words);
+        }
+
+        const stitched = stitchNotebookPages(ocrPages, { multiDay: true }, date);
+        if (stitched.checksum) setChecksum(stitched.checksum);
+        if (!stitched.dates.length) {
+          throw new Error(language === 'rw'
+            ? 'Nta nkingi z amatariki zabonetse mu mafoto. Banza urebe ko amapaji agaragara neza.'
+            : 'No date columns were detected across the uploaded pages.');
+        }
+        if (!stitched.length) throw new Error(t('noMilkRows'));
+
+        const from = Number(multiFromDay) || 1;
+        const to = Number(multiToDay) || 31;
+        const selected = stitched.dates.filter((isoDate) => {
+          const day = Number(isoDate.slice(8, 10));
+          return day >= from && day <= to;
+        });
+        const effectiveSelected = selected.length ? selected : stitched.dates;
+
+        setDetectedDateColumns(stitched.columns);
+        setDateDetectionUncertain(stitched.columns.some((col: any) => col.confidence !== null && col.confidence < 0.72));
+        setSelectedColumnDate('');
+        setBusinessDate(effectiveSelected[0]);
+
+        scannedAtRef.current = new Date().toISOString();
+        batchKeyRef.current = `milk_stitch_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
+
+        const drafts: MultiDayRowDraft[] = stitched.map((row: any) => {
+          const match = resolveMatch(row.detectedName, row.farmerNumber);
+          const days = buildMultiDayDraftDays(row, stitched.dates);
+          const hasLitres = effectiveSelected.some((day) => Number(days[day]?.morning || 0) + Number(days[day]?.evening || 0) > 0);
+          return {
+            uid: uidRef.current += 1,
+            rowNumber: row.rowNumber,
+            farmerNumber: row.farmerNumber,
+            detectedPhone: row.sublineMetadata?.phone || null,
+            detectedNationalId: row.sublineMetadata?.nationalId || null,
+            detectedAccountNumber: row.sublineMetadata?.accountNumber || null,
+            nameText: row.detectedName,
+            rawText: row.nameRaw || row.detectedName,
+            farmerId: match.exactId ? String(match.exactId) : '',
+            candidates: match.candidates,
+            matchStatus: match.matchStatus,
+            matchReason: match.matchReason,
+            include: hasLitres,
+            days,
+          };
+        });
+        await openMultiReview(drafts, stitched.dates, effectiveSelected);
+        return;
+      }
+
+      // 3. Single image upload
+      setBusyLabel(t('scanning'));
+      const prepared = await prepareImageForOcr(firstFile);
       replacePreview(prepared.previewUrl);
       const result = await postJson<{
         text: string;
         words: Array<{ text: string; x: number; y: number; width: number; height: number; confidence?: number }>;
       }>('/api/imports/ocr', { imageBase64: prepared.base64, mimeType: prepared.mimeType }, controller.signal);
       if (!result.words?.length) throw new Error(t('errorOcr'));
-      
+
       ocrWordsRef.current = result.words;
       scannedAtRef.current = new Date().toISOString();
       batchKeyRef.current = `milk_scan_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
@@ -649,33 +906,36 @@ export function MilkNotebookImportModal({
       }
 
       const parsed = extractNotebookEntries(result.words, targetCol || date);
+      if (parsed.checksum) setChecksum(parsed.checksum);
       if (!parsed.entries?.length) throw new Error(t('noMilkRows'));
 
       const mode = session;
-      const drafts = parsed.entries.map((entry: any) => {
-        const quantity = entry.quantity;
-        const amount = quantity !== null && Number.isFinite(Number(quantity)) && Number(quantity) > 0 ? String(quantity) : '';
-        const hasQuantity = Boolean(amount) && entry.status !== 'ambiguous' && entry.status !== 'unreadable';
-        return matchDraft(entry.name, {
-          rowNumber: entry.rowNumber,
-          farmerNumber: entry.farmerNumber || null,
-          detectedPhone: entry.detectedPhone || null,
-          detectedNationalId: entry.detectedNationalId || null,
-          detectedAccountNumber: entry.detectedAccountNumber || null,
-          rawText: entry.rawText,
-          quantityRaw: entry.quantityRaw,
-          ocrStatus: entry.status,
-          confidence: entry.confidence,
-          dateColumnFound: entry.dateColumnFound,
-          businessDate: effectiveBusinessDate,
-          session: mode,
-          litres: amount,
-          morning: mode === 'morning' ? amount : (entry.morningQuantity ? String(entry.morningQuantity) : ''),
-          evening: mode === 'evening' ? amount : (entry.eveningQuantity ? String(entry.eveningQuantity) : ''),
-          include: hasQuantity,
-          verified: entry.status === 'ok' && hasQuantity,
+      const drafts = parsed.entries
+        .filter((entry: any) => !SUMMARY_ROW_PATTERN.test(entry.name || entry.rawText || ''))
+        .map((entry: any) => {
+          const quantity = entry.quantity;
+          const amount = quantity !== null && Number.isFinite(Number(quantity)) && Number(quantity) > 0 ? String(quantity) : '';
+          const hasQuantity = Boolean(amount) && entry.status !== 'ambiguous' && entry.status !== 'unreadable';
+          return matchDraft(entry.name, {
+            rowNumber: entry.rowNumber,
+            farmerNumber: entry.farmerNumber || null,
+            detectedPhone: entry.detectedPhone || null,
+            detectedNationalId: entry.detectedNationalId || null,
+            detectedAccountNumber: entry.detectedAccountNumber || null,
+            rawText: entry.rawText,
+            quantityRaw: entry.quantityRaw,
+            ocrStatus: entry.status,
+            confidence: entry.confidence,
+            dateColumnFound: entry.dateColumnFound,
+            businessDate: effectiveBusinessDate,
+            session: mode,
+            litres: amount,
+            morning: mode === 'morning' ? amount : (entry.morningQuantity ? String(entry.morningQuantity) : ''),
+            evening: mode === 'evening' ? amount : (entry.eveningQuantity ? String(entry.eveningQuantity) : ''),
+            include: hasQuantity,
+            verified: entry.status === 'ok' && hasQuantity,
+          });
         });
-      });
 
       if (!parsed.dateColumnFound || !cols.length) setWarning(t('dateColumnWarning'));
       await openReview(drafts, effectiveBusinessDate);
@@ -1182,12 +1442,39 @@ export function MilkNotebookImportModal({
     setPage(0);
   };
 
-  const selectPhoto = (file: File | null) => {
-    setSelectedFile(file);
+  const selectFiles = (files: File[]) => {
+    if (!files.length) {
+      setSelectedFile(null);
+      setSelectedFiles([]);
+      replacePreview('');
+      return;
+    }
+    setSelectedFiles(files);
+    setSelectedFile(files[0]);
     setError('');
     setWarning('');
-    replacePreview(file ? URL.createObjectURL(file) : '');
+    if (isImageFile(files[0])) {
+      replacePreview(URL.createObjectURL(files[0]));
+    } else {
+      replacePreview('');
+    }
   };
+
+  const removeFile = (index: number) => {
+    const next = selectedFiles.filter((_, i) => i !== index);
+    selectFiles(next);
+  };
+
+  const totalIncludedLiters = useMemo(() => {
+    return includedRows.reduce((sum, r) => sum + (Number(r.litres) || (Number(r.morning) || 0) + (Number(r.evening) || 0)), 0);
+  }, [includedRows]);
+
+  const totalMultiDayLiters = useMemo(() => {
+    return multiEntries.reduce((sum, e) => sum + (Number(e.volumeMorning) || 0) + (Number(e.volumeEvening) || 0), 0);
+  }, [multiEntries]);
+
+  const isDocFile = selectedFile && (isSpreadsheetFile(selectedFile) || isPdfFile(selectedFile) || isCsvFile(selectedFile));
+  const scanDisabled = busy || !selectedFile || !date || (!isDocFile && ocrConfigured !== true) || farmersLoading || Boolean(farmersError);
 
   const steps = [t('stepSource'), t('stepReview'), t('stepDone')];
 
@@ -1245,39 +1532,98 @@ export function MilkNotebookImportModal({
         <button type="button" role="tab" aria-selected={sourceMode === 'photo'} className={sourceMode === 'photo' ? 'active' : ''} onClick={() => setSourceMode('photo')}><ImageIcon size={16} />{t('photoTab')}</button>
         <button type="button" role="tab" aria-selected={sourceMode === 'paste'} className={sourceMode === 'paste' ? 'active' : ''} onClick={() => setSourceMode('paste')}>{t('pasteTab')}</button>
       </div>
-      {sourceMode === 'photo' ? <section className="import-source-card">
-        <div className="import-file-picker">
+      {sourceMode === 'photo' ? <section
+        className={`import-source-card ${dragOver ? 'import-drag-over' : ''}`}
+        onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
+        onDragLeave={(e) => { e.preventDefault(); setDragOver(false); }}
+        onDrop={(e) => {
+          e.preventDefault();
+          setDragOver(false);
+          const dropped = Array.from(e.dataTransfer.files || []);
+          if (dropped.length) selectFiles(dropped);
+        }}
+      >
+        <p className="import-format-lead" style={{ fontWeight: 600, marginBottom: 8 }}>
+          {language === 'rw'
+            ? "Shyiramo ifoto (JPG/PNG), dosiye ya PDF, cyangwa Excel (.xlsx) y'ikayi y'amata."
+            : "Upload photo (JPG/PNG), PDF document, or Excel (.xlsx) register."}
+        </p>
+
+        <div className="import-source-actions">
           <label className="import-file-button">
-            <ImageIcon size={18} aria-hidden="true" />
-            <span>{selectedFile ? t('changeFile') : t('chooseFile')}</span>
-            <input type="file" accept="image/jpeg,image/png,image/webp" onChange={(event) => {
-              const file = event.target.files?.[0] || null;
-              event.currentTarget.value = '';
-              selectPhoto(file);
-            }} disabled={busy} />
+            <Upload size={18} aria-hidden="true" />
+            <span>{selectedFiles.length ? t('changeFile') : t('chooseFile')}</span>
+            <input
+              type="file"
+              accept="image/*,application/pdf,.xlsx,.xls,.csv,.txt"
+              multiple
+              onChange={(event) => {
+                const files = Array.from(event.target.files || []);
+                event.currentTarget.value = '';
+                selectFiles(files);
+              }}
+              disabled={busy}
+            />
           </label>
           <label className="button button-secondary import-camera-button">
             <Camera size={18} aria-hidden="true" />
             <span>{t('takePhoto')}</span>
-            <input type="file" accept="image/jpeg,image/png,image/webp" capture="environment" onChange={(event) => {
-              const file = event.target.files?.[0] || null;
-              event.currentTarget.value = '';
-              selectPhoto(file);
-            }} disabled={busy} />
+            <input
+              type="file"
+              accept="image/*"
+              capture="environment"
+              multiple
+              onChange={(event) => {
+                const files = Array.from(event.target.files || []);
+                event.currentTarget.value = '';
+                selectFiles(files);
+              }}
+              disabled={busy}
+            />
           </label>
-          {selectedFile ? <div className="import-file-name"><ImageIcon size={16} /><span>{selectedFile.name}</span><button type="button" className="text-button" onClick={() => { setSelectedFile(null); replacePreview(''); }} disabled={busy} aria-label={t('removeRow')}><X size={14} /></button></div> : null}
         </div>
+
+        {selectedFiles.length > 0 ? (
+          <div className="import-selected-files-list" style={{ marginTop: 12, display: 'flex', flexDirection: 'column', gap: 6 }}>
+            {selectedFiles.map((file, idx) => (
+              <div key={`${file.name}-${idx}`} className="import-file-pill" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '6px 12px', background: '#f1f5f9', borderRadius: 6, fontSize: '0.85rem' }}>
+                <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  {isSpreadsheetFile(file) ? <FileSpreadsheet size={16} /> : isPdfFile(file) ? <FileText size={16} /> : <ImageIcon size={16} />}
+                  <strong>{file.name}</strong> <small className="text-muted">({(file.size / 1024).toFixed(1)} KB)</small>
+                </span>
+                <button type="button" className="text-button" onClick={() => removeFile(idx)} style={{ cursor: 'pointer', color: '#64748b' }}>
+                  <X size={14} />
+                </button>
+              </div>
+            ))}
+            {selectedFiles.length >= 2 && selectedFiles.every(isImageFile) ? (
+              <small className="text-success" style={{ fontWeight: 500, color: '#16a34a' }}>
+                {language === 'rw'
+                  ? `Mafoto ${selectedFiles.length} yatoranyijwe (Amapaji azahuzwa mu buryo bwikora: Umunsi 1-15 & 16-30).`
+                  : `${selectedFiles.length} photos selected (Pages will be stitched automatically: Days 1-15 & 16-30).`}
+              </small>
+            ) : null}
+          </div>
+        ) : null}
+
         {previewUrl ? <div className="import-photo-preview"><img src={previewUrl} alt="" /></div> : null}
         <p className="muted-note">{t('photoHint')}</p>
-        {ocrConfigured === false ? <ImportNotice tone="warning">{t('ocrNotConfigured')} {t('ocrSetup')}{ocrSetup.length ? <code>{ocrSetup.join(' / ')}</code> : null}</ImportNotice> : null}
+        {ocrConfigured === false && !isDocFile ? <ImportNotice tone="warning">{t('ocrNotConfigured')} {t('ocrSetup')}{ocrSetup.length ? <code>{ocrSetup.join(' / ')}</code> : null}</ImportNotice> : null}
         <p className="muted-note">{t('scanHint')}</p>
         <div className="import-actions">
-          <button type="button" className="button button-primary" onClick={scanNotebook} disabled={busy || !selectedFile || !date || ocrConfigured !== true || farmersLoading || Boolean(farmersError)}>
-            <ImageIcon size={16} aria-hidden="true" />{busy ? busyLabel : t('scanPage')}
+          <button type="button" className="button button-primary" onClick={scanNotebook} disabled={scanDisabled}>
+            <ImageIcon size={16} aria-hidden="true" />
+            {busy
+              ? busyLabel
+              : selectedFiles.length >= 2 && selectedFiles.every(isImageFile)
+              ? (language === 'rw' ? `Guhuza no Gusoma Amapaji (${selectedFiles.length})` : `Stitch & Scan Pages (${selectedFiles.length})`)
+              : isDocFile
+              ? (language === 'rw' ? 'Gusoma Dosiye' : 'Extract Document')
+              : t('scanPage')}
           </button>
           {busy ? <button type="button" className="button button-secondary" onClick={() => abortRef.current?.abort()}>{t('cancel')}</button> : null}
         </div>
-        {ocrConfigured === false ? <p className="muted-note">{t('sourceHint')}</p> : null}
+        {ocrConfigured === false && !isDocFile ? <p className="muted-note">{t('sourceHint')}</p> : null}
       </section> : <section className="import-source-card">
         <label className="import-textarea-label">{t('pasteTab')}<textarea rows={10} value={pasteText} onChange={(event) => setPasteText(event.target.value)} placeholder={language === 'rw' ? 'Izina, Ijoro, Nimugoroba' : 'Name, Morning, Evening'} /></label>
         <p className="muted-note">{t('pasteMilkHint')}</p>
@@ -1288,6 +1634,36 @@ export function MilkNotebookImportModal({
 
     {step === 1 && !multiDay ? <div className="import-review">
       {saveRunning ? <ImportProgress value={savedProcessed} max={saveTotal} label={t('progress', { done: savedProcessed, total: saveTotal })} /> : null}
+
+      {checksum && (checksum.checksumLiters || checksum.checksumGross || checksum.checksumNet) ? (
+        <div className="import-checksum-banner" style={{
+          padding: '10px 14px',
+          background: '#f8fafc',
+          borderRadius: 6,
+          marginBottom: 12,
+          border: '1px solid #e2e8f0',
+          display: 'flex',
+          flexWrap: 'wrap',
+          gap: 16,
+          alignItems: 'center',
+          fontSize: '0.875rem'
+        }}>
+          <strong>{language === 'rw' ? "Igiteranyo cy'inyandiko (TOTAL)" : "Document Summary Total"}:</strong>
+          {checksum.checksumLiters ? (
+            <span>
+              {language === 'rw' ? 'Litiro' : 'Liters'}: <b>{checksum.checksumLiters} L</b>
+              <span style={{ marginLeft: 8, color: Math.abs(totalIncludedLiters - checksum.checksumLiters) < 0.01 ? '#16a34a' : '#d97706' }}>
+                ({language === 'rw' ? 'Imirongo yose' : 'Row sum'}: <b>{Math.round(totalIncludedLiters * 100) / 100} L</b>)
+              </span>
+            </span>
+          ) : null}
+          {checksum.checksumGross ? <span>{language === 'rw' ? 'Amafaranga Yose' : 'Gross'}: <b>{checksum.checksumGross}</b></span> : null}
+          {checksum.checksumNet ? <span>{language === 'rw' ? 'Asigaye' : 'Net'}: <b>{checksum.checksumNet}</b></span> : null}
+          <span className="badge badge-success" style={{ marginLeft: 'auto', display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+            <Check size={14} /> {language === 'rw' ? "Byakuwemo mu makuru y'amata" : 'Summary row excluded'}
+          </span>
+        </div>
+      ) : null}
 
       {/* Detected Date Columns Pill Bar */}
       {detectedDateColumns.length > 0 ? (
@@ -1571,6 +1947,36 @@ export function MilkNotebookImportModal({
             max={saveTotal}
             label={t('progress', { done: savedProcessed, total: saveTotal })}
           />
+        ) : null}
+
+        {checksum && (checksum.checksumLiters || checksum.checksumGross || checksum.checksumNet) ? (
+          <div className="import-checksum-banner" style={{
+            padding: '10px 14px',
+            background: '#f8fafc',
+            borderRadius: 6,
+            marginBottom: 12,
+            border: '1px solid #e2e8f0',
+            display: 'flex',
+            flexWrap: 'wrap',
+            gap: 16,
+            alignItems: 'center',
+            fontSize: '0.875rem'
+          }}>
+            <strong>{language === 'rw' ? "Igiteranyo cy'inyandiko (TOTAL)" : "Document Summary Total"}:</strong>
+            {checksum.checksumLiters ? (
+              <span>
+                {language === 'rw' ? 'Litiro' : 'Liters'}: <b>{checksum.checksumLiters} L</b>
+                <span style={{ marginLeft: 8, color: Math.abs(totalMultiDayLiters - checksum.checksumLiters) < 0.01 ? '#16a34a' : '#d97706' }}>
+                  ({language === 'rw' ? 'Imirongo yose' : 'Row sum'}: <b>{Math.round(totalMultiDayLiters * 100) / 100} L</b>)
+                </span>
+              </span>
+            ) : null}
+            {checksum.checksumGross ? <span>{language === 'rw' ? 'Amafaranga Yose' : 'Gross'}: <b>{checksum.checksumGross}</b></span> : null}
+            {checksum.checksumNet ? <span>{language === 'rw' ? 'Asigaye' : 'Net'}: <b>{checksum.checksumNet}</b></span> : null}
+            <span className="badge badge-success" style={{ marginLeft: 'auto', display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+              <Check size={14} /> {language === 'rw' ? "Byakuwemo mu makuru y'amata" : 'Summary row excluded'}
+            </span>
+          </div>
         ) : null}
 
         <div className="import-date-pills-bar" role="region" aria-label={language === 'rw' ? 'Iminsi yatoranyijwe' : 'Selected days'}>

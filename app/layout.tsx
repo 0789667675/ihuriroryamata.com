@@ -3,9 +3,9 @@ import type { Metadata, Viewport } from 'next';
 
 export const metadata: Metadata = {
   metadataBase: new URL('https://www.ihuriroryamata.com'),
-  title: "Ihuriro ry'Amata | Milk System",
+  title: "IHURIRO RY'AMATA | Milk System",
   description: 'Ihuriro ry’Amata (Ihuriroryamata), rizwi nka Milk System, rifasha abacunda n’ibigo by’ikusanyirizo gucunga aborozi, ikusanya n’inyandiko z’amata, n’ibaruramari ry’ukwezi.',
-  applicationName: "Ihuriro ry'Amata | Milk System",
+  applicationName: "IHURIRO RY'AMATA | Milk System",
   manifest: '/manifest.webmanifest',
   icons: {
     icon: [
@@ -18,13 +18,13 @@ export const metadata: Metadata = {
     type: 'website',
     locale: 'rw_RW',
     siteName: 'Milk System',
-    title: "Ihuriro ry'Amata | Milk System",
+    title: "IHURIRO RY'AMATA | Milk System",
     description: 'Ihuriro ry’Amata (Ihuriroryamata), rizwi nka Milk System, rifasha abacunda n’ibigo by’ikusanyirizo gucunga aborozi, ikusanya n’inyandiko z’amata, n’ibaruramari ry’ukwezi.',
     images: [{ url: 'https://www.ihuriroryamata.com/brand-logo-512.png', width: 512, height: 512, alt: "IHURIRO RY'AMATA | Milk System" }],
   },
   twitter: {
     card: 'summary',
-    title: "Ihuriro ry'Amata | Milk System",
+    title: "IHURIRO RY'AMATA | Milk System",
     description: 'Ihuriro ry’Amata (Ihuriroryamata), rizwi nka Milk System, rifasha abacunda n’ibigo by’ikusanyirizo gucunga aborozi, ikusanya n’inyandiko z’amata, n’ibaruramari ry’ukwezi.',
     images: ['https://www.ihuriroryamata.com/brand-logo-512.png'],
   },

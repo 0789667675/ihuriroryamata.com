@@ -49,6 +49,7 @@ export type NotebookParsedPage = {
   columnTolerance: number;
   detectedColumns: NotebookDateColumn[];
   selectedColumn: NotebookDateColumn | null;
+  checksum?: { checksumLiters?: number | null; checksumGross?: number | null; checksumNet?: number | null; rawEntry?: any } | null;
 };
 
 export type NotebookEntriesResult = NotebookEntry[] & NotebookParsedPage;
@@ -90,6 +91,7 @@ export type NotebookMultiDayResult = NotebookMultiDayRow[] & {
   columns: NotebookDateColumn[];
   detectedColumns: NotebookDateColumn[];
   dateColumnFound: boolean;
+  checksum?: { checksumLiters?: number | null; checksumGross?: number | null; checksumNet?: number | null; rawRow?: any } | null;
 };
 
 export type NotebookMultiDayOptions = {
@@ -101,6 +103,17 @@ export type NotebookMultiDayOptions = {
 
 export function extractNotebookMultiDay(
   ocrResult: { words?: NotebookWord[] } | NotebookWord[],
+  options?: Partial<NotebookMultiDayOptions>,
+  referenceYearMonth?: string | { year: number; month: number } | null
+): NotebookMultiDayResult;
+
+export function stitchNotebookMultiDay(
+  leftResult: NotebookMultiDayResult,
+  rightResult: NotebookMultiDayResult
+): NotebookMultiDayResult;
+
+export function stitchNotebookPages(
+  pagesOcr: Array<{ words?: NotebookWord[] } | NotebookWord[]>,
   options?: Partial<NotebookMultiDayOptions>,
   referenceYearMonth?: string | { year: number; month: number } | null
 ): NotebookMultiDayResult;

@@ -49,7 +49,7 @@ const sanitizeQueryParam = (val: unknown): string => {
 type User = { id: number; name: string; email: string; role: string; accountType: string; language?: 'rw' | 'en'; emailVerified?: boolean };
 type AccountProfile = { id: number; name: string; email: string; phone: string | null; nationalId: string | null; accountNumber: string | null; profilePicture: string | null; role: string; accountType: string; accountStatus: string; emailVerified: boolean; language?: 'rw' | 'en' };
 type Farmer = { id: number; name: string; location: string | null; phone: string | null; nationalId: string | null; accountNumber: string | null; collectionCenter: string | null; cowType: string | null; collectorUserId?: number | null; farmerNumber?: number | null };
-type Center = { id: number; name: string; owner_user_id?: number; pricePerLiter: number; transportRatePerLiter: number; morning_start: string; morning_end: string; evening_start: string; evening_end: string };
+type Center = { id: number; name: string; owner_user_id?: number; pricePerLiter: number; transportRatePerLiter: number; morning_start: string; morning_end: string; evening_start: string; evening_end: string; tank_capacity_liters?: number | null; tankCapacityLiters?: number | null };
 type Page<T> = { data: T[]; nextCursor: string | null; hasMore: boolean; pageSize: number };
 type DailyRow = { farmerId: number; farmerName: string; farmerNumber?: number | null; phone?: string; nationalId?: string; collectionCenter?: string | null; collectorUserId?: number | null; collectorName?: string | null; recordId?: number; volumeMorning: number; volumeEvening: number; totalVolume: number; volumeLiters?: number; amount: number; status?: string; delivered?: boolean; deliveryStatus?: 'delivered' | 'missing'; abacundaCount?: number; presentCount?: number };
 type CollectorMilkEntry = { id: number; date: string; volumeLiters: number; pricePerLiter: number; status: string; effectiveVolumeLiters: number };
@@ -294,11 +294,13 @@ const collectorTabs: Array<{ id: Tab; label: string }> = [
 
 const dairyTabs: Array<{ id: Tab; label: string }> = [
   { id: 'dashboard', label: 'Dashboard' },
-  { id: 'farmers', label: 'Farmers' },
-  { id: 'centers', label: 'Centers' },
+  { id: 'centers', label: 'Abacunda' },
   { id: 'milk', label: 'Milk' },
-  { id: 'reports', label: 'Reports' },
   { id: 'ukwezi', label: 'Ukwezi' },
+  { id: 'settlements', label: 'Settlements' },
+  { id: 'reports', label: 'Reports' },
+  { id: 'billing', label: 'Billing' },
+  { id: 'notifications', label: 'Notifications' },
   { id: 'settings', label: 'Settings' },
 ];
 
@@ -943,6 +945,14 @@ const visibleTabs = (isAdmin
         ? 'navAdminOverview'
         : item.id === 'settings' && isAdmin
           ? 'navAdminSettings'
+        : isDairy && item.id === 'centers'
+          ? 'dairyCentersTab'
+        : isDairy && item.id === 'milk'
+          ? 'dairyDailyMilkTab'
+        : isDairy && item.id === 'ukwezi'
+          ? 'dairyUkweziTab'
+        : isDairy && item.id === 'settlements'
+          ? 'dairySettlementsTab'
         : item.id in navigationCopy
           ? navigationCopy[item.id as keyof typeof navigationCopy]
           : null;
@@ -2800,9 +2810,8 @@ const visibleTabs = (isAdmin
           {([
             ['name', publicLanguage.t('columnName')],
             ['phone', publicLanguage.t('columnPhone')],
-            ['nationalId', publicLanguage.t('accountNationalId')],
           ] as const).map(([field, label]) => {
-            const sortable = field === 'name' || field === 'nationalId';
+            const sortable = field === 'name';
             const active = sortable && farmerSortBy === field;
             const SortIcon = active ? farmerSortDirection === 'asc' ? ArrowUp : ArrowDown : ArrowUpDown;
             return <th key={field} aria-sort={active ? farmerSortDirection === 'asc' ? 'ascending' : 'descending' : 'none'}>
@@ -2812,7 +2821,13 @@ const visibleTabs = (isAdmin
               }}>{label}<SortIcon size={13} aria-hidden="true" /></button> : label}
             </th>;
           })}
-          <th>
+          <th style={{ width: '22%' }} aria-sort={farmerSortBy === 'nationalId' ? (farmerSortDirection === 'asc' ? 'ascending' : 'descending') : 'none'}>
+            <button type="button" className="farmer-sort-button" onClick={() => {
+              if (farmerSortBy === 'nationalId') setFarmerSortDirection((direction) => direction === 'asc' ? 'desc' : 'asc');
+              else { setFarmerSortBy('nationalId'); setFarmerSortDirection('asc'); }
+            }}>{publicLanguage.t('accountNationalId')}{farmerSortBy === 'nationalId' ? (farmerSortDirection === 'asc' ? <ArrowUp size={13} aria-hidden="true" /> : <ArrowDown size={13} aria-hidden="true" />) : <ArrowUpDown size={13} aria-hidden="true" />}</button>
+          </th>
+          <th style={{ width: '20%', textAlign: 'right' }}>
             <span className="sr-only">{publicLanguage.t('statusLabel')}</span>
             {publicLanguage.t('actions')}
           </th>
@@ -2902,8 +2917,8 @@ const visibleTabs = (isAdmin
                   <span>{farmer.phone || '—'}</span>
                 )}
               </td>
-              <td><span className="font-mono">{farmer.nationalId || '—'}</span></td>
-              <td className="actions-cell">
+              <td style={{ fontFamily: 'var(--font-mono)', whiteSpace: 'nowrap' }}><span className="font-mono">{farmer.nationalId || '—'}</span></td>
+              <td className="actions-cell" style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, whiteSpace: 'nowrap' }}>
                 <button type="button" className="text-button" onClick={() => openFarmerHistory(farmer)}>{publicLanguage.t('viewFarmerHistory')}</button>
                 <button type="button" className="text-button" onClick={() => editFarmerStart(farmer)}>{publicLanguage.t('edit')}</button>
                 <button type="button" className="text-button danger-text" onClick={() => deleteFarmer(farmer)}>{publicLanguage.t('delete')}</button>
@@ -3436,6 +3451,191 @@ const visibleTabs = (isAdmin
         <div className="form-actions"><button type="button" className="button button-secondary" onClick={() => setFarmerHistoryOpen(false)}>{publicLanguage.t('cancel')}</button><button type="button" className="button button-primary" disabled={!farmerId} onClick={() => { if (!farmerId) return; setFarmerHistoryOpen(false); openIfishiForFarmer(farmerId, farmerName, historyFarmer || undefined); }}><BookOpen size={16} aria-hidden="true" />{publicLanguage.t('navIfishi')}</button></div>
       </> : null}
     </div>;
+  };
+
+  const renderDairyMilk = () => {
+    const activeCenterName = centers.find((c) => String(c.id) === selectedCenter)?.name || centers[0]?.name || '—';
+
+    return (
+      <div className="screen-grid dairy-milk-view">
+        <section className="panel panel-wide">
+          <div className="panel-heading">
+            <div>
+              <span className="eyebrow">{activeCenterName}</span>
+              <h2>{publicLanguage.t('dairyDailyMilkTab')}</h2>
+            </div>
+            <div className="panel-heading-actions">
+              <span className="count-label">
+                {formatPublicCopy(publicLanguage.language, 'collectorsFound', 'Collectors found: {count}', { count: collectorAssignments.length })}
+              </span>
+              <button
+                type="button"
+                className="button button-secondary small-button"
+                onClick={() => setMilkImportOpen(true)}
+              >
+                <Upload size={15} aria-hidden="true" />
+                {getImportCopy(publicLanguage.language, 'openMilkScanner')}
+              </button>
+            </div>
+          </div>
+
+          <div className="toolbar milk-record-tools">
+            <div className="date-field">
+              <label htmlFor="dairy-milk-collection-date">{publicLanguage.t('milkCollectionDate')}</label>
+              <input
+                id="dairy-milk-collection-date"
+                type="date"
+                max={today()}
+                value={collectionDate}
+                onChange={(event) => setCollectionDate(event.target.value)}
+              />
+            </div>
+            <button
+              type="button"
+              className="button button-secondary small-button"
+              onClick={() => setCollectionDate(today())}
+            >
+              {publicLanguage.t('dashboardToday')}
+            </button>
+            {centers.length > 1 ? (
+              <label>
+                {publicLanguage.t('activeIkigo')}
+                <select value={selectedCenter} onChange={(event) => setSelectedCenter(event.target.value)}>
+                  {centers.map((c) => <option key={c.id} value={String(c.id)}>{c.name}</option>)}
+                </select>
+              </label>
+            ) : null}
+          </div>
+
+          <div className="milk-summary">
+            <div>
+              <span>{publicLanguage.t('dashboardToday')}</span>
+              <b>{liters(dailySummary.totalVolume)} L</b>
+            </div>
+            <div>
+              <span>{publicLanguage.t('dashboardMorning')}</span>
+              <b>{liters(dailySummary.totalMorning)} L</b>
+            </div>
+            <div>
+              <span>{publicLanguage.t('dashboardEvening')}</span>
+              <b>{liters(dailySummary.totalEvening)} L</b>
+            </div>
+            <div>
+              <span>{publicLanguage.t('navAbacunda')}</span>
+              <b>{collectorAssignments.length}</b>
+            </div>
+          </div>
+
+          {collectorAssignmentsLoading ? (
+            <div className="workspace-empty workspace-loading" role="status">
+              <span className="loading-indicator" />
+              {publicLanguage.t('loadingAssignedAbacunda')}
+            </div>
+          ) : !collectorAssignments.length ? (
+            <div className="workspace-empty">
+              <b>{publicLanguage.t('milkNoAssignedAbacundaTitle')}</b>
+              <p>{publicLanguage.t('milkNoAssignedAbacundaBody')}</p>
+              <button type="button" className="button button-primary" onClick={() => setTab('centers')}>
+                <Plus size={15} aria-hidden="true" />
+                {publicLanguage.t('abacundaAdd')}
+              </button>
+            </div>
+          ) : (
+            <>
+              <div className="table-scroll collectors-executive-table">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>#</th>
+                      <th>{publicLanguage.t('columnName')}</th>
+                      <th>{publicLanguage.t('columnPhone')}</th>
+                      <th>{publicLanguage.language === 'en' ? 'Work ID' : 'Nimero y’Akazi'}</th>
+                      <th>{publicLanguage.t('navFarmers')}</th>
+                      <th>{publicLanguage.t('reportsVolume')}</th>
+                      <th style={{ textAlign: 'right' }}>{publicLanguage.t('actions')}</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {collectorAssignments.map((assignment, index) => {
+                      const matchedVolume = (report?.collectorSettlementRows || ukweziReport?.collectorSettlementRows || [])
+                        .find((r: any) => Number(r.collectorUserId) === Number(assignment.collector_user_id))?.totalVolume;
+                      return (
+                        <tr key={assignment.collector_user_id}>
+                          <td><span className="font-mono text-muted">{index + 1}</span></td>
+                          <td className="strong-cell">
+                            <b>{assignment.collector_name}</b>
+                            {assignment.collector_account_number ? (
+                              <small className="farmer-row-detail font-mono">Acc: {assignment.collector_account_number}</small>
+                            ) : null}
+                          </td>
+                          <td>{assignment.collector_phone || '—'}</td>
+                          <td>
+                            <span className="collector-work-id-badge font-mono">
+                              ID #{assignment.collector_user_id}
+                            </span>
+                          </td>
+                          <td>
+                            <span className="badge badge-neutral">
+                              {assignment.abacunda_count} {publicLanguage.t('navFarmers').toLowerCase()}
+                            </span>
+                          </td>
+                          <td>
+                            <b>{matchedVolume != null ? `${liters(matchedVolume)} L` : '—'}</b>
+                          </td>
+                          <td className="actions-cell" style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, whiteSpace: 'nowrap' }}>
+                            <button
+                              type="button"
+                              className="button button-secondary small-button"
+                              onClick={() => openAbacundaIfishi(assignment)}
+                            >
+                              <BookOpen size={14} aria-hidden="true" />
+                              {publicLanguage.language === 'en' ? 'View Roster' : 'Reba Ifishi'}
+                            </button>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+              <div className="abacunda-mobile-list">
+                {collectorAssignments.map((assignment) => {
+                  const matchedVolume = (report?.collectorSettlementRows || ukweziReport?.collectorSettlementRows || [])
+                    .find((r: any) => Number(r.collectorUserId) === Number(assignment.collector_user_id))?.totalVolume;
+                  return (
+                    <article className="milk-entry-card" key={`mobile-col-${assignment.collector_user_id}`}>
+                      <header>
+                        <div className="milk-card-identity">
+                          <b>{assignment.collector_name}</b>
+                          <small className="font-mono">ID #{assignment.collector_user_id} {assignment.collector_phone ? `· ${assignment.collector_phone}` : ''}</small>
+                        </div>
+                        <span className="badge badge-neutral">
+                          {assignment.abacunda_count} {publicLanguage.t('navFarmers').toLowerCase()}
+                        </span>
+                      </header>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 8 }}>
+                        <span>{publicLanguage.t('reportsVolume')}:</span>
+                        <b>{matchedVolume != null ? `${liters(matchedVolume)} L` : '—'}</b>
+                      </div>
+                      <footer style={{ marginTop: 10, display: 'flex', justifyContent: 'flex-end' }}>
+                        <button
+                          type="button"
+                          className="button button-secondary small-button"
+                          onClick={() => openAbacundaIfishi(assignment)}
+                        >
+                          <BookOpen size={14} aria-hidden="true" />
+                          {publicLanguage.language === 'en' ? 'View Roster' : 'Reba Ifishi'}
+                        </button>
+                      </footer>
+                    </article>
+                  );
+                })}
+              </div>
+            </>
+          )}
+        </section>
+      </div>
+    );
   };
 
   const renderMilk = () => {
@@ -4125,65 +4325,85 @@ const visibleTabs = (isAdmin
           </span>
         </div>
       </div>
-      {isDairy ? (
-        <section className="dashboard-tank-cooler-gauge">
-          <div className="tank-cooler-header">
-            <h3><Gauge size={20} style={{ color: '#1681ab' }} aria-hidden="true" />{publicLanguage.language === 'en' ? 'Milk Cooler Tank Monitor (Tank #1)' : 'Igenzura ry’Icyuma Gikonjesha Amata'}</h3>
-            <span className="tank-cooler-badge"><Activity size={14} aria-hidden="true" />{publicLanguage.language === 'en' ? 'Chilling & Active · 3.8°C' : 'Gikonjesha · 3.8°C'}</span>
-          </div>
-          <div className="tank-cooler-grid">
-            <div className="tank-gauge-visual">
-              <svg width="130" height="130" viewBox="0 0 130 130">
-                <circle cx="65" cy="65" r="52" fill="none" stroke="#e6f4f9" strokeWidth="12" />
-                <circle
-                  className="tank-gauge-circle"
-                  cx="65"
-                  cy="65"
-                  r="52"
-                  fill="none"
-                  stroke="#1681ab"
-                  strokeWidth="12"
-                  strokeDasharray="326.7"
-                  strokeDashoffset={String(326.7 * (1 - Math.min(1, Math.max(0.1, (dailySummary.totalVolume > 0 ? dailySummary.totalVolume : 3123) / 5000))))}
-                  strokeLinecap="round"
-                />
-              </svg>
-              <div className="tank-gauge-center-text">
-                <span className="tank-gauge-percentage">{Math.min(100, Math.round(((dailySummary.totalVolume > 0 ? dailySummary.totalVolume : 3123) / 5000) * 100))}%</span>
-                <span className="tank-gauge-label">{publicLanguage.language === 'en' ? 'Tank Fill' : 'Yuzuye'}</span>
+      {isDairy ? (() => {
+        const activeCenter = centers.find((c) => String(c.id) === selectedCenter) || centers[0];
+        const tankCapacity = activeCenter?.tank_capacity_liters ?? (activeCenter as any)?.tankCapacityLiters ?? null;
+        const todayIntake = Number(dailySummary.totalVolume || 0);
+        const recordedDispatches = dashboardOwnerMilk.status === 'available' ? Number(dashboardOwnerMilk.validVolumeLiters || 0) : 0;
+        const chillingVolume = Math.max(0, todayIntake - recordedDispatches);
+        const hasConfiguredCapacity = Number(tankCapacity) > 0;
+        const fillFraction = hasConfiguredCapacity ? Math.min(1, Math.max(0, chillingVolume / Number(tankCapacity))) : null;
+        const fillPercentage = hasConfiguredCapacity ? Math.min(100, Math.round((fillFraction ?? 0) * 100)) : null;
+
+        return (
+          <section className="dashboard-tank-cooler-gauge">
+            <div className="tank-cooler-header">
+              <h3><Gauge size={20} style={{ color: '#1681ab' }} aria-hidden="true" />{publicLanguage.language === 'en' ? 'Milk Cooler Tank Monitor (Tank #1)' : 'Igenzura ry’Icyuma Gikonjesha Amata'}</h3>
+              <span className="tank-cooler-badge"><Activity size={14} aria-hidden="true" />{publicLanguage.language === 'en' ? 'Tank Active' : 'Icyuma kirakora'}</span>
+            </div>
+            <div className="tank-cooler-grid">
+              <div className="tank-gauge-visual">
+                <svg width="130" height="130" viewBox="0 0 130 130">
+                  <circle cx="65" cy="65" r="52" fill="none" stroke="#e6f4f9" strokeWidth="12" />
+                  <circle
+                    className="tank-gauge-circle"
+                    cx="65"
+                    cy="65"
+                    r="52"
+                    fill="none"
+                    stroke="#1681ab"
+                    strokeWidth="12"
+                    strokeDasharray="326.7"
+                    strokeDashoffset={hasConfiguredCapacity ? String(326.7 * (1 - (fillFraction ?? 0))) : '0'}
+                    strokeLinecap="round"
+                  />
+                </svg>
+                <div className="tank-gauge-center-text">
+                  {hasConfiguredCapacity ? (
+                    <>
+                      <span className="tank-gauge-percentage">{fillPercentage}%</span>
+                      <span className="tank-gauge-label">{publicLanguage.language === 'en' ? 'Tank Fill' : 'Yuzuye'}</span>
+                    </>
+                  ) : (
+                    <>
+                      <span className="tank-gauge-percentage" style={{ fontSize: '1.25rem' }}>{liters(chillingVolume)}</span>
+                      <span className="tank-gauge-label">L</span>
+                    </>
+                  )}
+                </div>
+              </div>
+              <div className="tank-metrics-detail">
+                <div className="tank-metric-card">
+                  <span>{publicLanguage.language === 'en' ? 'Chilling Volume' : 'Amata ari mu Cyuma'}</span>
+                  <b>{liters(chillingVolume)} L</b>
+                </div>
+                <div className="tank-metric-card">
+                  <span>{publicLanguage.language === 'en' ? 'Total Capacity' : 'Ubushobozi Bwose'}</span>
+                  <b>{hasConfiguredCapacity ? `${liters(Number(tankCapacity))} L` : (publicLanguage.language === 'en' ? 'Not configured' : 'Ntibiteganyijwe')}</b>
+                </div>
+                <div className="tank-metric-card">
+                  <span>{publicLanguage.language === 'en' ? 'Today Intake' : 'Yakirwe Uyu Munsi'}</span>
+                  <b>{liters(todayIntake)} L</b>
+                </div>
+                <div className="tank-metric-card">
+                  <span>{publicLanguage.language === 'en' ? 'Owner Ledger' : "Ifishi ya Nyir'ikigo"}</span>
+                  <button
+                    type="button"
+                    className="text-button"
+                    style={{ color: '#1681ab', fontWeight: 600, fontSize: '0.85rem' }}
+                    onClick={() => setOwnerIfishiOpen(true)}
+                  >
+                    {publicLanguage.language === 'en' ? 'Record Dispatch / Loss →' : 'Yandike Amata Yasohotse →'}
+                  </button>
+                </div>
               </div>
             </div>
-            <div className="tank-metrics-detail">
-              <div className="tank-metric-card">
-                <span>{publicLanguage.language === 'en' ? 'Chilling Volume' : 'Amata ari mu Cyuma'}</span>
-                <b>{liters(dailySummary.totalVolume > 0 ? dailySummary.totalVolume : 3123)} L</b>
-              </div>
-              <div className="tank-metric-card">
-                <span>{publicLanguage.language === 'en' ? 'Total Capacity' : 'Ubushobozi Bwose'}</span>
-                <b>5,000 L</b>
-              </div>
-              <div className="tank-metric-card">
-                <span>{publicLanguage.language === 'en' ? 'Today Intake' : 'Yakirwe Uyu Munsi'}</span>
-                <b>{liters(dailySummary.totalVolume)} L</b>
-              </div>
-              <div className="tank-metric-card">
-                <span>{publicLanguage.language === 'en' ? 'Owner Ledger' : "Ifishi ya Nyir'ikigo"}</span>
-                <button
-                  type="button"
-                  className="text-button"
-                  style={{ color: '#1681ab', fontWeight: 600, fontSize: '0.85rem' }}
-                  onClick={() => setOwnerIfishiOpen(true)}
-                >
-                  {publicLanguage.language === 'en' ? 'Record Dispatch / Loss →' : 'Yandike Amata Yasohotse →'}
-                </button>
-              </div>
-            </div>
-          </div>
-        </section>
-      ) : null}
+          </section>
+        );
+      })() : null}
       <section className="dashboard-overview">
         <div className="dashboard-today" onClick={() => setTab('milk')} style={{ cursor: 'pointer' }} title="Kanda hano urebe amata">
-          <div className="dashboard-today-heading"><div><span className="eyebrow">{publicLanguage.t('dashboardToday')}</span><h2>{dateLabel}</h2></div><CalendarDays size={20} aria-hidden="true" /></div>
+          <div className="dashboard-today-heading"><div><span className="eyebrow">{publicLanguage.t('dashboardToday')}</span><h2>{publicLanguage.t('navMilk')}</h2></div><Milk size={20} aria-hidden="true" /></div>
           <div className="dashboard-volume"><strong>{dashboardLoading ? <span className="skeleton-shimmer skeleton-metric-number" aria-hidden="true" /> : <AnimatedCounter value={dailySummary.totalVolume} formatter={liters} className="tabular-nums" />}</strong><span>L</span></div>
           <div className="dashboard-split"><div><span>{publicLanguage.t('dashboardMorning')}</span><b>{dashboardLoading ? <span className="skeleton-shimmer" style={{ width: 64, height: 18 }} aria-hidden="true" /> : <><AnimatedCounter value={dailySummary.totalMorning} formatter={liters} className="tabular-nums" /> L</>}</b></div><div><span>{publicLanguage.t('dashboardEvening')}</span><b>{dashboardLoading ? <span className="skeleton-shimmer" style={{ width: 64, height: 18 }} aria-hidden="true" /> : <><AnimatedCounter value={dailySummary.totalEvening} formatter={liters} className="tabular-nums" /> L</>}</b></div></div>
           {isCollector ? <div className="dashboard-milk-reconciliation">
@@ -6257,11 +6477,11 @@ const visibleTabs = (isAdmin
             {tab === 'dashboard' && !isAdmin ? renderDashboard() : null}
             {tab === 'farmers' && !isAdmin ? renderFarmers() : null}
             {tab === 'centers' && !isAdmin ? renderCenters() : null}
-            {tab === 'milk' && !isAdmin ? renderMilk() : null}
+            {tab === 'milk' && isDairy ? renderDairyMilk() : tab === 'milk' && !isAdmin ? renderMilk() : null}
             {tab === 'deductions' && !isAdmin ? renderDeductions() : null}
             {tab === 'transport' && !isAdmin && isCollector ? renderTransport() : null}
             {tab === 'ukwezi' && !isAdmin ? renderUkwezi() : null}
-            {tab === 'settlements' && isCollector ? renderSettlements() : null}
+            {tab === 'settlements' && (isCollector || isDairy) ? renderSettlements() : null}
             {tab === 'reports' && !isAdmin ? renderReports() : null}
             {tab === 'billing' && !isAdmin ? renderBilling() : null}
             {tab === 'notifications' && !isAdmin ? <>{renderNotificationFilters()}{renderNotifications()}</> : null}

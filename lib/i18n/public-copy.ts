@@ -126,6 +126,10 @@ export const publicCopy = {
     navTransport: 'Ubwikorezi',
     navUkwezi: 'Ukwezi',
     navAbacunda: 'Abacunda',
+    dairyCentersTab: 'Abacunda',
+    dairyDailyMilkTab: "Amata y'Abacunda",
+    dairyUkweziTab: "Ifishi y'Abacunda",
+    dairySettlementsTab: "Ubwishyu bw'Abacunda",
 
     collectorUkweziHeading: 'Ibaruramari ry’umucunda',
     dairyUkweziHeading: 'Ibaruramari ry’uku kwezi',
@@ -1081,6 +1085,10 @@ export const publicCopy = {
     navTransport: 'Transport',
     navUkwezi: 'Ukwezi',
     navAbacunda: 'Collectors',
+    dairyCentersTab: 'Collectors',
+    dairyDailyMilkTab: "Collectors' Milk",
+    dairyUkweziTab: "Collectors' Ledger",
+    dairySettlementsTab: "Collectors' Settlements",
 
     collectorUkweziHeading: 'Collector settlement',
     dairyUkweziHeading: "This month's accounting",
