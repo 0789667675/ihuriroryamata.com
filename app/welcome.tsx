@@ -90,7 +90,7 @@ export default function WelcomePage({ copyrightYear }: { copyrightYear: number }
 
           <div className="welcome-hero-actions">
             <Link
-              className={`button button-primary welcome-main-cta${pendingHref === '/register' ? ' is-navigating' : ''}`}
+              className={`button button-primary welcome-main-cta${pendingHref === '/register' ? ' is-navigating' : ''}`} style={{ width: '100%', height: '48px', borderRadius: '12px', fontSize: '16px', fontWeight: 600 }}
               href="/register"
               aria-busy={pendingHref === '/register'}
               onClick={() => setPendingHref('/register')}
@@ -99,7 +99,7 @@ export default function WelcomePage({ copyrightYear }: { copyrightYear: number }
               <ArrowRight size={17} />
             </Link>
             <Link
-              className={`button button-secondary welcome-secondary-cta${pendingHref === '/login' ? ' is-navigating' : ''}`}
+              className={`button button-secondary welcome-secondary-cta${pendingHref === '/login' ? ' is-navigating' : ''}`} style={{ width: '100%', height: '48px', borderRadius: '12px', fontSize: '16px', fontWeight: 600 }}
               href="/login"
               aria-busy={pendingHref === '/login'}
               onClick={() => setPendingHref('/login')}
@@ -109,15 +109,7 @@ export default function WelcomePage({ copyrightYear }: { copyrightYear: number }
           </div>
 
           {/* Cow illustration on Mobile (Hidden on mobile via CSS so buttons connect directly to metrics) */}
-          <div className="welcome-mobile-cow-badge welcome-hero-illustration hero-visual" aria-hidden="true" style={{ display: 'none' }}>
-            <Image
-              src="/brand-logo.png"
-              width={140}
-              height={140}
-              alt=""
-              className="welcome-mobile-cow-img"
-            />
-          </div>
+
 
           {/* Compact Proof Metrics Strip */}
           <div className="welcome-hero-metrics metrics-strip welcome-metrics">
