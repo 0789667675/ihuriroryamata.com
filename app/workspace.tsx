@@ -5377,7 +5377,7 @@ const visibleTabs = (isAdmin
                 </div>
 
                 {/* Warning box eliminated */}
-                {false && needsReview ? (
+                {needsReview ? (
                   <div className="reports-callout compact-info-banner" role="status">
                     <Settings size={18} aria-hidden="true" style={{ flexShrink: 0 }} />
                     <div style={{ flex: 1, display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
@@ -5417,7 +5417,7 @@ const visibleTabs = (isAdmin
                     <div className="reports-section-heading">
                       <div>
                         <span className="eyebrow">{publicLanguage.t('dashboardSummary')}</span>
-                        <h3>{publicLanguage.language === 'en' ? 'System Accounting & Milk Summary' : "Incamake y'Ibaruramari n'Amata ya Sisitemu"}</h3>
+                        <h3>{publicLanguage.language === 'en' ? 'Accounting & Milk Summary' : "Incamake y'Ibaruramari n'Amata"}</h3>
                       </div>
                       <span className="count-label">{publicLanguage.t('reportsStatusComplete')}</span>
                     </div>
