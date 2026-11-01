@@ -5176,3 +5176,57 @@ input[type="submit"] {
   color: var(--muted);
   text-align: center;
 }
+
+.matrix-header-row-primary th, .matrix-header-row-secondary th {
+  position: sticky;
+  z-index: 30;
+  background: #f1f5f9 !important;
+  color: #0b5d7e !important;
+}
+.matrix-col-header-farmer {
+  position: sticky;
+  top: 0;
+  left: 0;
+  z-index: 40 !important;
+  background: #e2e8f0 !important;
+  color: #0b5d7e !important;
+  width: 110px !important;
+  min-width: 110px !important;
+  max-width: 110px !important;
+}
+.matrix-farmer-cell {
+  position: sticky;
+  left: 0;
+  z-index: 20;
+  background: #ffffff;
+  width: 110px !important;
+  min-width: 110px !important;
+  max-width: 110px !important;
+}
+.matrix-farmer-info {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+}
+.matrix-farmer-name {
+  white-space: normal;
+  line-height: 1.2;
+  font-size: 0.8rem;
+}
+.matrix-cell-input {
+  min-height: 44px;
+  min-width: 44px;
+}
+.matrix-bottom-summary-bar {
+  position: sticky;
+  bottom: 0;
+  z-index: 35;
+}
+.matrix-save-action {
+  width: 100%;
+}
+.matrix-save-all-button {
+  width: 100%;
+  justify-content: center;
+}

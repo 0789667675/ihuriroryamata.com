@@ -439,27 +439,29 @@ export function DigitalNotebookMatrix({
         </div>
 
         {/* Search and Action Bar */}
-        <div className="matrix-actions-bar">
-          <div className="matrix-search-box">
-            <Search size={16} className="matrix-search-icon" aria-hidden="true" />
-            <input
-              type="text"
-              placeholder={language === 'rw' ? 'Shakisha umworozi cyangwa #001...' : 'Search farmer or #001...'}
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              className="matrix-search-input"
-            />
-            {searchQuery && (
-              <button
-                type="button"
-                className="matrix-clear-button"
-                onClick={() => setSearchQuery('')}
-                aria-label="Siba ishakisha"
-              >
-                <X size={14} />
-              </button>
-            )}
-          </div>
+
+      <div className="matrix-search-box" style={{ width: '100%', marginBottom: 12 }}>
+        <Search size={16} className="matrix-search-icon" aria-hidden="true" />
+        <input
+          type="text"
+          placeholder={language === 'rw' ? 'Shakisha umworozi cyangwa #001...' : 'Search farmer or #001...'}
+          value={searchQuery}
+          onChange={(e) => setSearchQuery(e.target.value)}
+          className="matrix-search-input"
+          style={{ width: '100%' }}
+        />
+        {searchQuery && (
+          <button
+            type="button"
+            className="matrix-clear-button"
+            onClick={() => setSearchQuery('')}
+            aria-label="Siba ishakisha"
+          >
+            <X size={14} />
+          </button>
+        )}
+      </div><div className="matrix-actions-bar" style={{ display: 'none' }}>
+
 
           <button
             type="button"
@@ -596,11 +598,11 @@ export function DigitalNotebookMatrix({
                       {/* Sticky Left Column: #001 monospace + Farmer Name */}
                       <td className="matrix-sticky-col matrix-farmer-cell">
                         <div className="matrix-farmer-info">
-                          <span className="matrix-farmer-code font-mono">{codeLabel}</span>
-                          <span className="matrix-farmer-name" title={farmer.farmerName}>
-                            {farmer.farmerName}
-                          </span>
-                        </div>
+      <span className="matrix-farmer-code font-mono" style={{ fontSize: '0.75rem', padding: '2px 4px' }}>{codeLabel}</span>
+      <span className="matrix-farmer-name" title={farmer.farmerName} style={{ display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>
+        {farmer.farmerName}
+      </span>
+  </div>
                       </td>
 
                       {/* 15 Daily Columns: Morning + Evening Inputs */}
@@ -714,7 +716,7 @@ export function DigitalNotebookMatrix({
             ) : (
               <>
                 <Save size={18} aria-hidden="true" />
-                <span>{language === 'rw' ? 'Bika Byose Rimwe (Iminsi 15)' : 'Save All 15 Days'}</span>
+                <span>{language === 'rw' ? 'Bika Byose Rimwe (Save All 15 Days)' : 'Save All 15 Days'}</span>
               </>
             )}
           </button>
