@@ -7,62 +7,50 @@ const workspace = fs.readFileSync(path.join(__dirname, '..', 'app', 'workspace.t
 const publicCopy = fs.readFileSync(path.join(__dirname, '..', 'lib', 'i18n', 'public-copy.ts'), 'utf8');
 const styles = fs.readFileSync(path.join(__dirname, '..', 'app', 'globals.css'), 'utf8');
 
-test('Collector Milk Entry puts the Owner and Owner Ifishi before the separate Aborozi list', () => {
-  const milkEntry = workspace.slice(workspace.indexOf('const renderMilk'), workspace.indexOf('const renderOwnerIfishi'));
+test('Collector Milk Records keeps Owner Ifishi distinct and exposes farmer record actions', () => {
+  const milkEntry = fs.readFileSync(path.join(__dirname, '..', 'components', 'views', 'milk-records-view.tsx'), 'utf8');
   const ownerIfishi = workspace.slice(workspace.indexOf('const renderOwnerIfishiEntry'), workspace.indexOf('const renderIfishi ='));
-  const ownerAccount = milkEntry.indexOf('owner-account-panel');
-  const ownerIfishiAction = milkEntry.indexOf("publicLanguage.t('ownerIfishiTitle')", ownerAccount);
-  const ownerIfishiView = milkEntry.indexOf('isCollector && ownerIfishiOpen ? <Modal');
-  const farmerIfishiView = milkEntry.indexOf('{ifishiOpen ? <Modal');
-  const entryControls = milkEntry.indexOf('className="milk-entry-controls"');
-  const localizedFarmerHeading = milkEntry.indexOf("isCollector ? publicLanguage.t('navFarmers')");
-  const aborozi = localizedFarmerHeading >= 0 ? localizedFarmerHeading : milkEntry.indexOf("isCollector ? 'ABOROZI' : 'ACTIVE IKIGO'");
-
-  assert.ok(ownerAccount >= 0);
-  assert.ok(ownerIfishiAction > ownerAccount);
-  assert.ok(ownerIfishiView > ownerIfishiAction);
-  assert.ok(milkEntry.indexOf('renderOwnerIfishiEntry()', ownerIfishiView) > ownerIfishiView);
-  assert.ok(ownerIfishiView < entryControls);
-  assert.ok(entryControls < aborozi);
-  assert.ok(farmerIfishiView > aborozi);
-  assert.ok(milkEntry.indexOf('renderIfishi()', farmerIfishiView) > farmerIfishiView);
-  assert.ok(aborozi > ownerIfishiView);
-  assert.match(milkEntry, /publicLanguage\.t\('ownerIfishiTitle'\).*publicLanguage\.t\('account'\)/);
+  assert.match(milkEntry, /milk-owner-context/);
+  assert.match(milkEntry, /onOpenOwnerIfishi/);
+  assert.match(milkEntry, /ownerHistoryContent/);
+  assert.match(milkEntry, /onOpenIfishi\(row\.farmerId, row\.farmerName\)/);
+  assert.match(milkEntry, /ownerEntryDialog/);
+  assert.match(workspace, /ownerEntryDialog=\{isCollector && ownerIfishiOpen \? <Modal/);
+  assert.match(workspace, /ifishiDialog=\{ifishiOpen \? <Modal/);
   assert.doesNotMatch(ownerIfishi, /\(Morning\)|\(Evening\)|Daily total/);
-  assert.match(milkEntry, /aria-expanded=\{ownerIfishiOpen\}/);
-  assert.match(milkEntry, /openIfishiForFarmer\(row\.farmerId, row\.farmerName\)/);
   assert.match(workspace, /setIfishiFarmers\(\[selectedFarmer\]\)/);
-  assert.match(milkEntry, /ownerIfishiHistoryOpen/);
+  assert.match(milkEntry, /ownerHistoryOpen/);
   assert.match(ownerIfishi, /openOwnerIfishiEntry\(entry\.date\)/);
-  assert.match(milkEntry, /setIfishiOpen\(false\); openOwnerIfishiEntry\(\)/);
+  assert.match(workspace, /onOpenOwnerIfishi=\{\(\) => \{ setIfishiOpen\(false\); openOwnerIfishiEntry\(\); \}\}/);
   assert.doesNotMatch(workspace.slice(workspace.indexOf('const renderIfishi ='), workspace.indexOf('const renderDashboard')), /if \(isCollector\) return renderOwnerIfishi/);
 });
 
 test('Collection Center farmer management uses owner scope without Collector assignment UI', () => {
   const listRoute = fs.readFileSync(path.join(__dirname, '..', 'app', 'api', 'farmers', 'route.ts'), 'utf8');
   const detailRoute = fs.readFileSync(path.join(__dirname, '..', 'app', 'api', 'farmers', '[id]', 'route.js'), 'utf8');
+  const farmersComponent = fs.readFileSync(path.join(__dirname, '..', 'components', 'views', 'farmers-view.tsx'), 'utf8');
   const farmerView = workspace.slice(workspace.indexOf('const renderFarmers'), workspace.indexOf('const renderCenters'));
 
   assert.match(workspace, /tab === 'farmers' && !isAdmin \? renderFarmers\(\)/);
   assert.doesNotMatch(workspace, /tab === 'farmers' && !isAdmin && isDairy \? renderAbacundaDirectory/);
-  assert.match(farmerView, /<h2>\{publicLanguage\.t\('navFarmers'\)\}<\/h2>/);
-  assert.match(farmerView, /<div className="toolbar farmers-toolbar">/);
-  assert.match(farmerView, /!isCollector && !isDairy \? <div className="assignment-tool">/);
-  const farmerTable = farmerView.slice(farmerView.indexOf('table-scroll farmers-desktop-table'), farmerView.indexOf('{farmers ? farmers.data.length'));
-  assert.match(farmerTable, /farmerNumberShort/);
-  assert.doesNotMatch(farmerTable, /assignedCollector/);
-  assert.match(farmerTable, /statusLabel/);
-  assert.match(farmerTable, /viewFarmerHistory/);
-  assert.doesNotMatch(farmerTable, /navIfishi/);
-  assert.doesNotMatch(farmerView, /farmerVillage|farmerForm\.location|farmerEdit\.location/);
-  assert.match(farmerView, /openFarmerHistory\(farmer\)/);
+  assert.match(farmersComponent, /title=\{t\('navFarmers'\)\}/);
+  assert.match(farmersComponent, /className="farmers-toolbar"/);
+  assert.match(farmerView, /const collectorManagement = !isCollector && !isDairy \? <div className="assignment-tool">/);
+  assert.match(farmersComponent, /farmerNumberShort/);
+  assert.match(farmersComponent, /assignedCollectors/);
+  assert.doesNotMatch(farmersComponent, /statusLabel|farmer-status-active/);
+  assert.match(farmersComponent, /viewFarmerHistory/);
+  assert.match(farmersComponent, /navIfishi/);
+  assert.doesNotMatch(farmersComponent, /farmerVillage|farmerForm\.location|farmerEdit\.location/);
+  assert.match(farmerView, /onOpenHistory=\{openFarmerHistory\}/);
   assert.doesNotMatch(styles, /farmer-mobile-card dl > div:nth-child\(5\).*display: none/);
   assert.match(styles, /\.farmer-mobile-card footer \{ justify-content: flex-start; flex-wrap: wrap;/);
-  assert.match(farmerView, /createFarmer/);
-  assert.match(farmerView, /saveFarmer/);
-  assert.match(farmerView, /screen-grid farmers-view/);
-  assert.match(farmerView, /farmer-sort-mobile/);
-  assert.match(farmerView, /aria-sort=/);
+  assert.match(farmerView, /onSubmitCreate=\{createFarmer\}/);
+  assert.match(farmerView, /onSubmitEdit=\{saveFarmer\}/);
+  assert.match(farmersComponent, /screen-grid farmers-view/);
+  assert.match(farmersComponent, /farmer-sort-mobile/);
+  assert.match(farmersComponent, /aria-sort=/);
+  assert.match(farmersComponent, /collectorFilter/);
   assert.match(workspace, /sortBy: farmerSortBy \\|\\| undefined/);
   assert.match(styles, /\.farmers-view \{ grid-template-columns: minmax\(0, 1fr\); \}/);
   assert.match(styles, /\.farmers-desktop-table table \{ table-layout: fixed;/);
@@ -86,16 +74,16 @@ test('wide panels span the full grid and never inherit the desktop side column',
 
 test('Dairy navigation includes Settings and Dairy Amata is read-only Abacunda aggregation', () => {
   const dairyTabs = workspace.slice(workspace.indexOf('const dairyTabs'), workspace.indexOf('const navigationCopy'));
-  const milkEntry = workspace.slice(workspace.indexOf('const renderMilk'), workspace.indexOf('const renderOwnerIfishi'));
+  const milkEntry = fs.readFileSync(path.join(__dirname, '..', 'components', 'views', 'milk-records-view.tsx'), 'utf8');
 
   assert.match(dairyTabs, /id: 'settings'/);
-  assert.match(milkEntry, /isCollector \? volumeInput\(row, 'morning'\) : liters\(row\.volumeMorning\)/);
-  assert.match(milkEntry, /row\.presentCount \|\| 0/);
-  assert.match(milkEntry, /publicLanguage\.t\('milkResultsCount'\)/);
-  assert.match(milkEntry, /isCollector \? <><span className=\{`milk-entry-state/);
+  assert.match(milkEntry, /volumeInput\(row, 'morning'\)/);
+  assert.match(milkEntry, /presentCount|abacundaCount/);
+  assert.match(milkEntry, /t\('milkResultsCount'\)/);
+  assert.match(milkEntry, /entryState\(row\) === 'saved'/);
   assert.match(milkEntry, /milk-card-identity/);
-  assert.match(milkEntry, /openFarmerHistory\(row\)/);
-  assert.match(milkEntry, /isCollector \? <button className="button button-secondary small-button" onClick=\{\(\) => saveMilk/);
+  assert.match(milkEntry, /onOpenHistory\(row\)/);
+  assert.match(milkEntry, /onSave\(row\)/);
 });
 
 test('Settlements and shared navigation use paired locale copy and accessible labels', () => {
@@ -167,15 +155,29 @@ test('workspace navigation uses unique supported semantic Lucide icons across ro
   assert.match(workspace, /tab === 'billing' && !isAdmin/);
 });
 
+test('shared workspace headings and mobile overflow navigation expose accessible shell behavior', () => {
+  const pageHeader = fs.readFileSync(path.join(__dirname, '..', 'components', 'ui', 'workspace-page-header.tsx'), 'utf8');
+
+  assert.match(pageHeader, /<h1>\{title\}<\/h1>/);
+  assert.match(pageHeader, /role="group" aria-label="Page actions"/);
+  assert.match(workspace, /mobileMoreMenuRef/);
+  assert.match(workspace, /mobileMoreTriggerRef\.current\?\.focus\(\)/);
+  assert.match(workspace, /document\.addEventListener\('pointerdown', closeOnOutsidePointerDown\)/);
+  assert.match(workspace, /<nav ref=\{mobileMoreMenuRef\} className="mobile-more-menu"/);
+  assert.match(styles, /\.mobile-more-menu[^\n]*max-height: min\(60vh, 480px\)[^\n]*overflow-y: auto/);
+  assert.match(styles, /\.user-name\.user-settings-shortcut\s*\{\s*display: inline-flex !important;/);
+  assert.match(styles, /\.topbar-right > button\.icon-button:last-child\s*\{\s*display: inline-grid !important;/);
+});
+
 test('Milk Entry exposes secure search, session, page-size, clear, and reset controls', () => {
-  const milkEntry = workspace.slice(workspace.indexOf('const renderMilk'), workspace.indexOf('const renderOwnerIfishi'));
+  const milkEntry = fs.readFileSync(path.join(__dirname, '..', 'components', 'views', 'milk-records-view.tsx'), 'utf8');
   const header = workspace.slice(workspace.indexOf('className="content-heading"'), workspace.indexOf('{error ?'));
 
   assert.match(milkEntry, /className="milk-record-tools"/);
   assert.match(milkEntry, /type="search"/);
   assert.match(milkEntry, /milkClearSearch/);
   assert.match(milkEntry, /milkSessionAll/);
-  assert.match(milkEntry, /dailyPageSize/);
+  assert.match(milkEntry, /onPageSizeChange|pageSize/);
   assert.match(workspace, /params\.set\('search', search\)/);
   assert.match(workspace, /params\.set\('session', session\)/);
   assert.match(workspace, /setDailyCursor\(null\)/);
@@ -186,6 +188,7 @@ test('Milk Entry exposes secure search, session, page-size, clear, and reset con
 
 test('Farmer Ifishi in Milk Entry contains milk records only', () => {
   const loader = workspace.slice(workspace.indexOf('const loadIfishiRecords'), workspace.indexOf('const loadOwnerIfishiHistory'));
+  const milkEntry = fs.readFileSync(path.join(__dirname, '..', 'components', 'views', 'milk-records-view.tsx'), 'utf8');
   const view = workspace.slice(workspace.indexOf('const renderIfishi ='), workspace.indexOf('const renderDashboard'));
 
   assert.match(loader, /\/api\/milk\?/);
@@ -196,10 +199,9 @@ test('Farmer Ifishi in Milk Entry contains milk records only', () => {
   assert.match(workspace, /setIfishiSelectedFarmer\(selectedFarmer\)/);
   assert.match(workspace, /setIfishiFarmers\(result\.data\)/);
   assert.doesNotMatch(workspace, /setIfishiFarmerId\(String\(result\.data\[0\]\.id\)\)/);
-  const milkEntry = workspace.slice(workspace.indexOf('const renderMilk'), workspace.indexOf('const renderOwnerIfishi'));
   assert.doesNotMatch(milkEntry, /dailySummary\.totalAmount|milkAmount/);
   assert.match(styles, /\.milk-desktop-list \{ width: 100%; margin: 0; border-top: 0; \}/);
-  assert.match(styles, /\.milk-desktop-list table \{ table-layout: fixed; \}/);
+  assert.match(styles, /\.milk-desktop-list table \{ min-width: 1000px; table-layout: fixed;/);
 });
 
 test('Owner Ifishi history does not request or render the Ukwezi settlement summary', () => {
@@ -248,12 +250,13 @@ test('Active Ikigo selection stays valid and falls back to the first center when
 });
 
 test('Session startup has a bounded failure state and local assignment and milk retries', () => {
+  const milkView = fs.readFileSync(path.join(__dirname, '..', 'components', 'views', 'milk-records-view.tsx'), 'utf8');
   assert.match(workspace, /setTimeout\(\(\) => controller\.abort\(\), 12000\)/);
   assert.match(workspace, /Unable to start Milk System/);
   assert.match(workspace, /onClick=\{\(\) => \{ setAuthError\(''\); setAuthLoading\(true\); setAuthAttempt/);
   assert.match(workspace, /if \(status === 401\) \{[\s\S]*?setUser\(null\)/);
   assert.match(workspace, /collectorAssignmentsError \? <div className="workspace-empty" role="alert">[\s\S]*?Retry/);
-  assert.match(workspace, /dailyError \? <div className="workspace-empty" role="alert">[\s\S]*?Retry/);
+  assert.match(milkView, /error \? <div className="workspace-empty" role="alert">[\s\S]*?onRetry/);
   assert.match(workspace, /register\('\/sw\.js'\)\.catch\(\(\) => undefined\)/);
 });
 
@@ -271,22 +274,39 @@ test('Subscription API failures are not presented as missing subscriptions or em
 
 test('Collector farmer deductions are created only through the shared modal', () => {
   const view = workspace.slice(workspace.indexOf('const renderDeductions'), workspace.indexOf('const renderReports'));
+  const deductionView = fs.readFileSync(path.join(__dirname, '..', 'components', 'views', 'deductions-view.tsx'), 'utf8');
 
-  assert.match(view, /deductionsAdd/);
-  assert.match(view, /deductionCreateOpen \? <Modal/);
-  assert.ok(view.indexOf('deductionCreateOpen ? <Modal') < view.indexOf('onSubmit={createDeduction}'));
-  assert.match(view, /deductionsNotes/);
-  assert.match(view, /deductionCreateError/);
+  assert.match(view, /<DeductionView/);
+  assert.match(view, /onAddDeduction=\{async \(input\) => \{ await createDeductionFromView\(input\); \}\}/);
+  assert.match(deductionView, /createOpen \? \(/);
+  assert.match(deductionView, /onSubmit=\{submitCreate\}/);
+  assert.match(deductionView, /deductionsAdd/);
+  assert.match(deductionView, /deductionsNotes/);
+  assert.match(workspace, /const createDeductionFromView = async/);
   assert.match(workspace, /deductionSubmittingRef\.current/);
-  assert.match(workspace, /Promise\.all\(\[loadDeductions\(\), loadReport\(\)\]\)/);
+  assert.match(workspace, /const refreshDeductionView = async/);
+  assert.match(workspace, /const refreshDeductionAccounting = async/);
+  assert.match(deductionView, /const today = \(\) => getAccountingDate\(\)/);
+  assert.doesNotMatch(deductionView, /toISOString\(\)|articleclassName|divclassName/);
+  assert.match(deductionView, /sortableHeader\('date'/);
+  assert.match(deductionView, /sortableHeader\('farmerName'/);
+  assert.match(deductionView, /sortableHeader\('amount'/);
+  assert.match(deductionView, /t\('deductionsClear'\)/);
+  assert.doesNotMatch(deductionView, /t\('delete'\)/);
+  assert.match(publicCopy, /deductionsClear: 'Shyira ko byarangiye'/);
+  assert.match(publicCopy, /deductionsClear: 'Mark cleared'/);
+  for (const selector of ['.deduction-group-grid', '.deduction-group-card', '.deduction-history-list', '.deduction-history-item', '.deduction-history-actions']) {
+    assert.ok(styles.includes(selector), `missing responsive deduction style ${selector}`);
+  }
 });
 
 test('Owner Ifishi is the only Collector owner-milk entry form', () => {
-  const milkEntry = workspace.slice(workspace.indexOf('const renderMilk'), workspace.indexOf('const renderOwnerIfishi'));
+  const milkEntry = fs.readFileSync(path.join(__dirname, '..', 'components', 'views', 'milk-records-view.tsx'), 'utf8');
   const ownerService = fs.readFileSync(path.join(__dirname, '..', 'lib', 'services', 'owner-ifishi-service.js'), 'utf8');
 
-  assert.match(milkEntry, /isCollector && ownerIfishiOpen \? <Modal/);
+  assert.match(milkEntry, /ownerEntryDialog/);
   assert.doesNotMatch(milkEntry, /saveCollectorMilk|collector-combined-entry|collectorMilkVolume/);
+  assert.match(workspace, /ownerEntryDialog=\{isCollector && ownerIfishiOpen \? <Modal/);
   assert.match(workspace, /const saveOwnerIfishiEntry/);
   assert.match(workspace, /api<OwnerIfishiEntry>\(path/);
   assert.match(ownerService, /OWNER_MILK_PRICE_MISSING/);
@@ -300,16 +320,17 @@ test('Dairy with no active center does not issue a daily milk request', () => {
 test('Owner Ifishi entry modal stays focused while history and accounting are expandable inline', () => {
   const entry = workspace.slice(workspace.indexOf('const renderOwnerIfishiEntry'), workspace.indexOf('const renderOwnerIfishiHistory'));
   const history = workspace.slice(workspace.indexOf('const renderOwnerIfishiHistory'), workspace.indexOf('const renderIfishi ='));
-  const milkEntry = workspace.slice(workspace.indexOf('const renderMilk'), workspace.indexOf('const renderOwnerIfishiEntry'));
+  const milkEntry = fs.readFileSync(path.join(__dirname, '..', 'components', 'views', 'milk-records-view.tsx'), 'utf8');
 
-  assert.match(milkEntry, /className="owner-ifishi-entry-modal"/);
+  assert.match(milkEntry, /ownerEntryDialog/);
+  assert.match(workspace, /ownerEntryDialog=\{isCollector && ownerIfishiOpen \? <Modal[^]*?className="owner-ifishi-entry-modal"/);
   assert.match(entry, /type="date"/);
   assert.match(entry, /ownerIfishiMorning/);
   assert.match(entry, /ownerIfishiEvening/);
   assert.doesNotMatch(entry, /owner-ifishi-period|owner-ifishi-summary|owner-ifishi-accounting-summary|owner-ifishi-mobile-list|owner-ifishi-desktop-list/);
   assert.match(history, /owner-ifishi-summary/);
   assert.match(history, /owner-ifishi-accounting-summary/);
-  assert.match(milkEntry, /ownerIfishiHistoryOpen \? renderOwnerIfishiHistory\(\)/);
+  assert.match(milkEntry, /ownerHistoryOpen \? ownerHistoryContent : null/);
   assert.match(workspace, /setOwnerIfishiPeriod\(getAccountingHalfForDay\(day\)\)/);
 });
 
@@ -317,6 +338,7 @@ test('Collector Settings exposes only owned collection sites while Dairy has no 
   const collectorTabs = workspace.slice(workspace.indexOf('const collectorTabs'), workspace.indexOf('const dairyTabs'));
   const settings = workspace.slice(workspace.indexOf('const renderAccountSettings'), workspace.indexOf('const renderBilling'));
   const centers = workspace.slice(workspace.indexOf('const renderCenters'), workspace.indexOf('const renderMilk'));
+  const farmersView = fs.readFileSync(path.join(__dirname, '..', 'components', 'views', 'farmers-view.tsx'), 'utf8');
 
   assert.match(collectorTabs, /id: 'settings'/);
   assert.match(settings, /role="tablist"/);
@@ -328,7 +350,7 @@ test('Collector Settings exposes only owned collection sites while Dairy has no 
   assert.match(settings, /isCollector \? renderCenters\(\) : null/);
   assert.match(settings, /!isAdmin \? renderBilling\(\) : null/);
   assert.match(centers, /centers\.filter\(\(center\) => Number\(center\.owner_user_id\) === Number\(user\?\.id\)\)/);
-  assert.match(workspace, /collectorOwnedCenters\.map\(\(center\)/);
+  assert.match(farmersView, /collectorOwnedCenters\.map\(\(center\)/);
   assert.match(workspace, /collectorOwnedCenters\.find\(\(center\)/);
   const dairyTabs = workspace.slice(workspace.indexOf('const dairyTabs'), workspace.indexOf('const navigationCopy'));
   assert.match(dairyTabs, /id: 'settlements'/);

@@ -38,6 +38,17 @@ test('settlement POST keeps confirmation period, cash, and debt writes within th
   assert.match(repositorySource, /FOR UPDATE OF d, ca/);
 });
 
+test('cash retries resolve the owner-scoped idempotency record before checking remaining payable', () => {
+  const cashAction = routeSource.slice(routeSource.indexOf("if (action === 'cash')"), routeSource.indexOf("if (action === 'debt')"));
+
+  assert.match(cashAction, /getAssignedFarmer\(Number\(user\.id\), farmerId\)/);
+  assert.match(cashAction, /getSettlementByReference\(\{[\s\S]*?ownerUserId,[\s\S]*?paymentType: 'CASH',[\s\S]*?paymentReference/);
+  assert.ok(cashAction.indexOf('getSettlementByReference') < cashAction.indexOf('getFarmerTotals'));
+  assert.match(cashAction, /existingRecord\.periodStart !== periodStart \|\| existingRecord\.periodEnd !== periodEnd/);
+  assert.match(cashAction, /record: existingRecord, duplicate: true/);
+  assert.match(repositorySource, /payment_reference = \$4\s+FOR UPDATE/);
+});
+
 test('missing settlement schema returns a safe unavailable response without database details', () => {
   assert.match(routeSource, /error\.code === '42P01' \|\| error\.code === '42703'/);
   assert.match(routeSource, /code: 'SETTLEMENT_SCHEMA_UNAVAILABLE'/);

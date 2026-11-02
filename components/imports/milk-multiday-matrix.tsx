@@ -1,5 +1,6 @@
 'use client';
 
+import type { KeyboardEvent } from 'react';
 import { Check, Plus } from 'lucide-react';
 import { ImportStatus } from '@/components/imports/import-ui';
 import type { ImportCopyKey } from '@/lib/i18n/import-copy';
@@ -15,6 +16,44 @@ const farmerNumberBadge = (farmer?: ImportFarmer | null) => (
 );
 
 const dayHeading = (isoDate: string, language: string) => `${language === 'rw' ? 'Umunsi' : 'Day'} ${Number(isoDate.slice(8, 10))}`;
+
+const isEditableCell = (input: HTMLInputElement) => (
+  !input.disabled &&
+  !input.readOnly &&
+  !input.closest('[hidden], [inert], [aria-hidden="true"]') &&
+  input.getClientRects().length > 0
+);
+
+const navigateMatrix = (event: KeyboardEvent<HTMLInputElement>) => {
+  if (event.altKey || event.ctrlKey || event.metaKey) return;
+
+  const { key, currentTarget } = event;
+  if (!['ArrowRight', 'ArrowLeft', 'ArrowDown', 'ArrowUp', 'Enter'].includes(key)) return;
+
+  event.preventDefault();
+  const table = currentTarget.closest('table');
+  if (!table) return;
+
+  if (key === 'ArrowDown' || key === 'ArrowUp') {
+    const tableRows = Array.from(table.tBodies[0]?.rows || []);
+    const currentRowIndex = tableRows.indexOf(currentTarget.closest('tr') as HTMLTableRowElement);
+    const rowStep = key === 'ArrowDown' ? 1 : -1;
+    for (let rowIndex = currentRowIndex + rowStep; rowIndex >= 0 && rowIndex < tableRows.length; rowIndex += rowStep) {
+      const target = Array.from(tableRows[rowIndex].querySelectorAll<HTMLInputElement>('input[type="number"]'))
+        .find((input) => input.dataset.dayIndex === currentTarget.dataset.dayIndex && input.dataset.session === currentTarget.dataset.session && isEditableCell(input));
+      if (target) {
+        target.focus();
+        return;
+      }
+    }
+    return;
+  }
+
+  const editableInputs = Array.from(table.querySelectorAll<HTMLInputElement>('tbody input[type="number"]')).filter(isEditableCell);
+  const currentIndex = editableInputs.indexOf(currentTarget);
+  const step = key === 'ArrowLeft' ? -1 : 1;
+  editableInputs[currentIndex + step]?.focus();
+};
 
 /**
  * Compact Multi-Day Review Matrix:
@@ -103,13 +142,13 @@ export function MultiDayReviewMatrix({
             {createError?.uid === row.uid ? <small className="text-danger" role="alert">{createError.message}</small> : null}
           </div>
         </td>
-        {dates.map((date) => {
+        {dates.map((date, dayIndex) => {
           const cell = row.days[date];
           const state = assessed.cells[date]?.state || 'empty';
           return <td key={date} className={`multiday-cell multiday-cell-${state}`}>
             <div className="multiday-cell-inputs">
-              <label><span>{morningLabel}</span><input type="number" min="0" max="10000" step="0.01" inputMode="decimal" value={cell?.morning ?? ''} disabled={disabled || !row.include} aria-label={`${row.nameText || row.rowNumber} ${date} ${morningLabel}`} onChange={(event) => onEditCell(row.uid, date, 'morning', event.target.value)} /></label>
-              <label><span>{eveningLabel}</span><input type="number" min="0" max="10000" step="0.01" inputMode="decimal" value={cell?.evening ?? ''} disabled={disabled || !row.include} aria-label={`${row.nameText || row.rowNumber} ${date} ${eveningLabel}`} onChange={(event) => onEditCell(row.uid, date, 'evening', event.target.value)} /></label>
+              <label><span>{morningLabel}</span><input type="number" min="0" max="10000" step="0.01" inputMode="decimal" value={cell?.morning ?? ''} disabled={disabled || !row.include} aria-label={`${row.nameText || row.rowNumber} ${date} ${morningLabel}`} data-day-index={dayIndex} data-session="morning" onFocus={(event) => event.currentTarget.select()} onKeyDown={navigateMatrix} onChange={(event) => onEditCell(row.uid, date, 'morning', event.target.value)} /></label>
+              <label><span>{eveningLabel}</span><input type="number" min="0" max="10000" step="0.01" inputMode="decimal" value={cell?.evening ?? ''} disabled={disabled || !row.include} aria-label={`${row.nameText || row.rowNumber} ${date} ${eveningLabel}`} data-day-index={dayIndex} data-session="evening" onFocus={(event) => event.currentTarget.select()} onKeyDown={navigateMatrix} onChange={(event) => onEditCell(row.uid, date, 'evening', event.target.value)} /></label>
             </div>
             {state === 'existing' ? <small>{language === 'rw' ? 'Yamaze kwandikwa' : 'Already recorded'}</small> : null}
             {cell?.raw && state !== 'record' && state !== 'empty' ? <small title={cell.raw}>OCR: {cell.raw}</small> : null}

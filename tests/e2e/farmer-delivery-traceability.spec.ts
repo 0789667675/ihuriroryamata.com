@@ -190,8 +190,36 @@ async function mockWorkspaceApis(page: Page) {
 
 async function openWorkspace(page: Page) {
   await page.goto('/login?tab=milk&flow=synthetic', { waitUntil: 'domcontentloaded' });
+  const englishLanguageButton = page.getByRole('button', { name: 'Icyongereza' });
+  if (await englishLanguageButton.isVisible().catch(() => false)) await englishLanguageButton.click();
   await expect(page.getByRole('heading', { name: 'Milk entries' })).toBeVisible();
 }
+
+test('farmer management search and history work on desktop and phone', async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 900 });
+  await mockWorkspaceApis(page);
+  await openWorkspace(page);
+  await page.getByRole('navigation', { name: 'Workspace navigation' }).getByRole('button', { name: 'Farmers' }).click();
+
+  const search = page.getByRole('textbox', { name: 'Name, phone, number, ID or account' });
+  await search.fill('17');
+  await search.press('Enter');
+  const row = page.locator('.farmers-desktop-table tbody tr').filter({ hasText: 'No. 17' });
+  await expect(row).toHaveCount(1);
+  await expect(row).toContainText('Jean Claude');
+  await expect(row.getByRole('button', { name: /View history: Jean Claude/ })).toBeVisible();
+
+  await page.setViewportSize({ width: 375, height: 812 });
+  await expect(page.locator('.farmers-desktop-table')).toBeHidden();
+  const card = page.locator('.farmer-mobile-card').filter({ hasText: 'No. 17' });
+  await expect(card).toHaveCount(1);
+  await expect(card).toContainText('Jean Claude');
+  const cardSearch = page.getByRole('textbox', { name: 'Name, phone, number, ID or account' });
+  await expect(cardSearch).toBeVisible();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1)).toBe(true);
+  await card.getByRole('button', { name: /View history: Jean Claude/ }).click();
+  await expect(page.getByRole('dialog', { name: 'Milk delivery history' })).toContainText('No. 17');
+});
 
 test('daily reconciliation, permanent-number search, Ifishi, and missing history stay consistent', async ({ page }) => {
   const { dailyRequests, farmerRequests, historyRequests } = await mockWorkspaceApis(page);
@@ -274,7 +302,7 @@ test('daily reconciliation, permanent-number search, Ifishi, and missing history
   const farmerRow = page.locator('.farmers-desktop-table tbody tr').filter({ hasText: 'No. 17' });
   await expect(farmerRow).toHaveCount(1);
   await expect(farmerRow).toContainText('Jean Claude');
-  await farmerRow.getByRole('button', { name: 'View history' }).click();
+  await farmerRow.getByRole('button', { name: /View history: Jean Claude/ }).click();
   await expect(page.getByRole('dialog', { name: 'Milk delivery history' })).toContainText('No. 17');
 });
 
@@ -333,6 +361,19 @@ test('phone layout keeps numbers, search, missing history, and Ifishi usable wit
   await ifishiSearch.fill('17');
   await expect(ifishi.getByRole('listbox', { name: 'Search results' }).getByRole('option', { name: /No\. 17.*Jean Claude/ })).toBeVisible();
   await ifishi.getByRole('button', { name: 'Cancel' }).click();
+
+  await page.getByRole('navigation', { name: 'Workspace navigation' }).getByRole('button', { name: 'Farmers' }).click();
+  const farmersSearch = page.getByRole('textbox', { name: 'Name, phone, number, ID or account' });
+  await farmersSearch.fill('17');
+  await farmersSearch.press('Enter');
+  await expect(page.locator('.farmers-desktop-table')).toBeHidden();
+  const farmerCard = page.locator('.farmer-mobile-card').filter({ hasText: 'No. 17' });
+  await expect(farmerCard).toHaveCount(1);
+  await expect(farmerCard).toContainText('Jean Claude');
+  await farmerCard.getByRole('button', { name: /View history: Jean Claude/ }).click();
+  const farmerHistory = page.getByRole('dialog', { name: 'Milk delivery history' });
+  await expect(farmerHistory).toContainText('No. 17');
+  await farmerHistory.getByRole('button', { name: 'Cancel' }).last().click();
 
   const mobileFits = await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1);
   expect(mobileFits).toBe(true);

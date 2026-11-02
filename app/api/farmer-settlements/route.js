@@ -49,7 +49,8 @@ export async function GET(request) {
         `SELECT s.id AS "settlementId", s.farmer_id AS "farmerId", f.name AS "farmerName",
            s.owner_user_id AS "ownerUserId", s.amount, s.payment_method AS "paymentMethod",
            s.payment_reference AS "paymentReference", s.period_start AS "periodStart", s.period_end AS "periodEnd",
-           s.status, s.approved_at AS "approvedAt", s.reason
+           s.status, s.approved_at AS "approvedAt", s.confirmed_at AS "confirmedAt",
+           s.confirmed_by AS "confirmedBy", s.reason
          FROM farmer_settlement_records s
          JOIN farmers f ON f.id = s.farmer_id AND f.owner_user_id = s.owner_user_id
          JOIN collector_assignments ca ON ca.dairy_user_id = s.owner_user_id
@@ -120,6 +121,19 @@ export async function POST(request) {
       if (!farmer) return NextResponse.json({ ok: false, message: 'Farmer not found for your active assignment.' }, { status: 404 });
       if (hasValidSaccoAccount(farmer)) return NextResponse.json({ ok: false, message: 'Cash approval is only available for retained farmers without a valid payment account.' }, { status: 409 });
       const ownerUserId = Number(farmer.ownerUserId);
+      const paymentReference = `cash-${ownerUserId}-${idempotencyKey}`;
+      const existingRecord = await settlementRepository.getSettlementByReference({
+        farmerId,
+        ownerUserId,
+        paymentType: 'CASH',
+        paymentReference,
+      });
+      if (existingRecord) {
+        if (Number(existingRecord.amount) !== amount || existingRecord.periodStart !== periodStart || existingRecord.periodEnd !== periodEnd) {
+          throw Object.assign(new Error('The request key was already used for a different cash settlement.'), { statusCode: 409 });
+        }
+        return NextResponse.json({ ok: true, record: existingRecord, duplicate: true });
+      }
       const payableRows = await getFarmerTotals({ ownerUserId, farmerId, collectorUserId: user.id, assignedCollectorOnly: true, rangeStart: periodStart, rangeEnd: periodEnd });
       const payable = Number(payableRows[0]?.netAmount);
       if (!Number.isFinite(payable) || payable <= 0 || amount > payable) throw Object.assign(new Error('Cash amount exceeds the farmer’s verified payable balance.'), { statusCode: 400 });
@@ -136,7 +150,7 @@ export async function POST(request) {
       const record = await createSettlementRecord({
         repo: settlementRepository, farmerId, ownerUserId, collectorUserId: Number(user.id), amount, paymentMethod: 'CASH', paymentType: 'CASH',
         periodStart, periodEnd, reason: 'NO_SACCO_ACCOUNT', notes: body.notes || null,
-        approvedBy: Number(user.id), paymentReference: `cash-${ownerUserId}-${idempotencyKey}`, maxPayable: payable,
+        approvedBy: Number(user.id), paymentReference, maxPayable: payable,
       });
       return NextResponse.json({ ok: true, record });
     }

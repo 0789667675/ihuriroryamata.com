@@ -455,6 +455,7 @@ test('Owner Ifishi API derives owner scope from authentication and keeps financi
   const route = fs.readFileSync(path.join(__dirname, '..', 'app', 'api', 'ifishi', 'owner', 'route.js'), 'utf8');
   const correctionRoute = fs.readFileSync(path.join(__dirname, '..', 'app', 'api', 'ifishi', 'owner', '[id]', 'route.js'), 'utf8');
   const workspace = fs.readFileSync(path.join(__dirname, '..', 'app', 'workspace.tsx'), 'utf8');
+  const dashboardView = fs.readFileSync(path.join(__dirname, '..', 'components', 'views', 'dashboard-view.tsx'), 'utf8');
   const styles = fs.readFileSync(path.join(__dirname, '..', 'app', 'globals.css'), 'utf8');
   assert.match(route, /ownerUserId: user\.id/);
   assert.match(route, /getHistoryForPeriod/);
@@ -489,14 +490,14 @@ test('Owner Ifishi API derives owner scope from authentication and keeps financi
   assert.match(ownerScreen, /ownerIfishiReport\.collectorFarmerDeductions/);
   assert.match(workspace, /loadDashboardOwnerMilk\(collectionDate\)/);
   assert.match(workspace, /calculateMilkDifference\(dashboardOwnerMilk\.validVolumeLiters, dailySummary\.totalVolume\)/);
-  assert.match(workspace, /dashboardMilkComparison/);
+  assert.match(dashboardView, /dashboardMilkComparison/);
   assert.match(ownerScreen, /entry\.volumeMorning/);
   assert.match(ownerScreen, /entry\.volumeEvening/);
   assert.match(ownerScreen, /entry\.differenceLiters/);
   assert.equal((ownerScreen.match(/signedLiters\(entry\.differenceLiters\)/g) || []).length, 2);
   assert.doesNotMatch(ownerScreen, /Math\.abs\(entry\.differenceLiters\)/);
-  assert.match(workspace, /signedLiters\(milkDifference\.difference\)/);
-  assert.match(workspace, /dashboardMilkDifference/);
+  assert.match(dashboardView, /dashboardMilkDifference/);
+  assert.match(dashboardView, /milkDifference\.difference > 0 \? '\+' : ''/);
   assert.match(styles, /\.owner-ifishi-desktop-list \{ display: none; \}/);
   assert.match(styles, /\.owner-ifishi-mobile-list \{ display: grid;/);
 });

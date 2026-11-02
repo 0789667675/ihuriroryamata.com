@@ -94,9 +94,9 @@ test('Ifishi search results are directly selectable and expose the permanent num
   assert.match(ifishi, /ifishi-selected-history/);
   assert.match(ifishi, /openFarmerHistory\(selectedFarmer\)/);
 
-  const farmerView = workspace.slice(workspace.indexOf('const renderFarmers'), workspace.indexOf('const renderCenters'));
-  assert.match(farmerView, /openFarmerHistory\(farmer\)/);
-  assert.match(farmerView, /openIfishiForFarmer\(farmer\.id, farmer\.name\)/);
+  const farmersComponent = fs.readFileSync(path.join(__dirname, '..', 'components', 'views', 'farmers-view.tsx'), 'utf8');
+  assert.match(farmersComponent, /onOpenHistory\(farmer\)/);
+  assert.match(farmersComponent, /onOpenIfishi\(farmer\)/);
 });
 
 test('filtered, sorted, and paginated farmer rows keep the stored permanent number', () => {
@@ -411,13 +411,13 @@ test('Collection Center aggregation keeps the full expected scope and supports a
 });
 
 test('missing-farmer navigation opens history and can show all missing farmers', () => {
-  const milkEntry = workspace.slice(workspace.indexOf('const renderMilk'), workspace.indexOf('const renderOwnerIfishi'));
-  assert.match(milkEntry, /const missingRows = visibleRows\.filter\(\(row\) => row\.deliveryStatus === 'missing'\)/);
+  const milkEntry = fs.readFileSync(path.join(__dirname, '..', 'components', 'views', 'milk-records-view.tsx'), 'utf8');
+  assert.match(milkEntry, /const missingRows = dailyRows\.filter\(\(row\) => row\.deliveryStatus === 'missing'\)/);
   assert.match(milkEntry, /farmerNumberLabel\(row\.farmerNumber\)/);
   assert.match(milkEntry, /— \{row\.farmerName\}/);
-  assert.match(milkEntry, /onClick=\{\(\) => openFarmerHistory\(row\)\}/);
-  assert.match(milkEntry, /setDailyDeliveryFilter\('missing'\)/);
-  assert.match(milkEntry, /setDailyPageSize\(100\)/);
+  assert.match(milkEntry, /onOpenHistory\(row\)/);
+  assert.match(milkEntry, /onDeliveryFilterChange\('missing'\)/);
+  assert.match(milkEntry, /onPageSizeChange\(100\)/);
   assert.match(milkEntry, /deliveryMissingTitle/);
   assert.match(milkEntry, /deliveryMissingHint/);
   assert.match(styles, /\.missing-farmers-panel/);

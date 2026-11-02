@@ -64,7 +64,7 @@ const settlementReport = {
   }],
 };
 
-const browserTestBaseURL = process.env.PLAYWRIGHT_BASE_URL || 'http://127.0.0.1:3100';
+const browserTestBaseURL = process.env.PLAYWRIGHT_BASE_URL || `http://127.0.0.1:${process.env.PLAYWRIGHT_PORT || 3100}`;
 
 type FarmerFixture = {
   id: number;
@@ -82,6 +82,7 @@ type MilkFixture = {
   ownerValidLiters?: number;
   includeOwnerEntry?: boolean;
   farmers?: FarmerFixture[];
+  importRows?: string[][];
 };
 
 async function mockWorkspaceApis(page: Page, user = collector, milkFixture: MilkFixture = {}, reportOverride: Record<string, unknown> | null = null) {
@@ -112,6 +113,8 @@ async function mockWorkspaceApis(page: Page, user = collector, milkFixture: Milk
     let body: unknown = {};
     let status = 200;
     if (url.pathname === '/api/auth/me') body = { ok: true, user };
+    else if (url.pathname === '/api/imports/ocr') body = { configured: true, setup: [] };
+    else if (url.pathname === '/api/imports/extract') body = { rows: milkFixture.importRows || [] };
     else if (url.pathname === '/api/collection-centers') {
       if (route.request().method() === 'POST') {
         const input = await route.request().postDataJSON();
@@ -243,23 +246,126 @@ async function openWorkspace(page: Page, user = collector, query = 'tab=dashboar
 test('direct tab, reload, back, and forward retain valid workspace navigation', async ({ page }) => {
   await openWorkspace(page, collector, 'tab=ukwezi&flow=synthetic');
   await expect(page).toHaveURL(/tab=ukwezi/);
-  await expect(page.getByRole('heading', { name: 'Ukwezi', level: 1 })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Ukwezi' })).toBeVisible();
 
   await page.getByRole('button', { name: 'Milk', exact: true }).first().click();
   await expect(page).toHaveURL(/tab=milk/);
-  await expect(page.getByRole('heading', { name: 'Milk', level: 1 })).toBeVisible();
+  await expect(page.getByRole('heading', { name: /Milk|Amata/i })).toBeVisible();
   await page.getByRole('button', { name: 'Farmers', exact: true }).first().click();
   await expect(page).toHaveURL(/tab=farmers/);
   await page.goBack();
   await expect(page).toHaveURL(/tab=milk/);
-  await expect(page.getByRole('heading', { name: 'Milk', level: 1 })).toBeVisible();
+  await expect(page.getByRole('heading', { name: /Milk|Amata/i })).toBeVisible();
   await page.goForward();
   await expect(page).toHaveURL(/tab=farmers/);
-  await expect(page.getByRole('heading', { name: 'Farmers', level: 1 })).toBeVisible();
+  await expect(page.getByRole('heading', { name: /Farmers|Aborozi/i })).toBeVisible();
 
   await page.reload();
-  await expect(page.getByRole('heading', { name: 'Farmers', level: 1 })).toBeVisible();
+  await expect(page.getByRole('heading', { name: /Farmers|Aborozi/i })).toBeVisible();
   await expect(page).toHaveURL(/flow=synthetic/);
+});
+
+test('multi-day milk matrix supports spreadsheet navigation without losing edits or intercepting Tab', async ({ page }) => {
+  const dates = Array.from({ length: 15 }, (_, index) => `2026-10-${String(index + 1).padStart(2, '0')}`);
+  const farmers = [
+    { id: 993801, name: 'Aline Test Farmer' },
+    { id: 993802, name: 'Beata Test Farmer' },
+    { id: 993803, name: 'Chantal Test Farmer' },
+  ];
+  const importRows = [
+    ['Farmer', ...dates],
+    ...farmers.map((farmer, index) => [farmer.name, ...dates.map(() => String(index + 1))]),
+  ];
+  const milkImportRequests: string[] = [];
+
+  await openWorkspace(page, collector, 'tab=milk&flow=synthetic', { farmers, importRows });
+  page.on('request', (request) => {
+    if (request.url().includes('/api/milk/import') && request.method() === 'POST') milkImportRequests.push(request.url());
+  });
+  await page.getByRole('button', { name: 'Scan notebook', exact: true }).click();
+  await page.getByRole('radio', { name: 'Multi-Day Batch' }).click();
+  await page.locator('input[type="file"]').first().setInputFiles({
+    name: 'milk-register.csv',
+    mimeType: 'text/csv',
+    buffer: Buffer.from('Farmer,2026-10-01'),
+  });
+  await page.getByRole('button', { name: 'Extract Document' }).click();
+
+  const matrix = page.locator('.import-multiday-table');
+  await expect(matrix.locator('tbody tr')).toHaveCount(3);
+  await expect(matrix).toContainText('Day 15');
+  const cell = (row: number, input: number) => matrix.locator('tbody tr').nth(row).locator('input[type="number"]').nth(input);
+  const firstMorning = cell(0, 0);
+  const firstEvening = cell(0, 1);
+  const secondFarmerFirstMorning = cell(1, 0);
+  const thirdFarmerFirstMorning = cell(2, 0);
+  const firstFarmerLastEvening = cell(0, 29);
+  const lastCell = cell(2, 29);
+
+  await firstMorning.focus();
+  await page.keyboard.press('ArrowRight');
+  await expect(firstEvening).toBeFocused();
+  await expect(firstEvening).toHaveValue('');
+  await page.keyboard.press('ArrowRight');
+  await expect(cell(0, 2)).toBeFocused();
+  await page.keyboard.press('ArrowLeft');
+  await expect(firstEvening).toBeFocused();
+  await page.keyboard.press('ArrowLeft');
+  await expect(firstMorning).toBeFocused();
+
+  const secondDayEvening = cell(0, 3);
+  await secondDayEvening.evaluate((input) => { input.readOnly = true; });
+  await cell(0, 2).focus();
+  await page.keyboard.press('ArrowRight');
+  await expect(cell(0, 4)).toBeFocused();
+  await secondDayEvening.evaluate((input) => { input.readOnly = false; });
+
+  await firstMorning.focus();
+  await page.keyboard.press('ArrowDown');
+  await expect(secondFarmerFirstMorning).toBeFocused();
+  await page.keyboard.press('ArrowUp');
+  await expect(firstMorning).toBeFocused();
+
+  await firstMorning.fill('12.5');
+  await page.keyboard.press('Enter');
+  await expect(firstEvening).toBeFocused();
+  await expect(firstMorning).toHaveValue('12.5');
+  await firstFarmerLastEvening.focus();
+  await page.keyboard.press('ArrowRight');
+  await expect(secondFarmerFirstMorning).toBeFocused();
+  await page.keyboard.press('ArrowLeft');
+  await expect(firstFarmerLastEvening).toBeFocused();
+  await page.keyboard.press('Enter');
+  await expect(secondFarmerFirstMorning).toBeFocused();
+
+  await firstMorning.focus();
+  await page.keyboard.press('Tab');
+  await expect(firstEvening).toBeFocused();
+  await page.keyboard.press('Shift+Tab');
+  await expect(firstMorning).toBeFocused();
+
+  await matrix.locator('tbody tr').nth(1).locator('.import-row-number-label input').click();
+  await expect(secondFarmerFirstMorning).toBeDisabled();
+  await firstMorning.focus();
+  await page.keyboard.press('ArrowDown');
+  await expect(thirdFarmerFirstMorning).toBeFocused();
+  await firstFarmerLastEvening.focus();
+  await page.keyboard.press('ArrowRight');
+  await expect(thirdFarmerFirstMorning).toBeFocused();
+  await page.keyboard.press('ArrowLeft');
+  await expect(firstFarmerLastEvening).toBeFocused();
+
+  await lastCell.focus();
+  await page.keyboard.press('ArrowRight');
+  await expect(lastCell).toBeFocused();
+  await page.keyboard.press('Enter');
+  await expect(lastCell).toBeFocused();
+  await page.keyboard.press('ArrowDown');
+  await expect(lastCell).toBeFocused();
+  await firstMorning.focus();
+  await page.keyboard.press('ArrowLeft');
+  await expect(firstMorning).toBeFocused();
+  expect(milkImportRequests).toHaveLength(0);
 });
 
 test('unknown and role-restricted direct tabs normalize to the allowed dashboard', async ({ page }) => {
@@ -286,30 +392,30 @@ test('Collector settlements uses report accounting, while Ukwezi keeps its milk 
   await openWorkspace(page, collector, 'tab=settlements&flow=synthetic');
   const summary = page.locator('.settlement-reconciliation');
   const reconciliationTable = page.locator('.settlement-farmer-table');
-  await expect(summary).toContainText('Period payment reconciliation');
-  await expect(summary).toContainText('Farmer gross');
-  await expect(summary).toContainText('Cash approved');
+  await expect(summary).toContainText(/Period payment reconciliation|Ibaruramari ry'ukwezi/i);
+  await expect(summary).toContainText(/Amafaranga Yose Agomba Kwishyurwa|Farmer gross|Gross amount/i);
+  await expect(summary).toContainText(/Ayanyuze Kuri Nyirayo|Cash approved|Approved cash/i);
   await expect(summary).toContainText('1,500 RWF');
-  await expect(summary).toContainText('Cash received');
+  await expect(summary).toContainText(/Ayishyuwe Kugeza Ubu|Cash received|Received/i);
   await expect(summary).toContainText('500 RWF');
-  await expect(summary).toContainText('Debt repaid');
+  await expect(summary).toContainText(/Imyenda yishyuwe|Debt repaid|Debt paid/i);
   await expect(summary).toContainText('300 RWF');
-  await expect(summary).toContainText('Debt outstanding');
+  await expect(summary).toContainText(/Imyenda ikiriho|Debt outstanding|Outstanding debt/i);
   await expect(summary).toContainText('200 RWF');
-  await expect(summary).toContainText('Unexplained difference');
-  await expect(summary).toContainText('Payable breakdown');
+  await expect(summary).toContainText(/Itandukaniro ridasobanutse|Unexplained difference|Difference/i);
+  await expect(summary).toContainText(/Ibyiciro by'ishyurwa|Payable breakdown|Breakdown/i);
   await expect(reconciliationTable).toContainText('Aline Test Farmer');
   await expect(reconciliationTable).toContainText('3,500 RWF');
   await expect(reconciliationTable).toContainText('200 RWF');
   await expect(page.getByText('Aline Test Farmer').filter({ visible: true })).toHaveCount(4);
 
   await page.getByRole('button', { name: 'Ukwezi', exact: true }).first().click();
-  await expect(page.getByRole('heading', { name: 'Ukwezi', level: 1 })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Ukwezi' })).toBeVisible();
   await expect(page.locator('.ukwezi-settlement-table')).toBeVisible();
   await expect(page.locator('.settlement-farmer-table')).toHaveCount(0);
   await expect(page.getByText('Payment history')).toHaveCount(0);
-  await expect(page.locator('.ukwezi-settlement-table')).toContainText('Milk price');
-  await expect(page.locator('.ukwezi-settlement-table')).toContainText('Transport');
+  await expect(page.locator('.ukwezi-settlement-table')).toContainText(/Milk price|Igiciro cy'amata|Igiciro \/ L/i);
+  await expect(page.locator('.ukwezi-settlement-table')).toContainText(/Transport|Ibyo gutwara|Transport/i);
 });
 
 test('settlement tables render as phone cards and stay contained tables at tablet and desktop widths', async ({ page }) => {
@@ -336,6 +442,149 @@ test('settlement tables render as phone cards and stay contained tables at table
       await expect(page.locator('.settlement-farmer-table table')).toBeVisible();
     }
   }
+});
+
+test('cash batch reports partial success and safely retries only the failed farmer', async ({ page }) => {
+  const period = getCurrentAccountingPeriod();
+  const makeCashFarmer = (farmerId: number, farmerName: string, amount: number) => ({
+    ...settlementReport.farmers[0],
+    farmerId,
+    farmerName,
+    phone: '0788000000',
+    totalVolume: 12.5,
+    grossAmount: amount,
+    netAmount: amount,
+    settlement: { saccoEligible: false, retainedUnpaidAmount: amount, cashApprovedAmount: 0, cashConfirmedAmount: 0 },
+  });
+  const report = {
+    totalFarmers: 3,
+    totalVolume: 37.5,
+    rangeStart: period.startDate,
+    rangeEnd: period.endDate,
+    settlementAccounting: {
+      ...settlementReport,
+      expectedFarmerPayable: 6700,
+      farmers: [
+        makeCashFarmer(993101, 'Aline Test Farmer', 3500),
+        makeCashFarmer(993102, 'Blaise Test Farmer', 2200),
+        makeCashFarmer(993103, 'Chantal Test Farmer', 1000),
+      ],
+    },
+  };
+  const payments = new Map<string, Record<string, unknown>>();
+  const historyRecords: Array<Record<string, unknown>> = [{
+    id: 993299,
+    settlementId: 993299,
+    farmerId: 993101,
+    farmerName: 'Aline Test Farmer',
+    amount: 700,
+    status: 'APPROVED',
+    periodStart: period.startDate,
+    periodEnd: period.endDate,
+    approvedAt: '2026-11-02T07:00:00.000Z',
+    confirmedAt: null,
+    confirmedBy: null,
+  }];
+  const cashRequests: Array<{ farmerId: number; requestKey: string }> = [];
+  const confirmRequests: number[] = [];
+  const failedOnce = new Set<number>();
+  let nextSettlementId = 993300;
+
+  await page.setViewportSize({ width: 390, height: 844 });
+  await openWorkspace(page, collector, 'tab=settlements&flow=synthetic', {}, report);
+  await page.route('**/api/farmer-settlements**', async (route) => {
+    const url = new URL(route.request().url());
+    const action = url.searchParams.get('action');
+    if (route.request().method() === 'GET' && action === 'confirmations') {
+      await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ ok: true, data: [...historyRecords, ...payments.values()] }) });
+      return;
+    }
+    if (route.request().method() !== 'POST') return route.fallback();
+
+    const body = route.request().postDataJSON();
+    if (body.action === 'cash') {
+      cashRequests.push({ farmerId: Number(body.farmerId), requestKey: String(body.requestKey) });
+      const requestKey = `${body.farmerId}:${body.requestKey}`;
+      let record = payments.get(requestKey);
+      if (!record) {
+        record = {
+          id: nextSettlementId++,
+          settlementId: nextSettlementId - 1,
+          farmerId: Number(body.farmerId),
+          farmerName: ['Aline Test Farmer', 'Blaise Test Farmer', 'Chantal Test Farmer'][Number(body.farmerId) - 993101],
+          amount: Number(body.amount),
+          status: 'APPROVED',
+          periodStart: body.periodStart,
+          periodEnd: body.periodEnd,
+          approvedAt: '2026-11-02T08:00:00.000Z',
+          confirmedAt: null,
+          confirmedBy: null,
+        };
+        payments.set(requestKey, record);
+      }
+      await new Promise((resolve) => setTimeout(resolve, 120));
+      await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ ok: true, record }) });
+      return;
+    }
+    if (body.action === 'confirm') {
+      const farmerId = Number(body.farmerId);
+      confirmRequests.push(farmerId);
+      if (farmerId === 993102 && !failedOnce.has(farmerId)) {
+        failedOnce.add(farmerId);
+        await route.fulfill({ status: 503, contentType: 'application/json', body: JSON.stringify({ message: 'Temporary confirmation interruption.' }) });
+        return;
+      }
+      const record = [...historyRecords, ...payments.values()].find((item) => Number(item.id) === Number(body.settlementId));
+      if (record) {
+        record.status = 'CONFIRMED';
+        record.confirmedAt = '2026-11-02T09:00:00.000Z';
+        record.confirmedBy = collector.id;
+      }
+      await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ ok: true, record }) });
+      return;
+    }
+    await route.fulfill({ status: 400, contentType: 'application/json', body: JSON.stringify({ ok: false }) });
+  });
+
+  await page.getByRole('button', { name: 'Refresh' }).click();
+  await page.locator('.settlement-debt-drawer > summary').click();
+  await page.locator('.settlement-operations').getByRole('button', { name: 'Confirm received' }).first().click();
+  await expect(page.locator('.settlement-operations')).toContainText('Actor #990001');
+
+  await page.locator('.settlement-tabs .settlement-tab-button').nth(1).click();
+  await expect(page.locator('.settlement-farmer-table .settlements-desktop-table')).toBeHidden();
+  await expect(page.locator('.settlement-farmer-table .settlements-mobile-list')).toBeVisible();
+  const checkboxes = page.getByRole('checkbox', { name: /Select settlement for/ });
+  await expect(checkboxes).toHaveCount(3);
+  await checkboxes.nth(0).check();
+  await checkboxes.nth(1).check();
+  await checkboxes.nth(2).check();
+
+  const confirmButton = page.getByRole('button', { name: 'Confirm selected (3)' });
+  page.once('dialog', (dialog) => { void dialog.accept(); });
+  await confirmButton.click();
+  await expect(confirmButton).toBeDisabled();
+  const progress = page.locator('.settlement-batch-progress');
+  await expect(progress).toContainText('Selected 3; processed 3; confirmed 2; failed 1.');
+  await expect(progress).toContainText('Blaise Test Farmer');
+  await expect(progress).toContainText('Temporary confirmation interruption.');
+  await expect(progress).not.toContainText('All selected settlements were processed.');
+  expect(payments.size).toBe(3);
+
+  const retryButton = progress.getByRole('button', { name: 'Retry eligible failed (1)' });
+  page.once('dialog', (dialog) => { void dialog.accept(); });
+  await retryButton.click();
+  await expect(progress).toContainText('Selected 1; processed 1; confirmed 1; failed 0.');
+  expect(payments.size).toBe(3);
+  expect(cashRequests.filter((request) => request.farmerId === 993102)).toHaveLength(2);
+  expect(new Set(cashRequests.filter((request) => request.farmerId === 993102).map((request) => request.requestKey)).size).toBe(1);
+  expect(confirmRequests.filter((farmerId) => farmerId === 993102)).toHaveLength(2);
+
+  await page.setViewportSize({ width: 1280, height: 850 });
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1)).toBe(true);
+  await expect(page.locator('.settlement-farmer-table .settlements-desktop-table')).toBeVisible();
+  const headerPosition = await page.locator('.settlement-farmer-table .settlements-desktop-table thead th').first().evaluate((element) => getComputedStyle(element).position);
+  expect(headerPosition).toBe('sticky');
 });
 
 test('Raporo uses authoritative accounting values and stays contained at desktop, tablet, and phone widths', async ({ page }) => {

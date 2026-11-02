@@ -15,6 +15,12 @@ import {
   Sparkles,
   X,
 } from 'lucide-react';
+import {
+  applyMatrixDraft,
+  createMatrixDraftKey,
+  readMatrixDraft,
+  writeMatrixDraft,
+} from '@/lib/milk-matrix-draft.js';
 
 export type MatrixDayEntry = {
   morning: string;
@@ -22,6 +28,11 @@ export type MatrixDayEntry = {
   total?: number;
   recordId?: number;
 };
+
+type MatrixDraftEntries = Record<
+  string,
+  Record<string, Partial<Pick<MatrixDayEntry, 'morning' | 'evening'>>>
+>;
 
 export type MatrixFarmer = {
   farmerId: number;
@@ -63,9 +74,18 @@ export function DigitalNotebookMatrix({
   const [centerId, setCenterId] = useState<string | number>(
     selectedCenterId || (centers[0]?.id ?? 1)
   );
+  const draftStorageKey = useMemo(
+    () => createMatrixDraftKey({ centerId, year, month, periodType }),
+    [centerId, year, month, periodType]
+  );
 
   const [farmers, setFarmers] = useState<MatrixFarmer[]>([]);
   const [matrixData, setMatrixData] = useState<Record<number, Record<string, MatrixDayEntry>>>({});
+  const [pendingDraft, setPendingDraft] = useState<MatrixDraftEntries>({});
+  const [draftNeedsRestore, setDraftNeedsRestore] = useState<boolean>(false);
+  const [draftStorageError, setDraftStorageError] = useState<string | null>(null);
+  const [saveFailed, setSaveFailed] = useState<boolean>(false);
+  const [saveConfirmed, setSaveConfirmed] = useState<boolean>(false);
   const [expectedTotals, setExpectedTotals] = useState<Record<number, number | null>>({});
   const [centerPrice, setCenterPrice] = useState<number>(400);
   const [centerName, setCenterName] = useState<string>('');
@@ -74,6 +94,9 @@ export function DigitalNotebookMatrix({
   const [saving, setSaving] = useState<boolean>(false);
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [statusMessage, setStatusMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+  const pendingDraftRef = useRef<MatrixDraftEntries>({});
+  const serverMatrixDataRef = useRef<Record<number, Record<string, MatrixDayEntry>>>({});
+  const draftNeedsRestoreRef = useRef<boolean>(false);
 
   // Sync centerId when selectedCenterId prop changes
   useEffect(() => {
@@ -152,7 +175,12 @@ export function DigitalNotebookMatrix({
         newExpected[fid] = f.expectedTotal ?? null;
       }
 
-      setMatrixData(newMatrix);
+      serverMatrixDataRef.current = newMatrix;
+      setMatrixData(
+        draftNeedsRestoreRef.current
+          ? newMatrix
+          : applyMatrixDraft(newMatrix, pendingDraftRef.current)
+      );
       setExpectedTotals(newExpected);
       if (data.center?.pricePerLiter) {
         setCenterPrice(Number(data.center.pricePerLiter));
@@ -175,9 +203,70 @@ export function DigitalNotebookMatrix({
     loadMatrixData();
   }, [loadMatrixData]);
 
+  useEffect(() => {
+    pendingDraftRef.current = {};
+    draftNeedsRestoreRef.current = false;
+    setPendingDraft({});
+    setDraftNeedsRestore(false);
+    setDraftStorageError(null);
+    setSaveFailed(false);
+    setSaveConfirmed(false);
+
+    try {
+      const savedDraft = readMatrixDraft(window.localStorage, draftStorageKey);
+      if (savedDraft) {
+        pendingDraftRef.current = savedDraft;
+        draftNeedsRestoreRef.current = true;
+        setPendingDraft(savedDraft);
+        setDraftNeedsRestore(true);
+      }
+    } catch (error) {
+      console.error('Milk matrix draft load failure:', error);
+      draftNeedsRestoreRef.current = true;
+      setDraftNeedsRestore(true);
+      setDraftStorageError(
+        language === 'rw'
+          ? 'Draft ntishoboye gusomwa muri browser. Ntizahanaguwe.'
+          : 'The local draft could not be read. It has not been discarded.'
+      );
+    }
+  }, [draftStorageKey, language]);
+
+  const persistDraft = (entries: MatrixDraftEntries) => {
+    try {
+      writeMatrixDraft(window.localStorage, draftStorageKey, entries);
+      setDraftStorageError(null);
+    } catch (error) {
+      console.error('Milk matrix draft save failure:', error);
+      setDraftStorageError(
+        language === 'rw'
+          ? 'Draft ntishoboye kubikwa muri browser. Ongera ugerageze.'
+          : 'The local draft could not be saved in this browser. Please try again.'
+      );
+    }
+  };
+
   // Handle cell volume change
   const handleCellChange = (farmerId: number, day: number, session: 'morning' | 'evening', value: string) => {
     const dayStr = String(day);
+    const farmerKey = String(farmerId);
+    const nextDraft: MatrixDraftEntries = {
+      ...pendingDraftRef.current,
+      [farmerKey]: {
+        ...(pendingDraftRef.current[farmerKey] || {}),
+        [dayStr]: {
+          ...(pendingDraftRef.current[farmerKey]?.[dayStr] || {}),
+          [session]: value,
+        },
+      },
+    };
+    pendingDraftRef.current = nextDraft;
+    setPendingDraft(nextDraft);
+    if (saveFailed) setStatusMessage(null);
+    setSaveFailed(false);
+    setSaveConfirmed(false);
+    persistDraft(nextDraft);
+
     setMatrixData((prev) => {
       const farmerDays = prev[farmerId] || {};
       const currentCell = farmerDays[dayStr] || { morning: '', evening: '' };
@@ -291,11 +380,64 @@ export function DigitalNotebookMatrix({
     };
   }, [farmers, calculateRowTotal, centerPrice]);
 
+  const pendingCellCount = useMemo(
+    () =>
+      Object.values(pendingDraft).reduce(
+        (total, farmerDays) =>
+          total +
+          Object.values(farmerDays).reduce(
+            (dayTotal, sessions) =>
+              dayTotal + Number(sessions.morning !== undefined) + Number(sessions.evening !== undefined),
+            0
+          ),
+        0
+      ),
+    [pendingDraft]
+  );
+
+  const handleRestoreDraft = () => {
+    if (pendingCellCount === 0) {
+      setDraftStorageError(
+        language === 'rw'
+          ? 'Nta makuru ashoboye kugarurwa muri iyi draft.'
+          : 'No entries could be restored from this draft.'
+      );
+      return;
+    }
+    setMatrixData((current) => applyMatrixDraft(current, pendingDraftRef.current));
+    draftNeedsRestoreRef.current = false;
+    setDraftNeedsRestore(false);
+    setSaveFailed(false);
+  };
+
+  const handleDiscardDraft = () => {
+    try {
+      window.localStorage.removeItem(draftStorageKey);
+    } catch (error) {
+      console.error('Milk matrix draft discard failure:', error);
+      setDraftStorageError(
+        language === 'rw'
+          ? 'Draft ntiyashoboye gusibwa. Ongera ugerageze.'
+          : 'The local draft could not be discarded. Please try again.'
+      );
+      return;
+    }
+    pendingDraftRef.current = {};
+    draftNeedsRestoreRef.current = false;
+    setPendingDraft({});
+    setDraftNeedsRestore(false);
+    setDraftStorageError(null);
+    setSaveFailed(false);
+    setSaveConfirmed(false);
+    setMatrixData(serverMatrixDataRef.current);
+  };
+
   // Save all 15 days batch
   const handleSaveAll = async () => {
-    if (saving) return;
+    if (saving || draftNeedsRestore) return;
     setSaving(true);
     setStatusMessage(null);
+    setSaveConfirmed(false);
 
     try {
       const entriesPayload = farmers.map((f) => ({
@@ -321,6 +463,24 @@ export function DigitalNotebookMatrix({
         throw new Error(result.message || 'Failed to save batch matrix.');
       }
 
+      pendingDraftRef.current = {};
+      draftNeedsRestoreRef.current = false;
+      setPendingDraft({});
+      setDraftNeedsRestore(false);
+      setSaveFailed(false);
+      setSaveConfirmed(true);
+      try {
+        writeMatrixDraft(window.localStorage, draftStorageKey, {});
+        setDraftStorageError(null);
+      } catch (error) {
+        console.error('Milk matrix draft cleanup failure:', error);
+        setDraftStorageError(
+          language === 'rw'
+            ? 'Byabitswe kuri server, ariko draft yo muri browser ntiyashoboye gusibwa.'
+            : 'Saved on the server, but the browser draft could not be cleared.'
+        );
+      }
+
       setStatusMessage({
         type: 'success',
         text:
@@ -335,6 +495,8 @@ export function DigitalNotebookMatrix({
       // Reload fresh data from database
       await loadMatrixData();
     } catch (err: any) {
+      setSaveFailed(true);
+      setSaveConfirmed(false);
       setStatusMessage({
         type: 'error',
         text: err.message || (language === 'rw' ? 'Kubika byanze. Ongera ugerageze.' : 'Failed to save. Try again.'),
@@ -488,6 +650,42 @@ export function DigitalNotebookMatrix({
       </div>
 
       {/* Notification Banner */}
+      {draftNeedsRestore ? (
+        <div className="matrix-status-banner is-error" role="status">
+          <div className="matrix-status-content-wrap">
+            <span>
+              {language === 'rw'
+                ? 'Draft y’amata itarabikwa irahari kuri iki gihe.'
+                : 'A local draft exists for this period.'}
+            </span>
+            <button type="button" className="matrix-retry-link" onClick={handleRestoreDraft} disabled={loading}>
+              <span>{language === 'rw' ? 'Subizamo ibyanditswe (Restore unsaved entries)' : 'Restore unsaved entries'}</span>
+            </button>
+            <button type="button" className="matrix-retry-link" onClick={handleDiscardDraft}>
+              <span>{language === 'rw' ? 'Siba draft (Discard draft)' : 'Discard draft'}</span>
+            </button>
+            {draftStorageError && <span role="alert">{draftStorageError}</span>}
+          </div>
+        </div>
+      ) : pendingCellCount > 0 ? (
+        <div className={`matrix-status-banner ${saveFailed ? 'is-error' : 'is-success'}`} role="status" aria-live="polite">
+          <span>
+            {saveFailed
+              ? language === 'rw'
+                ? `Kubika byanze. ${pendingCellCount} byanditswe biracyabitswe muri draft.`
+                : `Save failed. ${pendingCellCount} edited value(s) remain unsaved in the local draft.`
+              : language === 'rw'
+                ? `${pendingCellCount} bitarabikwa`
+                : `${pendingCellCount} unsaved value(s)`}
+          </span>
+          {draftStorageError && <span role="alert">{draftStorageError}</span>}
+        </div>
+      ) : saveConfirmed ? (
+        <div className="matrix-status-banner is-success" role="status" aria-live="polite">
+          {language === 'rw' ? 'Byabitswe kuri server.' : 'Saved on the server.'}
+        </div>
+      ) : null}
+
       {statusMessage && (
         <div className={`matrix-status-banner ${statusMessage.type === 'error' ? 'is-error' : 'is-success'}`} role="alert">
           <div className="matrix-status-content-wrap">
@@ -496,11 +694,15 @@ export function DigitalNotebookMatrix({
               <button
                 type="button"
                 className="matrix-retry-link"
-                onClick={loadMatrixData}
-                disabled={loading}
+                onClick={saveFailed ? handleSaveAll : loadMatrixData}
+                disabled={loading || saving}
               >
-                <RefreshCw size={12} className={loading ? 'animate-spin' : ''} />
-                <span>{language === 'rw' ? 'Ongera ugerageze' : 'Retry'}</span>
+                <RefreshCw size={12} className={loading || saving ? 'animate-spin' : ''} />
+                <span>
+                  {saveFailed
+                    ? language === 'rw' ? 'Ongera ubike' : 'Retry save'
+                    : language === 'rw' ? 'Ongera ugerageze' : 'Retry'}
+                </span>
               </button>
             )}
           </div>
@@ -611,6 +813,8 @@ export function DigitalNotebookMatrix({
                         const morningVal = cellData.morning ?? '';
                         const eveningVal = cellData.evening ?? '';
                         const dayHasMilk = Number(morningVal) > 0 || Number(eveningVal) > 0;
+                        const morningUnsaved = pendingDraft[String(farmer.farmerId)]?.[String(d)]?.morning !== undefined;
+                        const eveningUnsaved = pendingDraft[String(farmer.farmerId)]?.[String(d)]?.evening !== undefined;
 
                         return (
                           <React.Fragment key={`cell-${farmer.farmerId}-${d}`}>
@@ -620,12 +824,18 @@ export function DigitalNotebookMatrix({
                                 id={`cell-${farmer.farmerId}-${d}-morning`}
                                 type="text"
                                 inputMode="decimal"
-                                className="matrix-cell-input"
+                                className={`matrix-cell-input ${morningUnsaved ? 'is-unsaved' : ''}`}
                                 value={morningVal}
                                 placeholder="—"
+                                disabled={saving || draftNeedsRestore}
+                                title={morningUnsaved ? (saveFailed ? 'Save failed — unsaved' : 'Unsaved') : undefined}
+                                style={morningUnsaved ? {
+                                  borderColor: saveFailed ? '#dc2626' : '#d97706',
+                                  boxShadow: `0 0 0 1px ${saveFailed ? '#dc2626' : '#d97706'}`,
+                                } : undefined}
                                 onChange={(e) => handleCellChange(farmer.farmerId, d, 'morning', e.target.value)}
                                 onKeyDown={(e) => handleCellKeyDown(e, fIdx, farmer.farmerId, dIdx, d, 'morning')}
-                                aria-label={`${farmer.farmerName} umunsi ${d} igitondo`}
+                                aria-label={`${farmer.farmerName} umunsi ${d} igitondo${morningUnsaved ? (saveFailed ? ' — Save failed, unsaved' : ' — Unsaved') : ''}`}
                               />
                             </td>
 
@@ -635,12 +845,18 @@ export function DigitalNotebookMatrix({
                                 id={`cell-${farmer.farmerId}-${d}-evening`}
                                 type="text"
                                 inputMode="decimal"
-                                className="matrix-cell-input"
+                                className={`matrix-cell-input ${eveningUnsaved ? 'is-unsaved' : ''}`}
                                 value={eveningVal}
                                 placeholder="—"
+                                disabled={saving || draftNeedsRestore}
+                                title={eveningUnsaved ? (saveFailed ? 'Save failed — unsaved' : 'Unsaved') : undefined}
+                                style={eveningUnsaved ? {
+                                  borderColor: saveFailed ? '#dc2626' : '#d97706',
+                                  boxShadow: `0 0 0 1px ${saveFailed ? '#dc2626' : '#d97706'}`,
+                                } : undefined}
                                 onChange={(e) => handleCellChange(farmer.farmerId, d, 'evening', e.target.value)}
                                 onKeyDown={(e) => handleCellKeyDown(e, fIdx, farmer.farmerId, dIdx, d, 'evening')}
-                                aria-label={`${farmer.farmerName} umunsi ${d} nimugoroba`}
+                                aria-label={`${farmer.farmerName} umunsi ${d} nimugoroba${eveningUnsaved ? (saveFailed ? ' — Save failed, unsaved' : ' — Unsaved') : ''}`}
                               />
                             </td>
                           </React.Fragment>
@@ -706,7 +922,7 @@ export function DigitalNotebookMatrix({
             type="button"
             className="matrix-save-all-button"
             onClick={handleSaveAll}
-            disabled={saving || loading || filteredFarmers.length === 0}
+            disabled={saving || loading || draftNeedsRestore || filteredFarmers.length === 0}
           >
             {saving ? (
               <>

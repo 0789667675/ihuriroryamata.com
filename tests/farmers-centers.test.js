@@ -641,22 +641,26 @@ test('signed sessions reject tampering and expose a numeric user identity', () =
 });
 
 
-test('Aborozi directory implements clean 5-column hierarchy with monospace numbering and no unassigned badge', () => {
+test('Aborozi directory extracts real farmer fields, filter controls, and responsive actions', () => {
   const workspace = fs.readFileSync(path.join(__dirname, '..', 'app', 'workspace.tsx'), 'utf8');
+  const farmersComponent = fs.readFileSync(path.join(__dirname, '..', 'components', 'views', 'farmers-view.tsx'), 'utf8');
   const styles = fs.readFileSync(path.join(__dirname, '..', 'app', 'globals.css'), 'utf8');
-  const farmerView = workspace.slice(workspace.indexOf('const renderFarmers'), workspace.indexOf('const renderCenters'));
-  const farmerTable = farmerView.slice(farmerView.indexOf('table-scroll farmers-desktop-table'), farmerView.indexOf('{farmers ? farmers.data.length'));
 
-  assert.match(farmerTable, /farmerNumberShort/);
-  assert.match(farmerTable, /columnName/);
-  assert.match(farmerTable, /columnPhone/);
-  assert.match(farmerTable, /accountNationalId/);
-  assert.match(farmerTable, /statusLabel/);
-  assert.match(farmerTable, /publicLanguage\.t\('actions'\)/);
-  assert.doesNotMatch(farmerTable, /assignedCollector/);
+  assert.match(farmersComponent, /farmerNumberShort/);
+  assert.match(farmersComponent, /columnName/);
+  assert.match(farmersComponent, /columnPhone/);
+  assert.match(farmersComponent, /accountNationalId/);
+  assert.match(farmersComponent, /assignedCollectors/);
+  assert.match(farmersComponent, /onOpenHistory/);
+  assert.match(farmersComponent, /onOpenIfishi/);
+  assert.match(farmersComponent, /collectorFilter/);
+  assert.doesNotMatch(farmersComponent, /farmer-status-active|>Active</);
 
-  assert.doesNotMatch(farmerView, /Nta mucunda/);
+  assert.match(workspace, /selectedCollectorId: sanitizeQueryParam\(farmerCollectorFilter\)/);
+  assert.match(workspace, /<FarmersView/);
   assert.match(styles, /\.farmers-desktop-table tbody tr:hover/);
+  assert.match(styles, /\.farmers-desktop-table thead th \{ position: sticky;/);
+  assert.match(styles, /\.farmer-mobile-card/);
   assert.match(styles, /0 8px 24px -4px rgba\(22, 129, 171, 0\.08\)/);
 });
 

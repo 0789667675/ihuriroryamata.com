@@ -20,6 +20,8 @@ const fakePool = {
         fakeDatabase.snapshot = null;
         return { rows: [] };
       }
+      if (sql.startsWith('SELECT pg_advisory_xact_lock')) return { rows: [] };
+      if (sql.startsWith('SELECT COALESCE(SUM(amount), 0) AS amount FROM farmer_settlement_records')) return { rows: [{ amount: 0 }] };
       if (sql.startsWith('SELECT id FROM farmers')) return { rows: [{ id: values[0] }] };
       if (sql.startsWith('INSERT INTO farmer_settlement_records')) {
         const [farmerId, ownerUserId, paymentMethod, paymentType, amount, settledAmount, remainingAmount, status, approvalStatus, approvedBy, approvedAt, actualPaymentDate, periodType, periodStart, periodEnd, reason, notes, paymentReference] = values;
@@ -135,6 +137,29 @@ test('cash settlement retries are idempotent and audit failure rolls back the wr
     paymentReference: 'cash-7-rollback-test',
   }), /simulated audit database failure/);
   assert.equal(fakeDatabase.settlements.size, 1);
+});
+
+test('cash request keys cannot be reused with a different amount or period', async () => {
+  process.env.DATABASE_URL = 'postgres://test.invalid/database';
+  const payload = {
+    farmerId: 29,
+    ownerUserId: 7,
+    amount: 725.5,
+    paymentMethod: 'CASH',
+    paymentType: 'CASH',
+    periodStart: '2026-10-01',
+    periodEnd: '2026-10-31',
+    maxPayable: 1000,
+    status: 'APPROVED',
+    approvalStatus: 'APPROVED',
+    approvedBy: 7,
+    paymentReference: 'cash-7-key-reuse-test',
+  };
+  await farmerSettlementRepository.createSettlementRecord(payload);
+
+  await assert.rejects(() => farmerSettlementRepository.createSettlementRecord({ ...payload, amount: 500 }), { statusCode: 409 });
+  await assert.rejects(() => farmerSettlementRepository.createSettlementRecord({ ...payload, periodEnd: '2026-11-15' }), { statusCode: 409 });
+  assert.equal(fakeDatabase.settlements.size, 2);
 });
 
 test('period financial debt queries use only typed parameters for owner, date, and collector', async () => {

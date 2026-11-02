@@ -581,7 +581,7 @@ test('the notification inbox scopes the unread badge and mark-all-read to the ac
   assert.match(workspace, /const notificationCenterParam = isDairy && selectedCenter/);
   assert.match(workspace, /centers\.find\(\(center\) => String\(center\.id\) === selectedCenter\)\?\.name \|\| ''/);
   assert.match(workspace, /\.\.\.\(notificationCenterParam \? \{ center: notificationCenterParam \} : \{\}\)/);
-  assert.match(workspace, /useEffect\(\(\) => \{\s*if \(!user \|\| !isDairy \|\| !selectedCenter\) return;\s*loadUnreadCount\(\)\.catch/);
+  assert.match(workspace, /useEffect\(\(\) => \{\s*if \(!user \|\| !isDairy \|\| !selectedCenter\) return;\s*void loadUnreadCount\(\);/);
   assert.ok(workspace.includes("`/api/notifications/unread-count${notificationCenterQuery ? `?${notificationCenterQuery}` : ''}`"));
   assert.ok(workspace.includes("`/api/notifications/read-all${notificationCenterQuery ? `?${notificationCenterQuery}` : ''}`"));
 });

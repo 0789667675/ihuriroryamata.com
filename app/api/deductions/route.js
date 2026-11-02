@@ -17,18 +17,33 @@ export async function GET(request) {
     if (!user) return NextResponse.json({ message: 'Not authenticated.' }, { status: 401 });
     requireAccountType(user, 'COLLECTOR');
     const params = new URL(request.url).searchParams;
-    return NextResponse.json(await Deductions.listDeductions({
-      ownerUserId: user.id,
-      collectorUserId: user.id,
-      farmerId: params.get('farmerId'),
-      type: params.get('type'),
-      status: params.get('status'),
-      search: params.get('search') || '',
-      sortBy: params.get('sortBy') || 'date',
-      sortDirection: params.get('sortDirection') || 'desc',
-      cursor: params.get('cursor'),
-      limit: params.get('limit') || 50,
-    }));
+    const groupBy = String(params.get('groupBy') || '').trim().toLowerCase();
+    const result = groupBy === 'farmer'
+      ? await Deductions.listDeductionGroups({
+          ownerUserId: user.id,
+          collectorUserId: user.id,
+          farmerId: params.get('farmerId'),
+          type: params.get('type'),
+          status: params.get('status'),
+          search: params.get('search') || '',
+          sortBy: params.get('sortBy') || 'date',
+          sortDirection: params.get('sortDirection') || 'desc',
+          cursor: params.get('cursor'),
+          limit: params.get('limit') || 50,
+        })
+      : await Deductions.listDeductions({
+          ownerUserId: user.id,
+          collectorUserId: user.id,
+          farmerId: params.get('farmerId'),
+          type: params.get('type'),
+          status: params.get('status'),
+          search: params.get('search') || '',
+          sortBy: params.get('sortBy') || 'date',
+          sortDirection: params.get('sortDirection') || 'desc',
+          cursor: params.get('cursor'),
+          limit: params.get('limit') || 50,
+        });
+    return NextResponse.json(result);
   } catch (error) {
     return respond(error, 'Failed to load deductions.');
   }

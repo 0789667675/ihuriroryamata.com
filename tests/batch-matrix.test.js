@@ -121,6 +121,16 @@ test('Batch Matrix API: exports robust GET and POST handlers', () => {
   assert.doesNotMatch(routeContent, /is_active\s*=\s*(TRUE|true)/, 'Route must not query nonexistent is_active column on farmers');
 });
 
+test('Batch Matrix API: saves atomically and upserts records idempotently', () => {
+  const fs = require('fs');
+  const routeContent = fs.readFileSync('app/api/milk/batch-matrix/route.js', 'utf8');
+  assert.match(routeContent, /await client\.query\('BEGIN'\)/, 'Batch save must run inside a transaction');
+  assert.match(routeContent, /ON CONFLICT \(farmer_id, month, year, day\)\s+DO UPDATE/, 'Retry must upsert the same farmer-day record');
+  assert.match(routeContent, /await client\.query\('ROLLBACK'\)/, 'Failed batches must roll back instead of partially saving');
+  assert.match(routeContent, /await client\.query\('COMMIT'\)/, 'Successful batches must commit as a unit');
+  assert.doesNotMatch(routeContent, /failedEntries|successEntries|partialSuccess/, 'Batch API does not expose per-record partial results');
+});
+
 test('Security & DB: authenticate and postgres exports support batch matrix ingestion', () => {
   const { authenticate, getAuthenticatedUser, isCollectionCenterAuthenticationPath } = require('../lib/security/authenticate.js');
   assert.equal(typeof authenticate, 'function', 'authenticate function must be exported');
@@ -132,4 +142,3 @@ test('Security & DB: authenticate and postgres exports support batch matrix inge
   assert.equal(typeof query, 'function', 'query must be exported');
   assert.equal(typeof pool.connect, 'function', 'pool.connect must be a function');
 });
-
