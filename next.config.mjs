@@ -12,6 +12,9 @@ const nextConfig = {
   experimental: {
     typedRoutes: false,
     serverComponentsExternalPackages: ['pdfkit'],
+    outputFileTracingIncludes: {
+      '/api/ukwezi/pdf': ['./node_modules/pdfkit/js/standard-fonts/**/*'],
+    },
     serverActions: {
       bodySizeLimit: '50mb',
     },
