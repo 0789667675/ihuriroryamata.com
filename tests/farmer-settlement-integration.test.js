@@ -2,13 +2,13 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 
 const postgres = require('../lib/postgres.js');
-const fakeDatabase = { settlements: new Map(), audits: [], failAudit: false, snapshot: null };
+const fakeDatabase = { settlements: new Map(), audits: [], emails: [], failAudit: false, snapshot: null };
 const fakePool = {
   connect: async () => ({
     query: async (statement, values = []) => {
       const sql = statement.replace(/\s+/g, ' ').trim();
       if (sql === 'BEGIN') {
-        fakeDatabase.snapshot = { settlements: new Map([...fakeDatabase.settlements].map(([key, row]) => [key, { ...row }])), audits: [...fakeDatabase.audits] };
+        fakeDatabase.snapshot = { settlements: new Map([...fakeDatabase.settlements].map(([key, row]) => [key, { ...row }])), audits: [...fakeDatabase.audits], emails: [...fakeDatabase.emails] };
         return { rows: [] };
       }
       if (sql === 'COMMIT') { fakeDatabase.snapshot = null; return { rows: [] }; }
@@ -16,6 +16,7 @@ const fakePool = {
         if (fakeDatabase.snapshot) {
           fakeDatabase.settlements = fakeDatabase.snapshot.settlements;
           fakeDatabase.audits = fakeDatabase.snapshot.audits;
+          fakeDatabase.emails = fakeDatabase.snapshot.emails;
         }
         fakeDatabase.snapshot = null;
         return { rows: [] };
@@ -23,6 +24,13 @@ const fakePool = {
       if (sql.startsWith('SELECT pg_advisory_xact_lock')) return { rows: [] };
       if (sql.startsWith('SELECT COALESCE(SUM(amount), 0) AS amount FROM farmer_settlement_records')) return { rows: [{ amount: 0 }] };
       if (sql.startsWith('SELECT id FROM farmers')) return { rows: [{ id: values[0] }] };
+      if (sql.startsWith('SELECT id, name, email, language FROM users')) return { rows: [{ id: values[0], name: 'Test Owner', email: 'owner@example.test', language: 'en' }] };
+      if (sql.startsWith('SELECT name FROM farmers')) return { rows: [{ name: `Farmer ${values[0]}` }] };
+      if (sql.startsWith('SELECT id FROM user_subscriptions')) return { rows: [{ id: 700 + Number(values[0]) }] };
+      if (sql.startsWith('INSERT INTO subscription_email_events')) {
+        fakeDatabase.emails.push({ ownerUserId: values[0], subscriptionId: values[1], eventKey: values[2], recipient: values[3], payload: JSON.parse(values[4]) });
+        return { rows: [] };
+      }
       if (sql.startsWith('INSERT INTO farmer_settlement_records')) {
         const [farmerId, ownerUserId, paymentMethod, paymentType, amount, settledAmount, remainingAmount, status, approvalStatus, approvedBy, approvedAt, actualPaymentDate, periodType, periodStart, periodEnd, reason, notes, paymentReference] = values;
         const key = `${ownerUserId}:${farmerId}:${paymentType}:${paymentReference}`;
@@ -129,6 +137,9 @@ test('cash settlement retries are idempotent and audit failure rolls back the wr
   assert.equal(first.id, duplicate.id);
   assert.equal(fakeDatabase.settlements.size, 1);
   assert.equal(fakeDatabase.audits.length, 1);
+  assert.equal(fakeDatabase.emails.length, 1);
+  assert.equal(fakeDatabase.emails[0].ownerUserId, 7);
+  assert.equal(fakeDatabase.emails[0].payload.businessEventType, 'cash_payout_approved');
 
   fakeDatabase.failAudit = true;
   await assert.rejects(() => farmerSettlementRepository.createSettlementRecord({
@@ -137,6 +148,7 @@ test('cash settlement retries are idempotent and audit failure rolls back the wr
     paymentReference: 'cash-7-rollback-test',
   }), /simulated audit database failure/);
   assert.equal(fakeDatabase.settlements.size, 1);
+  assert.equal(fakeDatabase.emails.length, 1);
 });
 
 test('cash request keys cannot be reused with a different amount or period', async () => {

@@ -15,7 +15,7 @@ export interface AnimatedCounterProps {
 
 export function AnimatedCounter({
   value,
-  formatter = (val) => new Intl.NumberFormat('rw-RW', { maximumFractionDigits: 0 }).format(Math.round(val)),
+  formatter = (val) => new Intl.NumberFormat('en-US', { maximumFractionDigits: 0 }).format(Math.round(val)),
   duration = 450,
   fallback = '…',
   prefix = '',

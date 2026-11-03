@@ -4,7 +4,7 @@ import Image from 'next/image';
 import Link from 'next/link';
 import { useState } from 'react';
 import { motion, useReducedMotion } from 'framer-motion';
-import { ArrowRight, FileBarChart2, Milk, Sparkles, Users } from 'lucide-react';
+import { ArrowRight, FileBarChart2, Milk, Users } from 'lucide-react';
 import { AnimatedCounter } from '@/components/ui/animated-counter';
 import { usePublicLanguage } from '@/hooks/use-public-language';
 import type { PublicLanguage } from '@/lib/i18n/public-copy';
@@ -74,12 +74,11 @@ export default function WelcomePage({ copyrightYear }: { copyrightYear: number }
         >
           {/* Eyebrow badge */}
           <div className="welcome-hero-pill-badge" style={{ display: 'inline-flex', alignItems: 'center', gap: 8, padding: '6px 14px', borderRadius: 999, background: 'rgba(22, 129, 171, 0.08)', border: '1px solid rgba(22, 129, 171, 0.2)', color: '#1681ab', fontSize: '0.8125rem', fontWeight: 600, marginBottom: 14 }}>
-            <Sparkles size={14} aria-hidden="true" />
             <span>{language === 'en' ? "Rwanda's Trusted Milk Collection System" : "Sisitemu Yizewe y'Ikusanyirizo ry'Amata mu Rwanda"}</span>
           </div>
 
           <h1 id="welcome-title" className="welcome-headline">
-            {language === 'en' ? 'Balanced Monthly Accounting, Zero Loss.' : 'Ibaruramari ry’Ukwezi Rihuye, Nta Rihombo.'}
+            {language === 'en' ? 'Balanced Monthly Accounting, Zero Loss.' : 'Ibaruramari ry’Ukwezi Rihuye, Nta Gihombo.'}
           </h1>
 
           <p className="welcome-description">

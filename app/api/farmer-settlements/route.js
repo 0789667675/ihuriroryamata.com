@@ -7,6 +7,7 @@ const settlementRepository = require('@/lib/repositories/farmerSettlementReposit
 const { createSettlementRecord, confirmSettlement, hasValidSaccoAccount } = require('@/lib/services/farmer-settlement-service.js');
 const { requireCollector, assertAssignedCollector, parsePositiveId, parsePositiveAmount, parsePeriod } = require('@/lib/services/farmer-settlement-access.js');
 const { getCurrentAccountingPeriod } = require('@/lib/utils/accounting-period.js');
+const Notifications = require('@/lib/services/notification-service.js');
 
 export const runtime = 'nodejs';
 
@@ -24,7 +25,7 @@ const settlementErrorResponse = (error) => {
 
 const getAssignedFarmer = async (collectorUserId, farmerId) => {
   const { rows } = await query(
-    `SELECT f.id AS "farmerId", f.owner_user_id AS "ownerUserId", f.account_number AS "accountNumber"
+    `SELECT f.id AS "farmerId", f.owner_user_id AS "ownerUserId", f.account_number AS "accountNumber", f.name AS "farmerName"
      FROM farmers f
      JOIN collector_assignments ca ON ca.dairy_user_id = f.owner_user_id
        AND ca.collector_user_id = f.collector_user_id AND ca.revoked_at IS NULL
@@ -32,6 +33,23 @@ const getAssignedFarmer = async (collectorUserId, farmerId) => {
     [farmerId, collectorUserId]
   );
   return rows[0] || null;
+};
+
+const notifySettlementActivity = async ({ type, ownerUserId, farmerId, farmerName, amount, reference, periodStart, periodEnd }) => {
+  try {
+    await Notifications.createBusinessActivityNotification({
+      type,
+      ownerUserId: Number(ownerUserId),
+      farmerId: Number(farmerId),
+      farmerName,
+      amount,
+      date: periodEnd,
+      reference,
+    });
+  } catch (error) {
+    const code = error?.code ? String(error.code).replace(/[^A-Za-z0-9_-]/g, '').slice(0, 80) : 'NOTIFICATION_WRITE_FAILED';
+    console.error('[settlements] Business activity notification failed.', { code, ownerUserId: Number(ownerUserId) || null, type });
+  }
 };
 
 export async function GET(request) {
@@ -94,7 +112,7 @@ export async function POST(request) {
       const farmerId = parsePositiveId(body.farmerId, 'farmerId');
       const { periodStart, periodEnd } = parsePeriod(body.periodStart, body.periodEnd);
       const { rows } = await query(
-        `SELECT s.owner_user_id AS "ownerUserId", f.id AS "farmerId", ca.collector_user_id AS "assignedCollectorUserId"
+        `SELECT s.owner_user_id AS "ownerUserId", f.id AS "farmerId", f.name AS "farmerName", ca.collector_user_id AS "assignedCollectorUserId"
          FROM farmer_settlement_records s JOIN farmers f ON f.id = s.farmer_id AND f.owner_user_id = s.owner_user_id
          JOIN collector_assignments ca ON ca.dairy_user_id = s.owner_user_id
            AND ca.collector_user_id = $1 AND ca.revoked_at IS NULL
@@ -107,6 +125,16 @@ export async function POST(request) {
       const record = await confirmSettlement({
         repo: settlementRepository, settlementId, collectorUserId: Number(user.id), farmerId,
         ownerUserId: Number(rows[0].ownerUserId), periodStart, periodEnd,
+      });
+      await notifySettlementActivity({
+        type: 'settlement_confirmed',
+        ownerUserId: Number(rows[0].ownerUserId),
+        farmerId,
+        farmerName: rows[0].farmerName,
+        amount: record.amount,
+        reference: `settlement:${settlementId}:confirmed`,
+        periodStart,
+        periodEnd,
       });
       return NextResponse.json({ ok: true, record });
     }
@@ -152,6 +180,16 @@ export async function POST(request) {
         periodStart, periodEnd, reason: 'NO_SACCO_ACCOUNT', notes: body.notes || null,
         approvedBy: Number(user.id), paymentReference, maxPayable: payable,
       });
+      await notifySettlementActivity({
+        type: 'cash_payout_approved',
+        ownerUserId,
+        farmerId,
+        farmerName: farmer.farmerName,
+        amount,
+        reference: `cash-payout:${paymentReference}`,
+        periodStart,
+        periodEnd,
+      });
       return NextResponse.json({ ok: true, record });
     }
 
@@ -168,6 +206,16 @@ export async function POST(request) {
         farmerId, ownerUserId, collectorUserId: Number(user.id), openingBalance, remainingBalance: openingBalance, periodStart, periodEnd,
         reason: body.reason || 'DEBT', notes: body.notes || null, createdBy: Number(user.id), requestKey,
       });
+      await notifySettlementActivity({
+        type: 'debt_created',
+        ownerUserId,
+        farmerId,
+        farmerName: farmer.farmerName,
+        amount: openingBalance,
+        reference: `debt:${ownerUserId}:${requestKey}`,
+        periodStart,
+        periodEnd,
+      });
       return NextResponse.json({ ok: true, ledger });
     }
 
@@ -177,7 +225,7 @@ export async function POST(request) {
       const requestKey = String(body.requestKey || '').trim();
       if (!requestKey || requestKey.length > 120) throw Object.assign(new Error('A requestKey of 1 to 120 characters is required.'), { statusCode: 400 });
       const { rows: debts } = await query(
-        `SELECT d.owner_user_id AS "ownerUserId" FROM farmer_debt_ledgers d
+        `SELECT d.owner_user_id AS "ownerUserId", d.farmer_id AS "farmerId", f.name AS "farmerName" FROM farmer_debt_ledgers d
          JOIN farmers f ON f.id = d.farmer_id AND f.owner_user_id = d.owner_user_id
          JOIN collector_assignments ca ON ca.dairy_user_id = f.owner_user_id
            AND ca.collector_user_id = f.collector_user_id AND ca.revoked_at IS NULL
@@ -189,6 +237,16 @@ export async function POST(request) {
         debtId, ownerUserId: Number(debts[0].ownerUserId), collectorUserId: Number(user.id), amount, actorId: Number(user.id), requestKey,
         reason: body.reason || 'PARTIAL_RECOVERY',
       });
+      if (!result.duplicate) {
+        await notifySettlementActivity({
+          type: 'debt_repaid',
+          ownerUserId: Number(debts[0].ownerUserId),
+          farmerId: Number(debts[0].farmerId),
+          farmerName: debts[0].farmerName,
+          amount: result.repayment.amount,
+          reference: `debt-repayment:${requestKey}`,
+        });
+      }
       return NextResponse.json({ ok: true, ...result });
     }
 

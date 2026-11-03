@@ -48,12 +48,23 @@ const createFixture = () => {
       if (!token || token.purpose !== 'password_reset_verified' || token.tokenHash !== resetTokenHash || token.expiresAt <= new Date()) return false;
       user.passwordHash = passwordHash;
       token = null;
-      return true;
+      return user.id;
     },
   };
-  const users = { findUserByEmail: async (email) => { userLookups += 1; return email === user.email ? user : null; } };
-  const mailer = { sentCodes: [], languages: [], sendPasswordResetCode: async ({ code, language }) => { mailer.code = code; mailer.sentCodes.push(code); mailer.languages.push(language); } };
-  return { user, repository, users, mailer, get token() { return token; }, get userLookups() { return userLookups; } };
+  const users = {
+    findUserByEmail: async (email) => { userLookups += 1; return email === user.email ? user : null; },
+    findUserById: async (id) => Number(id) === user.id ? user : null,
+  };
+  const mailer = {
+    sentCodes: [],
+    languages: [],
+    passwordNotices: [],
+    sendPasswordResetCode: async ({ code, language }) => { mailer.code = code; mailer.sentCodes.push(code); mailer.languages.push(language); },
+    sendPasswordChangedNotice: async (message) => mailer.passwordNotices.push(message),
+  };
+  const auditEntries = [];
+  const audit = async (entry) => auditEntries.push(entry);
+  return { user, repository, users, mailer, audit, auditEntries, get token() { return token; }, get userLookups() { return userLookups; } };
 };
 
 test('reset request uses generic responses and sends a six-digit code only through the mail adapter', async () => {
@@ -99,7 +110,9 @@ test('reset enforces current password rules, consumes the token, and permits log
   await requestPasswordReset({ email: fixture.user.email, ipAddress: '127.0.0.1', ...fixture });
   const resetToken = await verifyPasswordResetCode({ email: fixture.user.email, code: fixture.mailer.code, ipAddress: '127.0.0.1', ...fixture });
   await assert.rejects(() => resetPassword({ resetToken, password: 'short', repository: fixture.repository }), /at least 8 characters/i);
-  await resetPassword({ resetToken, password: 'NewPassword123!', repository: fixture.repository });
+  await resetPassword({ resetToken, password: 'NewPassword123!', repository: fixture.repository, users: fixture.users, mailer: fixture.mailer, audit: fixture.audit });
+  assert.equal(fixture.mailer.passwordNotices.length, 1);
+  assert.equal(fixture.auditEntries[0].action, 'password_reset_completed');
   const session = {};
   const result = await loginUser({ repository: fixture.users, email: fixture.user.email, password: 'NewPassword123!', session });
   assert.equal(result.user.email, fixture.user.email);

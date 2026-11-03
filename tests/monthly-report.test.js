@@ -849,9 +849,13 @@ test('Dairy farmer and loss SQL are owner- and center-scoped without Collector a
   for (const query of [farmerQuery, lossQuery]) {
     assert.match(query.text, /f\.owner_user_id = \$1/);
     assert.match(query.text, /LOWER\(BTRIM\(\$\d+\)\)/);
-    assert.doesNotMatch(query.text, /collector_assignments|collector_user_id/);
     assert.deepEqual(query.values, [77, '2026-10-01', '2026-10-15', 'latina']);
   }
+  assert.doesNotMatch(farmerQuery.text, /JOIN collector_assignments|collector_assignments ca/);
+  assert.doesNotMatch(lossQuery.text, /collector_assignments|collector_user_id/);
+  // Dairy rows still expose the current collector attribution so the MCC PDF can
+  // group only eligible farmers per collector without joining every assignment.
+  assert.match(farmerQuery.text, /f\.collector_user_id AS "collectorUserId"/);
 });
 
 test('Collector farmer transport uses the rate snapshot stored on each milk record', () => {
@@ -1194,7 +1198,7 @@ test('active report response and deduction SQL do not expose retired deduction c
   assert.match(deductionsQuery.text, /LOWER\(BTRIM\(d\.type\)\) IN \('other', 'advance', 'umwenda'\)/);
 });
 
-test('Dairy collector SQL is owner-, assignment-, period-, and selected-center-scoped with no Collector-only charges', () => {
+test('Dairy collector SQL is owner-, assignment-history-, eligibility-, period-, and selected-center-scoped with no Collector-only charges', () => {
   const query = ReportRepository.buildDairyCollectorTotalsQuery({
     ownerUserId: 77,
     rangeStart: '2026-06-16',
@@ -1205,11 +1209,14 @@ test('Dairy collector SQL is owner-, assignment-, period-, and selected-center-s
   assert.deepEqual(query.values, [77, '2026-06-16', '2026-06-30', 'north site']);
   assert.match(query.text, /ca\.dairy_user_id = \$1/);
   assert.match(query.text, /ca\.revoked_at IS NULL/);
+  assert.match(query.text, /ca\.created_at AT TIME ZONE 'Africa\/Kigali'\)::date <= \$3::date/);
+  assert.match(query.text, /ca\.revoked_at AT TIME ZONE 'Africa\/Kigali'\)::date >= \$2::date/);
   assert.match(query.text, /f\.owner_user_id = ca\.dairy_user_id/);
   assert.match(query.text, /u\.id = ca\.collector_user_id AND u\.account_type = 'COLLECTOR'/);
   assert.match(query.text, /mr\.date BETWEEN \$2 AND \$3/);
   assert.match(query.text, /LOWER\(BTRIM\(\$4\)\)/);
-  assert.match(query.text, /mr\.status = 'cancelled'/);
+  assert.match(query.text, /COALESCE\(mr\.status, 'valid'\) = 'cancelled'/);
+  assert.match(query.text, /HAVING COALESCE\(SUM/);
   assert.match(query.text, /prices\.effective_date <= mr\.date/);
   assert.match(query.text, /unpricedMilkCount/);
   assert.match(query.text, /COALESCE\(NULLIF\(mr\.price_per_liter, 0\), ccp\.price_per_liter, NULLIF\(cc\.price_per_liter, 0\), 400\)/);

@@ -92,6 +92,11 @@ this convention, re-run `024`; it is idempotent and safe to re-run.
 If an existing production table genuinely needs a grant correction, add a **new
 forward-only migration**; never modify an applied migration file.
 
+Migrations `026_subscription_email_status.sql`, `027_notification_priority_values.sql`,
+and `028_business_event_email_outbox.sql` are additive reliability changes: they
+record provider acceptance, align notification priority values with emitted events,
+and extend the existing email outbox for owner-scoped financial notices.
+
 ## How migrations are applied
 
 This repository has no Supabase CLI configuration (`config.toml`) and no automated

@@ -33,7 +33,12 @@ export async function POST(request) {
     requireAccountType(user, 'COLLECTION_CENTER');
     await requireActiveSubscription(user);
     const input = await request.json();
-    const assignment = await Assignments.assignCollector({ dairyUserId: user.id, actorId: user.id, collectorUserId: input.collectorUserId });
+    const assignment = await Assignments.assignCollector({
+      dairyUserId: user.id,
+      actorId: user.id,
+      collectorUserId: input.collectorUserId,
+      collectorEmail: input.collectorEmail,
+    });
     return NextResponse.json(assignment, { status: 201 });
   } catch (error) {
     return respond(error, 'Failed to create collector assignment.');

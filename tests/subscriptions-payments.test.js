@@ -891,6 +891,70 @@ test('email provider failures remain queued and are never reported as delivered'
   assert.deepEqual(failedEvent, { eventId: 90, errorCode: 'EMAIL_PROVIDER_REJECTED' });
 });
 
+test('terminal payment outbox retries reuse a stable provider key and record provider acceptance', async () => {
+  const providerKeys = [];
+  const acceptedMessages = [];
+  const result = await Subscriptions.deliverSubscriptionEmails({
+    repository: {
+      claimSubscriptionEmailEvents: async () => [{
+        id: 92,
+        event_key: 'payment-status:92:failed',
+        event_type: 'payment_status',
+        recipient: 'owner@example.test',
+        payload: { paymentStatus: 'FAILED', language: 'en' },
+      }],
+      markSubscriptionEmailSent: async (...args) => acceptedMessages.push(args),
+      markSubscriptionEmailFailed: async () => {},
+    },
+    mailer: {
+      sendPaymentStatus: async (message) => {
+        providerKeys.push(message.idempotencyKey);
+        assert.equal(message.payload.paymentStatus, 'FAILED');
+        return { provider: 'resend', messageId: 'resend-message-92' };
+      },
+    },
+  });
+
+  assert.deepEqual(result, { sent: 1, failed: 0, attempted: 1 });
+  assert.match(providerKeys[0], /^milk-system-[a-f0-9]{64}$/);
+  assert.equal(providerKeys[0], `milk-system-${require('node:crypto').createHash('sha256').update('payment-status:92:failed').digest('hex')}`);
+  assert.deepEqual(acceptedMessages, [[92, 'resend-message-92']]);
+});
+
+test('settlement and debt business events use the existing retryable email outbox', async () => {
+  let delivered;
+  let accepted;
+  const result = await Subscriptions.deliverSubscriptionEmails({
+    repository: {
+      claimSubscriptionEmailEvents: async () => [{
+        id: 93,
+        event_key: 'business:7:debt_repaid:repayment:8',
+        event_type: 'business_event',
+        recipient: 'owner@example.test',
+        payload: { businessEventType: 'debt_repaid', farmerName: 'Aline', amount: 500, currency: 'RWF', language: 'en' },
+      }],
+      markSubscriptionEmailSent: async (...args) => { accepted = args; },
+      markSubscriptionEmailFailed: async () => {},
+    },
+    mailer: {
+      sendBusinessEventNotice: async (message) => {
+        delivered = message;
+        return { provider: 'resend', messageId: 'resend-business-93' };
+      },
+    },
+  });
+  assert.deepEqual(result, { sent: 1, failed: 0, attempted: 1 });
+  assert.equal(delivered.payload.businessEventType, 'debt_repaid');
+  assert.match(delivered.idempotencyKey, /^milk-system-[a-f0-9]{64}$/);
+  assert.deepEqual(accepted, [93, 'resend-business-93']);
+});
+
+test('subscription email event dates and reminder comparisons use Africa/Kigali calendar dates', () => {
+  const source = fs.readFileSync(path.join(__dirname, '..', 'lib', 'repositories', 'subscriptionRepository.js'), 'utf8');
+  assert.match(source, /end_date AT TIME ZONE 'Africa\/Kigali'\)::date = \$1::date \+ \$2::integer/);
+  assert.match(source, /subscription-expired:[\s\S]*AT TIME ZONE 'Africa\/Kigali'/);
+});
+
 test('subscription email job schedules only explicitly configured reminder offsets', async () => {
   let scheduledOffsets;
   let sentReminder;

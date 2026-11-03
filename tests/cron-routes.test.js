@@ -7,9 +7,10 @@ const read = (relativePath) => fs.readFileSync(path.join(__dirname, '..', relati
 const routes = [
   'app/api/cron/notifications/route.js',
   'app/api/cron/subscription-emails/route.js',
+  'app/api/cron/subscription-email-outbox/route.js',
 ];
 
-test('both scheduled jobs accept GET and POST but require the shared CRON_SECRET bearer token', () => {
+test('scheduled jobs accept GET and POST but require the shared CRON_SECRET bearer token', () => {
   for (const routePath of routes) {
     const route = read(routePath);
     assert.match(route, /const secret = process\.env\.CRON_SECRET/);

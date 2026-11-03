@@ -5,11 +5,17 @@ import Image from 'next/image';
 import Link from 'next/link';
 import { usePathname, useSearchParams } from 'next/navigation';
 import {
+  init as initSessionInactivity,
+  isSessionExpired,
+  resetInactivityTimer,
+  onMeaningfulActivity,
+} from '@/lib/session-inactivity';
+import {
   Activity, ArrowDown, ArrowRight, ArrowUp, ArrowUpDown, ArrowUpRight, BadgeDollarSign, Bell, BellRing,
   Building2, CalendarDays, ChartNoAxesCombined, Check, CheckCircle2, ChevronDown, ChevronLeft, ChevronRight,
   BookOpen, CircleDollarSign, ClipboardList, ContactRound, CreditCard, Edit3, Eye, EyeOff, FileBarChart2, Gauge,
   HandCoins, History, LayoutDashboard, LogOut, Milk, Plus, ReceiptText, RotateCcw, Search, Settings, Shield, Truck, UserRound,
-  Users, UsersRound, Wallet, Warehouse, X, Upload, Trash2, UserPlus, FileSpreadsheet, Send, Save,
+  Users, UsersRound, Wallet, Warehouse, X, Upload, Trash2, UserPlus, FileSpreadsheet, Send, Save, PanelLeftClose, PanelLeftOpen,
 } from 'lucide-react';
 import { motion, AnimatePresence, useReducedMotion } from 'framer-motion';
 import { flushOfflineWrites, getOfflineWrites, queueOfflineWrite } from '@/lib/offline-queue';
@@ -53,6 +59,26 @@ const sanitizeQueryParam = (val: unknown): string => {
   const str = String(val).trim();
   if (str === '' || str === 'undefined' || str === 'null' || str === '[object Object]') return '';
   return str;
+};
+
+const checkSessionExpiry = () => {
+  if (!isSessionExpired()) return false;
+  try {
+    localStorage.removeItem('lastMeaningfulActivity');
+  } catch {}
+
+  if (typeof window !== 'undefined') {
+    document.cookie = 'milk_session=; Max-Age=0; path=/;';
+    const supaClient = (window as any).Supabase;
+    if (supaClient) {
+      const supa = supaClient.getInstance();
+      if (supa) {
+        supa.auth.signOut();
+      }
+    }
+    window.location.href = '/';
+  }
+  return true;
 };
 
 type User = { id: number; name: string; email: string; role: string; accountType: string; language?: 'rw' | 'en'; emailVerified?: boolean };
@@ -138,6 +164,24 @@ type SubscriptionPolicy = { initial_access_days: number; grace_period_days: numb
 type PaymentConfiguration = { provider: string; paymentMethod: string; displayName: string; currency: string; payerAccount: string; payerPhoneSource: string; realPaymentsEnabled: boolean; credentialsConfigured: boolean; apiConfigured: boolean; callbackConfigured: boolean; ready: boolean };
 type AdminPayment = { id: number; account_name: string; account_email: string; subscription_status: string; plan_name: string | null; plan_code: string | null; amount: number; currency: string; status: string; payment_method: string; provider: string | null; billing_period: string; provider_reference: string; provider_transaction_id: string | null; mobile_money_phone: string | null; created_at: string; completed_at: string | null };
 type CollectorAssignment = { id: number; collector_user_id: number; collector_name: string; collector_account_number: string | null; collector_national_id: string | null; collector_phone: string | null; abacunda_count: number };
+type CollectorAssignmentRequest = {
+  id: number;
+  dairy_user_id: number;
+  collector_user_id: number;
+  requested_at: string;
+  request_note: string | null;
+  status: 'pending' | 'approved' | 'rejected' | 'cancelled';
+  decided_at: string | null;
+  decision_note: string | null;
+  dairy_name: string | null;
+  dairy_email: string | null;
+  dairy_phone: string | null;
+  collector_name: string | null;
+  collector_email: string | null;
+  collector_phone: string | null;
+  collector_account_number?: string | null;
+  collector_national_id?: string | null;
+};
 type AbacundaIfishiEntry = { date: string; morningLiters: number; eveningLiters: number; originalLiters: number; validLiters: number; lostLiters: number; status: string; reason: string | null };
 type AbacundaIfishiHistory = { startDate: string; endDate: string; entries: AbacundaIfishiEntry[]; totals: Omit<AbacundaIfishiEntry, 'date' | 'status' | 'reason'>; collector: { id: number; name: string } };
 type FarmerHistoryDay = { date: string; recordId: number | null; morningLiters: number; eveningLiters: number; totalLiters: number; session: 'morning' | 'evening' | 'morning-evening' | 'none'; status: string; deliveryStatus: 'delivered' | 'missing' };
@@ -225,6 +269,17 @@ const notificationTypeCopy: Record<string, PublicCopyKey> = {
   repeatedly_missed: 'alertTypeRepeatedlyMissed',
   farmer_created: 'alertTypeFarmerCreated',
   farmer_updated: 'alertTypeFarmerUpdated',
+  milk_record_corrected: 'alertTypeMilkRecordCorrected',
+  milk_record_voided: 'alertTypeMilkRecordVoided',
+  milk_collection_adjusted: 'alertTypeMilkCollectionAdjusted',
+  settlement_confirmed: 'alertTypeSettlementConfirmed',
+  cash_payout_approved: 'alertTypeCashPayoutApproved',
+  debt_created: 'alertTypeDebtCreated',
+  debt_repaid: 'alertTypeDebtRepaid',
+  password_changed: 'alertTypePasswordChanged',
+  password_reset_completed: 'alertTypePasswordReset',
+  account_suspended: 'alertTypeAccountSuspended',
+  account_reactivated: 'alertTypeAccountReactivated',
 };
 const operationalNotificationTypes = new Set([
   'missed_delivery', 'farmer_missed_delivery', 'low_delivery',
@@ -282,6 +337,8 @@ const collectorTabs: Array<{ id: Tab; label: string }> = [
   { id: 'milk', label: 'Milk' },
   { id: 'deductions', label: 'Deductions' },
   { id: 'reports', label: 'Reports' },
+  { id: 'billing', label: 'Billing' },
+  { id: 'notifications', label: 'Notifications' },
   { id: 'ukwezi', label: 'Ukwezi' },
   { id: 'settlements', label: 'Settlements' },
   { id: 'settings', label: 'Settings' },
@@ -572,6 +629,7 @@ export default function Workspace() {
   const [online, setOnline] = useState(true);
   const [pendingWrites, setPendingWrites] = useState(0);
   const [tab, setTabState] = useState<Tab>('dashboard');
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [ifishiOpen, setIfishiOpen] = useState(false);
   const [ownerIfishiOpen, setOwnerIfishiOpen] = useState(false);
   const [ownerIfishiHistoryOpen, setOwnerIfishiHistoryOpen] = useState(false);
@@ -704,9 +762,17 @@ export default function Workspace() {
   const [collectorAssignmentsLoading, setCollectorAssignmentsLoading] = useState(false);
   const [collectorAssignmentsError, setCollectorAssignmentsError] = useState('');
   const [collectorLinkId, setCollectorLinkId] = useState('');
+  const [collectorLinkEmail, setCollectorLinkEmail] = useState('');
   const [collectorLinkOpen, setCollectorLinkOpen] = useState(false);
   const [collectorLinkError, setCollectorLinkError] = useState('');
   const collectorLinkSubmittingRef = useRef(false);
+  const [collectorRequests, setCollectorRequests] = useState<CollectorAssignmentRequest[]>([]);
+  const [collectorRequestsLoading, setCollectorRequestsLoading] = useState(false);
+  const [collectorRequestsError, setCollectorRequestsError] = useState('');
+  const [collectorRequestDairyId, setCollectorRequestDairyId] = useState('');
+  const [collectorRequestNote, setCollectorRequestNote] = useState('');
+  const [collectorRequestError, setCollectorRequestError] = useState('');
+  const collectorRequestSubmittingRef = useRef(false);
   const [abacundaIfishiCollector, setAbacundaIfishiCollector] = useState<CollectorAssignment | null>(null);
   const [abacundaIfishiHistory, setAbacundaIfishiHistory] = useState<AbacundaIfishiHistory | null>(null);
   const [abacundaIfishiMonth, setAbacundaIfishiMonth] = useState(today().slice(0, 7));
@@ -1220,6 +1286,29 @@ const visibleTabs = (isAdmin
       throw reason;
     } finally {
       setCollectorAssignmentsLoading(false);
+    }
+  };
+
+  const loadCollectorRequests = async () => {
+    setCollectorRequestsLoading(true);
+    setCollectorRequestsError('');
+    try {
+      const result = await api<CollectorAssignmentRequest[]>('/api/collector-assignment-requests?status=all');
+      setCollectorRequests(result);
+    } catch (reason) {
+      setCollectorRequestsError(reason instanceof Error ? reason.message : 'Failed to load collector membership requests.');
+      throw reason;
+    } finally {
+      setCollectorRequestsLoading(false);
+    }
+  };
+
+  const collectorRequestStatusLabel = (status: CollectorAssignmentRequest['status']) => {
+    switch (status) {
+      case 'approved': return publicLanguage.t('collectorRequestStatusApproved');
+      case 'rejected': return publicLanguage.t('collectorRequestStatusRejected');
+      case 'cancelled': return publicLanguage.t('collectorRequestStatusCancelled');
+      default: return publicLanguage.t('collectorRequestStatusPending');
     }
   };
 
@@ -2369,7 +2458,10 @@ const visibleTabs = (isAdmin
     if (tab === 'settings') {
       loadAccountProfile().catch((reason) => setError(reason.message));
       if (!isAdmin) void loadBilling();
-      if (isCollector) loadCollectorPrices().catch((reason) => setError(reason.message));
+      if (isCollector) {
+        loadCollectorPrices().catch((reason) => setError(reason.message));
+        loadCollectorRequests().catch((reason) => setCollectorRequestsError(reason instanceof Error ? reason.message : 'Failed to load collector membership requests.'));
+      }
       return;
     }
     if (tab === 'dashboard') {
@@ -2379,7 +2471,10 @@ const visibleTabs = (isAdmin
       Promise.all(requests).catch((reason) => setError(reason.message)).finally(() => setDashboardLoading(false));
       return;
     }
-    if (tab === 'centers') loadCenters().catch((reason) => setError(reason.message));
+    if (tab === 'centers') {
+      loadCenters().catch((reason) => setError(reason.message));
+      if (isDairy) loadCollectorRequests().catch((reason) => setCollectorRequestsError(reason instanceof Error ? reason.message : 'Failed to load collector membership requests.'));
+    }
     if (tab === 'deductions') {
       loadDeductionGroups({ search: deductionSearch, type: deductionTypeFilter, status: deductionStatusFilter }).catch((reason) => setError(reason.message));
       loadDeductionFarmers().catch((reason) => setError(reason.message));
@@ -2492,9 +2587,32 @@ const visibleTabs = (isAdmin
     if (user && isCollector && tab === 'settlements') void loadSettlementData();
   }, [user?.id, isCollector, tab, settlementMonth, settlementHalf]);
   useEffect(() => {
-    setSelectedCashFarmerIds([]);
-    setCashConfirmationProgress(null);
-  }, [settlementMonth, settlementHalf]);
+    initSessionInactivity();
+    checkSessionExpiry();
+
+    const meaningfulEvents = ['click', 'mousedown', 'keydown', 'touchstart', 'submit'];
+    const resetTimer = () => {
+      resetInactivityTimer();
+    };
+
+    for (const event of meaningfulEvents) {
+      document.addEventListener(event as any, resetTimer as EventListener);
+    }
+
+    const handleStorageEvent = (event: StorageEvent) => {
+      if (event.key === 'milk-session-expired') {
+        checkSessionExpiry();
+      }
+    };
+    window.addEventListener('storage', handleStorageEvent);
+
+    return () => {
+      for (const event of meaningfulEvents) {
+        document.removeEventListener(event as any, resetTimer as EventListener);
+      }
+      window.removeEventListener('storage', handleStorageEvent);
+    };
+  }, []);
 
   const logout = async () => {
     if (logoutBusy) return;
@@ -2655,9 +2773,13 @@ const visibleTabs = (isAdmin
     setBusy(true);
     setCollectorLinkError('');
     try {
-      await api('/api/collector-assignments', json('POST', { collectorUserId: Number(collectorLinkId) }));
-      await loadCollectorAssignments();
+      await api('/api/collector-assignments', json('POST', {
+        collectorUserId: Number(collectorLinkId),
+        ...(collectorLinkEmail.trim() ? { collectorEmail: collectorLinkEmail.trim() } : {}),
+      }));
+      await Promise.all([loadCollectorAssignments(), loadCollectorRequests().catch(() => undefined)]);
       setCollectorLinkId('');
+      setCollectorLinkEmail('');
       setCollectorLinkOpen(false);
     } catch (reason) {
       setCollectorLinkError(reason instanceof Error ? reason.message : 'Failed to add Umucunda.');
@@ -2668,10 +2790,58 @@ const visibleTabs = (isAdmin
   };
   const unlinkCollector = async (collectorId: number) => run(async () => {
     await api(`/api/collector-assignments/${collectorId}`, { method: 'DELETE' });
-    await loadCollectorAssignments();
-    await loadFarmers();
+    await Promise.all([loadCollectorAssignments(), loadFarmers()]);
     setNotice(publicLanguage.t('collectorUnlinkedNotice'));
   });
+  const suspendCollector = async (collectorId: number) => run(async () => {
+    await api(`/api/collector-assignments/${collectorId}`, json('PATCH', { action: 'suspend' }));
+    await loadCollectorAssignments();
+    setNotice(publicLanguage.t('collectorSuspendedNotice'));
+  });
+  const requestCollectorAssignment = async (event: React.FormEvent) => {
+    event.preventDefault();
+    if (collectorRequestSubmittingRef.current) return;
+    collectorRequestSubmittingRef.current = true;
+    setCollectorRequestError('');
+    try {
+      await api('/api/collector-assignment-requests', json('POST', {
+        dairyUserId: Number(collectorRequestDairyId),
+        ...(collectorRequestNote.trim() ? { requestNote: collectorRequestNote.trim() } : {}),
+      }));
+      setCollectorRequestDairyId('');
+      setCollectorRequestNote('');
+      await loadCollectorRequests();
+      setNotice(publicLanguage.t('collectorRequestSentNotice'));
+    } catch (reason) {
+      setCollectorRequestError(reason instanceof Error ? reason.message : 'Failed to send membership request.');
+    } finally {
+      collectorRequestSubmittingRef.current = false;
+    }
+  };
+  const cancelCollectorRequest = async (request: CollectorAssignmentRequest) => {
+    if (!window.confirm(publicLanguage.t('collectorRequestCancelConfirm'))) return;
+    await run(async () => {
+      await api(`/api/collector-assignment-requests/${request.id}`, json('PATCH', { action: 'cancel' }));
+      await loadCollectorRequests();
+      setNotice(publicLanguage.t('collectorRequestCancelledNotice'));
+    });
+  };
+  const decideCollectorRequest = async (request: CollectorAssignmentRequest, decision: 'approve' | 'reject') => {
+    const collectorName = request.collector_name || `Collector #${request.collector_user_id}`;
+    const confirmKey = decision === 'approve' ? 'collectorRequestApproveConfirm' : 'collectorRequestRejectConfirm';
+    const confirmFallback = decision === 'approve' ? 'Approve {name}?' : 'Reject {name}?';
+    if (!window.confirm(formatPublicCopy(publicLanguage.language, confirmKey, confirmFallback, { name: collectorName }))) return;
+    await run(async () => {
+      await api(`/api/collector-assignment-requests/${request.id}`, json('PATCH', { action: decision }));
+      if (decision === 'approve') {
+        await Promise.all([loadCollectorRequests(), loadCollectorAssignments()]);
+        setNotice(publicLanguage.t('collectorRequestApprovedNotice'));
+      } else {
+        await loadCollectorRequests();
+        setNotice(publicLanguage.t('collectorRequestRejectedNotice'));
+      }
+    });
+  };
 
   const editFarmerStart = (farmer: Farmer) => {
     setEditingFarmer(farmer);
@@ -3096,6 +3266,16 @@ const visibleTabs = (isAdmin
     setTab('milk');
   };
 
+  const reviewBillingFromAlert = (notification: Notice) => {
+    void markRead(notification);
+    setTab('billing');
+  };
+
+  const reviewSettlementFromAlert = (notification: Notice) => {
+    void markRead(notification);
+    setTab('settlements');
+  };
+
   const adminAction = async (account: Account, action: string) => {
     if (action === 'resendVerification') {
       if (!window.confirm(publicLanguage.t('resendVerificationConfirm'))) return;
@@ -3271,11 +3451,92 @@ const visibleTabs = (isAdmin
     </>;
   };
 
+  const renderCollectorMembershipRequests = () => (
+    <section className="panel panel-wide collector-membership-panel">
+      <div className="panel-heading">
+        <div>
+          <span className="eyebrow">{publicLanguage.t('collectorsLinkage')}</span>
+          <h2>{publicLanguage.t('collectorRequestTitle')}</h2>
+        </div>
+        <Send size={19} aria-hidden="true" />
+      </div>
+      <p className="muted-note">{publicLanguage.t('collectorRequestHelp')}</p>
+      <form className="form-stack compact" onSubmit={requestCollectorAssignment}>
+        <label>{publicLanguage.t('collectionCenterAccountId')}
+          <input type="number" min="1" step="1" required value={collectorRequestDairyId} onChange={(event) => setCollectorRequestDairyId(event.target.value)} />
+        </label>
+        <label>{publicLanguage.t('collectorRequestNote')}
+          <input maxLength={500} value={collectorRequestNote} onChange={(event) => setCollectorRequestNote(event.target.value)} />
+        </label>
+        {collectorRequestError ? <p className="form-error" role="alert">{collectorRequestError}</p> : null}
+        <div className="form-actions">
+          <button className="button button-primary" disabled={!collectorRequestDairyId}>{publicLanguage.t('collectorRequestSend')}<Send size={15} aria-hidden="true" /></button>
+        </div>
+      </form>
+      <div className="panel-heading">
+        <div><span className="eyebrow">{publicLanguage.t('collectorRequestsTitle')}</span><h3>{publicLanguage.t('collectorRequestsTitle')}</h3></div>
+      </div>
+      {collectorRequestsLoading ? <div className="workspace-empty workspace-loading" role="status"><span className="loading-indicator" />{publicLanguage.t('loading')}</div>
+        : collectorRequestsError ? <div className="workspace-empty" role="alert"><b>{collectorRequestsError}</b><button type="button" className="button button-secondary small-button" onClick={() => loadCollectorRequests().catch(() => undefined)}>{publicLanguage.t('retry') || 'Retry'}</button></div>
+          : collectorRequests.length ? <div className="notice-list">{collectorRequests.map((request) => (
+            <div className="notice-row" key={request.id}>
+              <span>
+                <b>{request.dairy_name || `Collection Center #${request.dairy_user_id}`}</b>
+                <small>{[request.dairy_email, request.dairy_phone].filter(Boolean).join(' · ') || '—'}</small>
+                <small>{publicLanguage.t('collectorRequestedAt')}: {String(request.requested_at).slice(0, 10)}</small>
+                {request.request_note ? <small>{request.request_note}</small> : null}
+                {request.decision_note ? <small>{publicLanguage.t('collectorRequestDecisionNote')}: {request.decision_note}</small> : null}
+              </span>
+              <span className={`badge ${request.status === 'pending' ? 'badge-warning' : 'badge-neutral'}`}>{collectorRequestStatusLabel(request.status)}</span>
+              {request.status === 'pending' ? <button type="button" className="text-button danger-text" onClick={() => cancelCollectorRequest(request)}>{publicLanguage.t('collectorRequestCancel')}</button> : null}
+            </div>
+          ))}</div> : <div className="workspace-empty" role="status"><b>{publicLanguage.t('noCollectorRequests')}</b></div>}
+    </section>
+  );
+
+  const renderDairyMembershipRequests = () => {
+    const pendingCount = collectorRequests.filter((request) => request.status === 'pending').length;
+    return (
+      <section className="panel panel-wide collector-membership-panel">
+        <div className="panel-heading">
+          <div>
+            <span className="eyebrow">{publicLanguage.t('collectorsLinkage')}</span>
+            <h2>{publicLanguage.t('collectorRequestTitle')}</h2>
+          </div>
+          <div className="panel-heading-actions">
+            <span className="count-label">{pendingCount} {publicLanguage.t('collectorRequestPendingCount')}</span>
+            <Send size={19} aria-hidden="true" />
+          </div>
+        </div>
+        {collectorRequestsLoading ? <div className="workspace-empty workspace-loading" role="status"><span className="loading-indicator" />{publicLanguage.t('loading')}</div>
+          : collectorRequestsError ? <div className="workspace-empty" role="alert"><b>{collectorRequestsError}</b><button type="button" className="button button-secondary small-button" onClick={() => loadCollectorRequests().catch(() => undefined)}>{publicLanguage.t('retry') || 'Retry'}</button></div>
+            : collectorRequests.length ? <div className="notice-list">{collectorRequests.map((request) => (
+              <div className="notice-row" key={request.id}>
+                <span>
+                  <b>{request.collector_name || `Collector #${request.collector_user_id}`}</b>
+                  <small>{[request.collector_email, request.collector_phone, request.collector_account_number].filter(Boolean).join(' · ') || '—'}</small>
+                  <small>{publicLanguage.t('collectorRequestedAt')}: {String(request.requested_at).slice(0, 10)}</small>
+                  {request.request_note ? <small>{request.request_note}</small> : null}
+                  {request.decision_note ? <small>{publicLanguage.t('collectorRequestDecisionNote')}: {request.decision_note}</small> : null}
+                </span>
+                <span className={`badge ${request.status === 'pending' ? 'badge-warning' : 'badge-neutral'}`}>{collectorRequestStatusLabel(request.status)}</span>
+                {request.status === 'pending' ? <span className="panel-heading-actions">
+                  <button type="button" className="button button-primary small-button" onClick={() => decideCollectorRequest(request, 'approve')}><CheckCircle2 size={14} aria-hidden="true" />{publicLanguage.t('collectorRequestApprove')}</button>
+                  <button type="button" className="button button-secondary small-button danger-text" onClick={() => decideCollectorRequest(request, 'reject')}><X size={14} aria-hidden="true" />{publicLanguage.t('collectorRequestReject')}</button>
+                </span> : null}
+              </div>
+            ))}</div> : <div className="workspace-empty" role="status"><b>{publicLanguage.t('noCollectorRequests')}</b></div>}
+      </section>
+    );
+  };
+
   const renderCenters = () => {
     const ownedCenters = centers.filter((center) => Number(center.owner_user_id) === Number(user?.id));
     const activeCenterName = centers.find((center) => String(center.id) === selectedCenter)?.name || centers[0]?.name || '—';
     return (
     <div className="screen-grid">
+      {isCollector ? renderCollectorMembershipRequests() : null}
+      {isDairy ? renderDairyMembershipRequests() : null}
       {isDairy ? (
         <>
           <section className="panel panel-wide link-collector-card">
@@ -3298,6 +3559,15 @@ const visibleTabs = (isAdmin
                   placeholder={publicLanguage.language === 'en' ? 'Enter Collector Account ID (e.g. 102)' : 'Andika Nimero ya Konti y’Umucunda (urug. 102)'}
                   value={collectorLinkId}
                   onChange={(event) => setCollectorLinkId(event.target.value)}
+                  className="link-collector-input"
+                />
+                <label htmlFor="collector-link-email" className="sr-only">{publicLanguage.t('collectorLinkEmail')}</label>
+                <input
+                  id="collector-link-email"
+                  type="email"
+                  placeholder={publicLanguage.t('collectorLinkEmail')}
+                  value={collectorLinkEmail}
+                  onChange={(event) => setCollectorLinkEmail(event.target.value)}
                   className="link-collector-input"
                 />
                 <button className="button button-primary" disabled={busy || !collectorLinkId}>
@@ -3388,6 +3658,18 @@ const visibleTabs = (isAdmin
                                 type="button"
                                 className="button button-secondary small-button danger-text"
                                 onClick={() => {
+                                  if (window.confirm(formatPublicCopy(publicLanguage.language, 'suspendCollectorConfirm', 'Suspend {name}? The current assignment will be closed and kept in history.', { name: assignment.collector_name }))) {
+                                    void suspendCollector(assignment.collector_user_id);
+                                  }
+                                }}
+                              >
+                                <Shield size={14} aria-hidden="true" />
+                                {publicLanguage.t('suspendCollector')}
+                              </button>
+                              <button
+                                type="button"
+                                className="button button-secondary small-button danger-text"
+                                onClick={() => {
                                   if (window.confirm(publicLanguage.language === 'en' ? `Revoke assignment for ${assignment.collector_name}?` : `Hagarika umucunda ${assignment.collector_name}?`)) {
                                     void unlinkCollector(assignment.collector_user_id);
                                   }
@@ -3442,6 +3724,18 @@ const visibleTabs = (isAdmin
                           >
                             <BookOpen size={14} aria-hidden="true" />
                             {publicLanguage.language === 'en' ? 'View Roster' : 'Reba Ifishi'}
+                          </button>
+                          <button
+                            type="button"
+                            className="button button-secondary small-button danger-text"
+                            onClick={() => {
+                              if (window.confirm(formatPublicCopy(publicLanguage.language, 'suspendCollectorConfirm', 'Suspend {name}? The current assignment will be closed and kept in history.', { name: assignment.collector_name }))) {
+                                void suspendCollector(assignment.collector_user_id);
+                              }
+                            }}
+                          >
+                            <Shield size={14} aria-hidden="true" />
+                            {publicLanguage.t('suspendCollector')}
                           </button>
                           <button
                             type="button"
@@ -5810,6 +6104,8 @@ const visibleTabs = (isAdmin
     const priority = priorityCopy[String(item.priority || '')] ? String(item.priority) : 'info';
     const farmerId = item.farmer_id ?? item.details?.farmerId ?? null;
     const nextAction = notificationNextAction(item);
+    const billingAlert = item.notification_type === 'subscription_expiring' || String(item.notification_type).startsWith('payment_');
+    const settlementAlert = ['settlement_confirmed', 'cash_payout_approved', 'debt_created', 'debt_repaid'].includes(item.notification_type);
     return <article className={`notice-row notice-row-${priority}${item.isRead ? '' : ' unread'}${resolved ? ' notice-resolved' : ''}`} key={item.id}>
       <div className="notice-main">
         <div className="notice-meta">
@@ -5830,6 +6126,8 @@ const visibleTabs = (isAdmin
       <div className="notice-actions">
         {!resolved && farmerId ? <button type="button" className="button button-secondary small-button" onClick={() => openFarmerFromAlert(item)}>{publicLanguage.t('alertOpenFarmer')}</button> : null}
         {!resolved && farmerId && isCollector ? <button type="button" className="button button-secondary small-button" onClick={() => recordMilkFromAlert(item)}>{publicLanguage.t('alertRecordMilk')}</button> : null}
+        {!resolved && !isAdmin && billingAlert ? <button type="button" className="button button-secondary small-button" onClick={() => reviewBillingFromAlert(item)}>{nextAction || publicLanguage.t('navSubscription')}</button> : null}
+        {!resolved && !isAdmin && settlementAlert ? <button type="button" className="button button-secondary small-button" onClick={() => reviewSettlementFromAlert(item)}>{publicLanguage.t('alertNextReviewSettlement')}</button> : null}
         {!resolved && isOperationalAlert(item) ? <button type="button" className="button button-primary small-button" onClick={() => openResolveDialog(item)}>{publicLanguage.t('alertResolve')}</button> : null}
         {resolved ? <button type="button" className="button button-secondary small-button" onClick={() => reopenAlert(item)}>{publicLanguage.t('alertReopen')}</button> : !item.isRead ? <button type="button" className="button button-secondary small-button" onClick={() => markRead(item)}>{publicLanguage.t('markRead')}</button> : <Check size={17} />}
       </div>
@@ -6489,7 +6787,7 @@ const visibleTabs = (isAdmin
           <button type="button" className="icon-button" onClick={() => void logout()} disabled={logoutBusy} aria-busy={logoutBusy} aria-label={publicLanguage.t('signOut')} title={publicLanguage.t('signOut')}><LogOut size={18} /></button>
         </div>
       </header>
-      <div className="workspace-body"><aside className="sidebar"><div className="sidebar-label">{publicLanguage.t('workspace')}</div><nav aria-label={publicLanguage.t('workspaceNavigation')}>{activeTabs.map((item) => { const Icon = item.icon; return <button className={`nav-item${tab === item.id ? ' active' : ''}`} key={item.id} aria-label={item.label} title={item.label} aria-current={tab === item.id ? 'page' : undefined} onClick={() => setTab(item.id)}><Icon size={18} strokeWidth={1.8} /><span>{item.label}</span>{tab === item.id ? <span className="nav-mark" /> : null}</button>; })}</nav><div className="sidebar-foot"><Activity size={15} aria-hidden="true" /><span>{publicLanguage.t('systemOnline')}</span></div></aside>
+      <div className={`workspace-body${sidebarCollapsed ? ' is-sidebar-collapsed' : ''}`}><aside className="sidebar"><div className="sidebar-heading"><div className="sidebar-label">{publicLanguage.t('workspace')}</div><button type="button" className="sidebar-collapse-toggle" aria-label={sidebarCollapsed ? 'Expand workspace navigation' : 'Collapse workspace navigation'} aria-expanded={!sidebarCollapsed} aria-controls="workspace-navigation" title={sidebarCollapsed ? 'Expand navigation' : 'Collapse navigation'} onClick={() => setSidebarCollapsed((collapsed) => !collapsed)}>{sidebarCollapsed ? <PanelLeftOpen size={17} aria-hidden="true" /> : <PanelLeftClose size={17} aria-hidden="true" />}</button></div><nav id="workspace-navigation" aria-label={publicLanguage.t('workspaceNavigation')}>{activeTabs.map((item) => { const Icon = item.icon; return <button className={`nav-item${tab === item.id ? ' active' : ''}`} key={item.id} aria-label={item.label} title={item.label} aria-current={tab === item.id ? 'page' : undefined} onClick={() => setTab(item.id)}><Icon size={18} strokeWidth={1.8} /><span>{item.label}</span>{tab === item.id ? <span className="nav-mark" /> : null}</button>; })}</nav><div className="sidebar-foot"><Activity size={15} aria-hidden="true" /><span>{publicLanguage.t('systemOnline')}</span></div></aside>
       <section className="content-area">
         <div className="content-heading sr-only" style={{ display: 'none' }} aria-hidden="true">
           <span className="date-stamp">{formatDateLabel(today(), publicLanguage.language, { weekday: 'short', day: 'numeric', month: 'long', year: 'numeric' })}</span>

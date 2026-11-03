@@ -22,13 +22,17 @@ test('supported auth and subscription emails use the shared branded content and 
   assert.match(contentBuilder, /renderBrandedEmail/);
   assert.match(contentBuilder, /renderPlainTextEmail/);
   for (const method of [
-    'sendWelcomeEmail', 'sendPasswordResetCode', 'sendRegistrationEmailVerification', 'sendEmailChangeConfirmation',
-    'sendPaymentConfirmation', 'sendSubscriptionReminder', 'sendSubscriptionExpired', 'sendSubscriptionUsageExceeded',
+    'sendWelcomeEmail', 'sendPasswordResetCode', 'sendRegistrationEmailVerification', 'sendEmailChangeConfirmation', 'sendPasswordChangedNotice', 'sendBusinessEventNotice',
+    'sendPaymentConfirmation', 'sendPaymentStatus', 'sendSubscriptionReminder', 'sendSubscriptionExpired', 'sendSubscriptionUsageExceeded',
   ]) {
     const start = source.indexOf(`const ${method} =`);
     assert.notEqual(start, -1, `${method} should exist`);
     const next = source.indexOf('\nconst ', start + 1);
     const block = source.slice(start, next < 0 ? undefined : next);
+    if (method === 'sendPaymentConfirmation') {
+      assert.match(block, /sendPaymentStatus/, `${method} should use the shared payment-status template`);
+      continue;
+    }
     assert.match(block, /renderEmailContent/, `${method} should share the email layout`);
     assert.match(block, /text:\s*\w+\.text/, `${method} should send a plain-text fallback`);
     assert.match(block, /html:\s*\w+\.html/, `${method} should send branded HTML`);

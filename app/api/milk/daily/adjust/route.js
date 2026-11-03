@@ -4,6 +4,7 @@ const { getAuthenticatedUser } = require('@/lib/security/authenticate.js');
 const { requireAccountType } = require('@/lib/security/account-access.js');
 const { requireActiveSubscription } = require('@/lib/security/subscription-access.js');
 const Adjustments = require('@/lib/services/milk-adjustment-service.js');
+const Notifications = require('@/lib/services/notification-service.js');
 
 export const runtime = 'nodejs';
 
@@ -18,6 +19,21 @@ export async function POST(request) {
       actorId: user.id,
       input: await request.json(),
     });
+    if (!result.repeated) {
+      const adjustment = result.adjustment;
+      try {
+        await Notifications.createBusinessActivityNotification({
+          type: 'milk_collection_adjusted',
+          ownerUserId: Number(user.id),
+          center: `#${adjustment.collection_center_id}`,
+          date: adjustment.collection_date,
+          reference: `milk-adjustment:${adjustment.id}:${adjustment.period}:${adjustment.loss_percentage}:${adjustment.lost_volume_liters}`,
+        });
+      } catch (error) {
+        const code = error?.code ? String(error.code).replace(/[^A-Za-z0-9_-]/g, '').slice(0, 80) : 'NOTIFICATION_WRITE_FAILED';
+        console.error('[milk-adjustment] Activity notification failed.', { code, adjustmentId: Number(adjustment.id) || null });
+      }
+    }
     return NextResponse.json(result, { status: result.corrected ? 200 : 201 });
   } catch (error) {
     return NextResponse.json({

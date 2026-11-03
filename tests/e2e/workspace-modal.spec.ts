@@ -74,6 +74,22 @@ type FarmerFixture = {
   nationalId?: string;
 };
 
+type NotificationFixture = {
+  id: number;
+  notification_type: string;
+  title: string;
+  message: string;
+  priority: string;
+  createdAt: string;
+  isRead: boolean;
+  status?: 'open' | 'resolved';
+  farmer_id?: number | null;
+  collection_date?: string | null;
+  period?: string | null;
+  collection_center?: string | null;
+  details?: Record<string, unknown>;
+};
+
 type MilkFixture = {
   farmerMorning?: number;
   farmerEvening?: number;
@@ -83,10 +99,15 @@ type MilkFixture = {
   includeOwnerEntry?: boolean;
   farmers?: FarmerFixture[];
   importRows?: string[][];
+  matrixSaveFailures?: number;
+  fullMatrix?: boolean;
+  notifications?: NotificationFixture[];
 };
 
 async function mockWorkspaceApis(page: Page, user = collector, milkFixture: MilkFixture = {}, reportOverride: Record<string, unknown> | null = null) {
   const centers: Record<string, unknown>[] = [];
+  const notifications = milkFixture.notifications || [];
+  let matrixSaveFailuresRemaining = milkFixture.matrixSaveFailures ?? 0;
   await page.unrouteAll({ behavior: 'wait' });
   page.on('pageerror', (error) => console.error('Browser runtime error:', error.stack || error.message));
   page.on('requestfailed', (request) => {
@@ -113,6 +134,23 @@ async function mockWorkspaceApis(page: Page, user = collector, milkFixture: Milk
     let body: unknown = {};
     let status = 200;
     if (url.pathname === '/api/auth/me') body = { ok: true, user };
+    else if (url.pathname === '/api/auth/profile') body = {
+      ok: true,
+      user: {
+        id: user.id,
+        name: user.name,
+        email: user.email,
+        phone: '0788000000',
+        nationalId: null,
+        accountNumber: null,
+        profilePicture: null,
+        role: user.role,
+        accountType: user.accountType,
+        accountStatus: 'active',
+        emailVerified: true,
+        language: 'en',
+      },
+    };
     else if (url.pathname === '/api/imports/ocr') body = { configured: true, setup: [] };
     else if (url.pathname === '/api/imports/extract') body = { rows: milkFixture.importRows || [] };
     else if (url.pathname === '/api/collection-centers') {
@@ -150,8 +188,22 @@ async function mockWorkspaceApis(page: Page, user = collector, milkFixture: Milk
         }));
       body = { data: farmers, nextCursor: null, hasMore: false, pageSize: 50 };
     }
-    else if (url.pathname === '/api/notifications/unread-count') body = { data: { unreadCount: 0 } };
-    else if (url.pathname === '/api/notifications') body = { data: [] };
+    else if (url.pathname === '/api/notifications/unread-count') body = { data: { unreadCount: notifications.filter((item) => !item.isRead).length } };
+    else if (url.pathname === '/api/notifications/read-all') {
+      notifications.forEach((item) => { item.isRead = true; });
+      body = { success: true };
+    }
+    else if (/^\/api\/notifications\/\d+\/read$/.test(url.pathname) && route.request().method() === 'PATCH') {
+      const notification = notifications.find((item) => item.id === Number(url.pathname.split('/')[3]));
+      if (notification) {
+        notification.isRead = true;
+        body = { data: notification };
+      } else {
+        status = 404;
+        body = { success: false, message: 'Notification not found.' };
+      }
+    }
+    else if (url.pathname === '/api/notifications') body = { data: notifications };
     else if (url.pathname === '/api/subscription') body = { account: { phone: null }, subscription: null, payments: [] };
     else if (url.pathname === '/api/reports/summary') body = reportOverride || {
       totalFarmers: 0, totalVolume: 0, totalMorning: 0, totalEvening: 0,
@@ -181,6 +233,38 @@ async function mockWorkspaceApis(page: Page, user = collector, milkFixture: Milk
       };
       else if (action === 'debts') body = { ok: true, data: [] };
       else body = { ok: false, message: 'Unsupported settlement query.' };
+    }
+    else if (url.pathname === '/api/milk/batch-matrix') {
+      if (route.request().method() === 'POST' && matrixSaveFailuresRemaining > 0) {
+        matrixSaveFailuresRemaining -= 1;
+        status = 503;
+        body = { message: 'Simulated matrix save failure.' };
+      } else if (route.request().method() === 'POST') {
+        const input = await route.request().postDataJSON();
+        const savedCount = input.entries.reduce((count: number, entry: { days: object }) => count + Object.keys(entry.days).length, 0);
+        body = { success: true, savedCount, totalVolume: 12.5 };
+      } else {
+        const periodType = url.searchParams.get('periodType') === 'second-half' ? 'second-half' : 'first-half';
+        const month = Number(url.searchParams.get('month') || 10);
+        const year = Number(url.searchParams.get('year') || 2026);
+        const firstDay = periodType === 'second-half' ? 16 : 1;
+        const lastDay = periodType === 'second-half' ? new Date(Date.UTC(year, month, 0)).getUTCDate() : 15;
+        const days = milkFixture.fullMatrix
+          ? Object.fromEntries(Array.from({ length: lastDay - firstDay + 1 }, (_, index) => [String(firstDay + index), {
+            morning: '', evening: '', total: 0,
+          }]))
+          : {};
+        const farmers = (milkFixture.farmers || []).map((farmer, index) => ({
+          farmerId: farmer.id,
+          farmerNumber: index + 1,
+          farmerName: farmer.name,
+          phone: farmer.phone || null,
+          collectionCenter: farmer.collectionCenter || 'North Site',
+          days,
+          totalLiters: 0,
+        }));
+        body = { farmers, matrix: {}, center: { pricePerLiter: 400, name: 'North Site' } };
+      }
     }
     else if (url.pathname === '/api/milk') body = { data: [], nextCursor: null, hasMore: false, pageSize: 50 };
     else if (url.pathname === '/api/milk/daily') {
@@ -242,6 +326,278 @@ async function openWorkspace(page: Page, user = collector, query = 'tab=dashboar
   await page.goto(`/login?${query}`, { waitUntil: 'domcontentloaded' });
   await expect(page.getByRole('navigation', { name: 'Workspace navigation' })).toBeVisible();
 }
+
+test('daily milk notebook navigates editable cells, restores drafts, retries saves, and collapses navigation', async ({ page }) => {
+  const farmers = [
+    { id: 993801, name: 'Aline Test Farmer' },
+    { id: 993802, name: 'Beata Test Farmer' },
+    { id: 993803, name: 'Chantal Test Farmer' },
+  ];
+  await openWorkspace(page, collector, 'tab=milk&flow=synthetic', { farmers, matrixSaveFailures: 1 });
+
+  const matrix = page.locator('.matrix-table');
+  await expect(matrix).toBeVisible();
+  await expect(matrix.locator('tbody tr')).toHaveCount(3);
+  const cell = (row: number, column: number) => matrix.locator('tbody tr').nth(row).locator('.matrix-cell-input').nth(column);
+  const firstMorning = cell(0, 0);
+  const firstEvening = cell(0, 1);
+  const secondFarmerFirstMorning = cell(1, 0);
+  const thirdFarmerFirstMorning = cell(2, 0);
+  const firstFarmerLastEvening = cell(0, 29);
+
+  await firstMorning.focus();
+  await page.keyboard.press('ArrowRight');
+  await expect(firstEvening).toBeFocused();
+  await page.keyboard.press('ArrowRight');
+  await expect(cell(0, 2)).toBeFocused();
+  await page.keyboard.press('ArrowLeft');
+  await expect(firstEvening).toBeFocused();
+  await page.keyboard.press('ArrowLeft');
+  await expect(firstMorning).toBeFocused();
+
+  await firstMorning.fill('12.5');
+  await page.keyboard.press('Enter');
+  await expect(firstEvening).toBeFocused();
+  await expect(firstMorning).toHaveValue('12.5');
+  await page.keyboard.press('Shift+Tab');
+  await expect(firstMorning).toBeFocused();
+  await page.keyboard.press('Tab');
+  await expect(firstEvening).toBeFocused();
+  await page.keyboard.press('ArrowLeft');
+  await expect(firstMorning).toBeFocused();
+  expect(await firstMorning.evaluate((input) => [(input as HTMLInputElement).selectionStart, (input as HTMLInputElement).selectionEnd])).toEqual([0, 4]);
+
+  await page.keyboard.press('ArrowDown');
+  await expect(secondFarmerFirstMorning).toBeFocused();
+  await page.keyboard.press('ArrowUp');
+  await expect(firstMorning).toBeFocused();
+  await firstFarmerLastEvening.focus();
+  await page.keyboard.press('ArrowRight');
+  await expect(secondFarmerFirstMorning).toBeFocused();
+  await page.keyboard.press('ArrowLeft');
+  await expect(firstFarmerLastEvening).toBeFocused();
+  await page.keyboard.press('Enter');
+  await expect(secondFarmerFirstMorning).toBeFocused();
+
+  await secondFarmerFirstMorning.evaluate((input) => { (input as HTMLInputElement).disabled = true; });
+  await firstMorning.focus();
+  await page.keyboard.press('ArrowDown');
+  await expect(thirdFarmerFirstMorning).toBeFocused();
+  await firstFarmerLastEvening.focus();
+  await page.keyboard.press('ArrowRight');
+  await expect(cell(1, 1)).toBeFocused();
+
+  await cell(0, 3).evaluate((input) => { (input as HTMLInputElement).readOnly = true; });
+  await cell(0, 2).focus();
+  await page.keyboard.press('ArrowRight');
+  await expect(cell(0, 4)).toBeFocused();
+
+  if ((page.viewportSize()?.width || 0) >= 981) {
+    await page.getByRole('button', { name: 'Collapse workspace navigation' }).click();
+    await expect(page.locator('.workspace-body')).toHaveClass(/is-sidebar-collapsed/);
+    await expect(page.getByRole('navigation', { name: 'Workspace navigation' })).toBeVisible();
+    await page.getByRole('button', { name: 'Expand workspace navigation' }).click();
+    await expect(page.locator('.workspace-body')).not.toHaveClass(/is-sidebar-collapsed/);
+  } else {
+    await expect(page.locator('.sidebar')).toBeHidden();
+    await expect(page.locator('.mobile-nav')).toBeVisible();
+  }
+
+  await page.reload();
+  await expect(page.getByRole('button', { name: 'Restore unsaved entries' })).toBeVisible();
+  await page.getByRole('button', { name: 'Restore unsaved entries' }).click();
+  await expect(firstMorning).toHaveValue('12.5');
+
+  await page.getByRole('button', { name: /Save All 15 Days/ }).click();
+  await expect(page.locator('.matrix-status-banner[role="alert"]')).toContainText('Simulated matrix save failure.');
+  await expect(firstMorning).toHaveValue('12.5');
+  await page.getByRole('button', { name: 'Retry save' }).click();
+  await expect(page.getByRole('status')).toContainText('Saved on the server.');
+});
+
+test('daily notebook Save All records realistic request size and edit-render time', async ({ page }) => {
+  const farmers = Array.from({ length: 100 }, (_, index) => ({
+    id: 994000 + index,
+    name: `Baseline Farmer ${index + 1}`,
+  }));
+  const saveRequests: Array<{ bytes: number; farmerCount: number; dayCount: number }> = [];
+  page.on('request', (request) => {
+    if (request.url().includes('/api/milk/batch-matrix') && request.method() === 'POST') {
+      const body = request.postDataJSON();
+      saveRequests.push({
+        bytes: request.postDataBuffer()?.byteLength || 0,
+        farmerCount: body.entries.length,
+        dayCount: body.entries.reduce((count: number, entry: { days: object }) => count + Object.keys(entry.days).length, 0),
+      });
+    }
+  });
+
+  await openWorkspace(page, collector, 'tab=milk&flow=synthetic', { farmers, fullMatrix: true });
+  const matrix = page.locator('.matrix-table');
+  await expect(matrix.locator('tbody tr')).toHaveCount(100);
+  expect(await matrix.locator('.matrix-cell-input').count()).toBe(3000);
+
+  const firstCell = matrix.locator('.matrix-cell-input').first();
+  const editStart = await page.evaluate(() => performance.now());
+  await firstCell.fill('2.5');
+  await page.evaluate(() => new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
+  const editRenderMs = await page.evaluate((start) => performance.now() - start, editStart);
+
+  await page.getByRole('button', { name: /Save All 15 Days/ }).click();
+  await expect(page.getByRole('status')).toContainText('Saved on the server.');
+  expect(saveRequests).toHaveLength(1);
+  expect(saveRequests[0].farmerCount).toBe(1);
+  expect(saveRequests[0].dayCount).toBe(1);
+  expect(saveRequests[0].bytes).toBeLessThan(250);
+  console.log(`DAILY_NOTEBOOK_AFTER ${JSON.stringify({
+    farmers: 100,
+    editableCells: 3000,
+    editRenderMs: Number(editRenderMs.toFixed(1)),
+    requestCount: saveRequests.length,
+    ...saveRequests[0],
+    estimatedSqlStatements: 10,
+  })}`);
+});
+
+test('daily notebook drafts, scrolling, inputs, and Save All remain usable after rotation', async ({ page }) => {
+  const farmers = [
+    { id: 995001, name: 'Rotation Test Farmer One' },
+    { id: 995002, name: 'Rotation Test Farmer Two' },
+  ];
+  await openWorkspace(page, collector, 'tab=milk&flow=synthetic', { farmers });
+
+  const firstCell = page.locator('.matrix-cell-input').first();
+  await firstCell.fill('3.25');
+  const viewports = [
+    { name: 'small phone portrait', width: 320, height: 568 },
+    { name: 'large phone portrait', width: 430, height: 932 },
+    { name: 'small phone landscape', width: 568, height: 320 },
+    { name: 'large phone landscape', width: 844, height: 390 },
+    { name: 'tablet portrait', width: 768, height: 1024 },
+    { name: 'tablet landscape', width: 1024, height: 768 },
+    { name: 'desktop', width: 1440, height: 900 },
+  ];
+
+  for (const viewport of viewports) {
+    await page.setViewportSize({ width: viewport.width, height: viewport.height });
+    await expect(firstCell, viewport.name).toHaveValue('3.25');
+    const scrollport = page.locator('.matrix-table-scroll');
+    const scrollPosition = await scrollport.evaluate((element) => {
+      element.scrollLeft = element.scrollWidth;
+      return element.scrollLeft;
+    });
+    expect(scrollPosition, `${viewport.name} can reach the last notebook columns`).toBeGreaterThan(0);
+    await expect(page.getByRole('button', { name: /Save All 15 Days/ })).toBeVisible();
+    await scrollport.evaluate((element) => { element.scrollLeft = 0; });
+  }
+
+  await expect(page.getByRole('status')).toContainText('1 unsaved value(s)');
+  const savedDraftKeys = await page.evaluate(() => Object.keys(localStorage).filter((key) => key.startsWith('milk-matrix-draft:')));
+  expect(savedDraftKeys.length).toBeGreaterThan(0);
+  await page.reload();
+  await expect(page.getByRole('button', { name: 'Restore unsaved entries' })).toBeVisible();
+  await page.getByRole('button', { name: 'Restore unsaved entries' }).click();
+  await expect(firstCell).toHaveValue('3.25');
+  const saveButton = page.getByRole('button', { name: /Save All 15 Days/ });
+  await saveButton.scrollIntoViewIfNeeded();
+  await expect(saveButton).toBeInViewport();
+  await saveButton.click();
+  await expect(page.getByRole('status')).toContainText('Saved on the server.');
+});
+
+test('notifications and account security controls remain usable across phone, tablet, and desktop orientations', async ({ page }) => {
+  const notifications: NotificationFixture[] = [
+    {
+      id: 995801,
+      notification_type: 'payment_failed',
+      title: 'Payment failed',
+      message: 'The payment was not completed.',
+      priority: 'warning',
+      createdAt: '2026-10-25T10:00:00.000Z',
+      isRead: false,
+      status: 'open',
+      details: {
+        titleKey: 'alertTitlePaymentFailed',
+        messageKey: 'alertMessagePaymentFailed',
+        nextActionKey: 'alertNextReviewSubscription',
+        params: { plan: 'Test tier', amount: '5,000', currency: 'RWF' },
+      },
+    },
+    {
+      id: 995802,
+      notification_type: 'farmer_milk_missing',
+      title: 'Missing milk record',
+      message: 'No milk was recorded for the morning session.',
+      priority: 'warning',
+      createdAt: '2026-10-25T09:00:00.000Z',
+      isRead: false,
+      status: 'open',
+      farmer_id: 993801,
+      collection_date: '2026-10-24',
+      period: 'morning',
+      collection_center: 'North Site',
+      details: {
+        farmerId: 993801,
+        titleKey: 'alertTitleFarmerMilkMissing',
+        messageKey: 'alertMessageFarmerMilkMissing',
+        nextActionKey: 'alertNextRecordMilk',
+        params: { farmer: 'Aline Test Farmer', number: '#001', session: 'Morning' },
+        evidence: 'no_record_for_session',
+      },
+    },
+  ];
+  await openWorkspace(page, collector, 'tab=dashboard&flow=synthetic', {
+    farmers: [{ id: 993801, name: 'Aline Test Farmer' }],
+    notifications,
+  });
+  const openNotifications = async () => {
+    await page.getByRole('button', { name: /Alerts:/ }).click();
+    await page.getByRole('button', { name: 'Open notification inbox', exact: true }).click();
+  };
+  await openNotifications();
+  await expect(page).toHaveURL(/tab=notifications/);
+
+  const cards = page.locator('.notice-row');
+  await expect(cards).toHaveCount(2);
+  const farmerCard = cards.filter({ hasText: 'Aline Test Farmer' });
+  await expect(farmerCard).toHaveCount(1);
+  await farmerCard.getByRole('button', { name: /Record milk|Andika Amata/i }).click();
+  await expect(page).toHaveURL(/tab=milk/);
+  await openNotifications();
+  await expect(page).toHaveURL(/tab=notifications/);
+  await expect(cards).toHaveCount(2);
+
+  const viewports = [
+    { width: 390, height: 844 },
+    { width: 844, height: 390 },
+    { width: 768, height: 1024 },
+    { width: 1024, height: 768 },
+    { width: 1440, height: 900 },
+  ];
+  for (const viewport of viewports) {
+    await page.setViewportSize(viewport);
+    await expect(cards.first()).toBeVisible();
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1)).toBe(true);
+  }
+
+  const paymentCard = cards.filter({ hasText: 'Payment failed' });
+  await expect(paymentCard).toHaveCount(1);
+  await paymentCard.getByRole('button', { name: /Renew your subscription|Vugurura gahunda/i }).click();
+  await expect(page).toHaveURL(/tab=billing/);
+
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.getByRole('button', { name: 'More', exact: true }).click();
+  await page.getByRole('navigation', { name: 'More' }).getByRole('button', { name: 'Account', exact: true }).click();
+  await expect(page).toHaveURL(/tab=settings/);
+  await expect(page.locator('input[autocomplete="email"]')).toBeVisible();
+  await expect(page.locator('.account-settings-security')).toBeVisible();
+
+  for (const viewport of viewports) {
+    await page.setViewportSize(viewport);
+    await expect(page.locator('.account-settings-view')).toBeVisible();
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1)).toBe(true);
+  }
+});
 
 test('direct tab, reload, back, and forward retain valid workspace navigation', async ({ page }) => {
   await openWorkspace(page, collector, 'tab=ukwezi&flow=synthetic');
@@ -314,11 +670,11 @@ test('multi-day milk matrix supports spreadsheet navigation without losing edits
   await expect(firstMorning).toBeFocused();
 
   const secondDayEvening = cell(0, 3);
-  await secondDayEvening.evaluate((input) => { input.readOnly = true; });
+  await secondDayEvening.evaluate((input) => { (input as HTMLInputElement).readOnly = true; });
   await cell(0, 2).focus();
   await page.keyboard.press('ArrowRight');
   await expect(cell(0, 4)).toBeFocused();
-  await secondDayEvening.evaluate((input) => { input.readOnly = false; });
+  await secondDayEvening.evaluate((input) => { (input as HTMLInputElement).readOnly = false; });
 
   await firstMorning.focus();
   await page.keyboard.press('ArrowDown');

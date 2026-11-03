@@ -54,6 +54,130 @@ export type DigitalNotebookMatrixProps = {
   onSaveSuccess?: () => void;
 };
 
+type MatrixFarmerRowProps = {
+  farmer: MatrixFarmer;
+  farmerIndex: number;
+  days: number[];
+  month: number;
+  entries: Record<string, MatrixDayEntry>;
+  rowTotal: number;
+  expectedTotal: number | null | undefined;
+  pendingDays: MatrixDraftEntries[string];
+  saveFailed: boolean;
+  language: 'rw' | 'en' | 'fr';
+  saving: boolean;
+  draftNeedsRestore: boolean;
+  onCellChange: (farmerId: number, day: number, session: 'morning' | 'evening', value: string) => void;
+  onCellKeyDown: (event: React.KeyboardEvent<HTMLInputElement>) => void;
+};
+
+const MatrixFarmerRow = React.memo(function MatrixFarmerRow({
+  farmer,
+  farmerIndex,
+  days,
+  month,
+  entries,
+  rowTotal,
+  expectedTotal,
+  pendingDays,
+  saveFailed,
+  language,
+  saving,
+  draftNeedsRestore,
+  onCellChange,
+  onCellKeyDown,
+}: MatrixFarmerRowProps) {
+  const hasMismatch = typeof expectedTotal === 'number' && Math.abs(rowTotal - expectedTotal) >= 0.05;
+  const isVerified = typeof expectedTotal === 'number' && Math.abs(rowTotal - expectedTotal) < 0.05 && expectedTotal > 0;
+  const codeLabel = farmer.farmerNumber
+    ? `#${String(farmer.farmerNumber).padStart(3, '0')}`
+    : `#${String(farmerIndex + 1).padStart(3, '0')}`;
+
+  return (
+    <tr className="matrix-row">
+      <td className="matrix-sticky-col matrix-farmer-cell">
+        <div className="matrix-farmer-info">
+          <span className="matrix-farmer-code font-mono" style={{ fontSize: '0.75rem', padding: '2px 4px' }}>{codeLabel}</span>
+          <span className="matrix-farmer-name" title={farmer.farmerName} style={{ display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>
+            {farmer.farmerName}
+          </span>
+        </div>
+      </td>
+      {days.map((day, dayIndex) => {
+        const cellData = entries[String(day)] || { morning: '', evening: '' };
+        const morningValue = cellData.morning ?? '';
+        const eveningValue = cellData.evening ?? '';
+        const dayHasMilk = Number(morningValue) > 0 || Number(eveningValue) > 0;
+        const morningUnsaved = pendingDays?.[String(day)]?.morning !== undefined;
+        const eveningUnsaved = pendingDays?.[String(day)]?.evening !== undefined;
+
+        return (
+          <React.Fragment key={`cell-${farmer.farmerId}-${day}`}>
+            <td className={`matrix-input-cell morning-cell ${dayHasMilk ? 'has-milk' : ''}`}>
+              <input
+                id={`cell-${farmer.farmerId}-${day}-morning`}
+                type="text"
+                inputMode="decimal"
+                className={`matrix-cell-input ${morningUnsaved ? 'is-unsaved' : ''}`}
+                data-farmer-index={farmerIndex}
+                data-day-index={dayIndex}
+                data-session="morning"
+                value={morningValue}
+                placeholder="—"
+                disabled={saving || draftNeedsRestore}
+                title={morningUnsaved ? (saveFailed ? 'Save failed — unsaved' : 'Unsaved') : undefined}
+                style={morningUnsaved ? {
+                  borderColor: saveFailed ? '#dc2626' : '#d97706',
+                  boxShadow: `0 0 0 1px ${saveFailed ? '#dc2626' : '#d97706'}`,
+                } : undefined}
+                onChange={(event) => onCellChange(farmer.farmerId, day, 'morning', event.target.value)}
+                onKeyDown={onCellKeyDown}
+                aria-label={`${farmer.farmerName} umunsi ${day} igitondo${morningUnsaved ? (saveFailed ? ' — Save failed, unsaved' : ' — Unsaved') : ''}`}
+              />
+            </td>
+            <td className={`matrix-input-cell evening-cell ${dayHasMilk ? 'has-milk' : ''}`}>
+              <input
+                id={`cell-${farmer.farmerId}-${day}-evening`}
+                type="text"
+                inputMode="decimal"
+                className={`matrix-cell-input ${eveningUnsaved ? 'is-unsaved' : ''}`}
+                data-farmer-index={farmerIndex}
+                data-day-index={dayIndex}
+                data-session="evening"
+                value={eveningValue}
+                placeholder="—"
+                disabled={saving || draftNeedsRestore}
+                title={eveningUnsaved ? (saveFailed ? 'Save failed — unsaved' : 'Unsaved') : undefined}
+                style={eveningUnsaved ? {
+                  borderColor: saveFailed ? '#dc2626' : '#d97706',
+                  boxShadow: `0 0 0 1px ${saveFailed ? '#dc2626' : '#d97706'}`,
+                } : undefined}
+                onChange={(event) => onCellChange(farmer.farmerId, day, 'evening', event.target.value)}
+                onKeyDown={onCellKeyDown}
+                aria-label={`${farmer.farmerName} umunsi ${day} nimugoroba${eveningUnsaved ? (saveFailed ? ' — Save failed, unsaved' : ' — Unsaved') : ''}`}
+              />
+            </td>
+          </React.Fragment>
+        );
+      })}
+      <td className="matrix-total-cell">
+        <div className="matrix-total-display">
+          <b className="font-mono text-base">{rowTotal.toLocaleString()} L</b>
+          {isVerified ? (
+            <span className="matrix-badge-verified" title="Igiteranyo gihuye n'icyari cyitezwe">
+              <Check size={12} /> {language === 'rw' ? 'Yuzuye' : 'Matched'}
+            </span>
+          ) : hasMismatch ? (
+            <span className="matrix-badge-mismatch" title={`Cyitezwe: ${expectedTotal} L, Kibonetse: ${rowTotal} L`}>
+              ⚠️ {rowTotal < (expectedTotal || 0) ? `-${((expectedTotal || 0) - rowTotal).toFixed(1)} L` : `+${(rowTotal - (expectedTotal || 0)).toFixed(1)} L`}
+            </span>
+          ) : null}
+        </div>
+      </td>
+    </tr>
+  );
+});
+
 export function DigitalNotebookMatrix({
   language = 'rw',
   centers = [],
@@ -97,6 +221,7 @@ export function DigitalNotebookMatrix({
   const pendingDraftRef = useRef<MatrixDraftEntries>({});
   const serverMatrixDataRef = useRef<Record<number, Record<string, MatrixDayEntry>>>({});
   const draftNeedsRestoreRef = useRef<boolean>(false);
+  const matrixTableRef = useRef<HTMLTableElement>(null);
 
   // Sync centerId when selectedCenterId prop changes
   useEffect(() => {
@@ -247,19 +372,19 @@ export function DigitalNotebookMatrix({
   };
 
   // Handle cell volume change
-  const handleCellChange = (farmerId: number, day: number, session: 'morning' | 'evening', value: string) => {
+  const handleCellChange = useCallback((farmerId: number, day: number, session: 'morning' | 'evening', value: string) => {
     const dayStr = String(day);
     const farmerKey = String(farmerId);
-    const nextDraft: MatrixDraftEntries = {
-      ...pendingDraftRef.current,
-      [farmerKey]: {
-        ...(pendingDraftRef.current[farmerKey] || {}),
-        [dayStr]: {
-          ...(pendingDraftRef.current[farmerKey]?.[dayStr] || {}),
-          [session]: value,
-        },
-      },
-    };
+    const nextDraft: MatrixDraftEntries = { ...pendingDraftRef.current };
+    const farmerDraft = { ...(nextDraft[farmerKey] || {}) };
+    const dayDraft = { ...(farmerDraft[dayStr] || {}) };
+    const serverValue = serverMatrixDataRef.current[farmerId]?.[dayStr]?.[session] ?? '';
+    if (value === serverValue) delete dayDraft[session];
+    else dayDraft[session] = value;
+    if (Object.keys(dayDraft).length) farmerDraft[dayStr] = dayDraft;
+    else delete farmerDraft[dayStr];
+    if (Object.keys(farmerDraft).length) nextDraft[farmerKey] = farmerDraft;
+    else delete nextDraft[farmerKey];
     pendingDraftRef.current = nextDraft;
     setPendingDraft(nextDraft);
     if (saveFailed) setStatusMessage(null);
@@ -281,53 +406,45 @@ export function DigitalNotebookMatrix({
         },
       };
     });
-  };
+  }, [draftStorageKey, language, saveFailed]);
 
   // Cell keyboard navigation
-  const handleCellKeyDown = (
-    e: React.KeyboardEvent<HTMLInputElement>,
-    farmerIndex: number,
-    farmerId: number,
-    dayIndex: number,
-    day: number,
-    session: 'morning' | 'evening'
-  ) => {
-    if (e.key === 'Enter' || e.key === 'Tab') {
-      e.preventDefault();
-      if (session === 'morning') {
-        // Focus evening of same day
-        const nextId = `cell-${farmerId}-${day}-evening`;
-        document.getElementById(nextId)?.focus();
-      } else {
-        // Evening -> next day morning
-        if (dayIndex + 1 < days.length) {
-          const nextDay = days[dayIndex + 1];
-          const nextId = `cell-${farmerId}-${nextDay}-morning`;
-          document.getElementById(nextId)?.focus();
-        } else if (farmerIndex + 1 < filteredFarmers.length) {
-          // Last day of period -> morning of next farmer
-          const nextFarmer = filteredFarmers[farmerIndex + 1];
-          const firstDay = days[0];
-          const nextId = `cell-${nextFarmer.farmerId}-${firstDay}-morning`;
-          document.getElementById(nextId)?.focus();
-        }
-      }
-    } else if (e.key === 'ArrowDown') {
-      if (farmerIndex + 1 < filteredFarmers.length) {
-        e.preventDefault();
-        const nextFarmer = filteredFarmers[farmerIndex + 1];
-        const nextId = `cell-${nextFarmer.farmerId}-${day}-${session}`;
-        document.getElementById(nextId)?.focus();
-      }
-    } else if (e.key === 'ArrowUp') {
-      if (farmerIndex > 0) {
-        e.preventDefault();
-        const prevFarmer = filteredFarmers[farmerIndex - 1];
-        const prevId = `cell-${prevFarmer.farmerId}-${day}-${session}`;
-        document.getElementById(prevId)?.focus();
-      }
+  const handleCellKeyDown = useCallback((e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (!['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Enter'].includes(e.key)) return;
+    e.preventDefault();
+
+    const table = matrixTableRef.current;
+    if (!table) return;
+    const allCells = Array.from(table.querySelectorAll<HTMLInputElement>('.matrix-cell-input'));
+    const editableCells = allCells.filter((cell) => !cell.disabled && !cell.readOnly && cell.getAttribute('aria-readonly') !== 'true');
+    const currentCell = e.currentTarget;
+    const currentIndex = editableCells.indexOf(currentCell);
+    if (currentIndex < 0) return;
+
+    let target: HTMLInputElement | undefined;
+    if (e.key === 'ArrowUp' || e.key === 'ArrowDown') {
+      const currentFarmerIndex = Number(currentCell.dataset.farmerIndex);
+      const direction = e.key === 'ArrowDown' ? 1 : -1;
+      target = editableCells
+        .filter((cell) =>
+          cell.dataset.dayIndex === currentCell.dataset.dayIndex
+          && cell.dataset.session === currentCell.dataset.session
+          && (Number(cell.dataset.farmerIndex) - currentFarmerIndex) * direction > 0
+        )
+        .sort((a, b) =>
+          Math.abs(Number(a.dataset.farmerIndex) - currentFarmerIndex)
+          - Math.abs(Number(b.dataset.farmerIndex) - currentFarmerIndex)
+        )[0];
+    } else {
+      const direction = e.key === 'ArrowLeft' ? -1 : 1;
+      target = editableCells[currentIndex + direction];
     }
-  };
+
+    if (target) {
+      target.focus();
+      if (target.value.trim() !== '' && Number.isFinite(Number(target.value))) target.select();
+    }
+  }, []);
 
   // Calculate row total liters
   const calculateRowTotal = useCallback(
@@ -435,16 +552,23 @@ export function DigitalNotebookMatrix({
   // Save all 15 days batch
   const handleSaveAll = async () => {
     if (saving || draftNeedsRestore) return;
+    const editedDraft = pendingDraftRef.current;
+    const entriesPayload = Object.entries(editedDraft).map(([farmerId, editedDays]) => {
+      const currentDays = matrixData[Number(farmerId)] || {};
+      const daysToSave = Object.fromEntries(Object.keys(editedDays).map((day) => {
+        const current = currentDays[day] || { morning: '', evening: '' };
+        return [day, { morning: current.morning ?? '', evening: current.evening ?? '' }];
+      }));
+      return { farmerId: Number(farmerId), days: daysToSave };
+    }).filter((entry) => Object.keys(entry.days).length > 0);
+    const submittedDayCount = entriesPayload.reduce((total, entry) => total + Object.keys(entry.days).length, 0);
+    if (submittedDayCount === 0) return;
+
     setSaving(true);
     setStatusMessage(null);
     setSaveConfirmed(false);
 
     try {
-      const entriesPayload = farmers.map((f) => ({
-        farmerId: f.farmerId,
-        days: matrixData[f.farmerId] || {},
-      }));
-
       const res = await fetch('/api/milk/batch-matrix', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -458,8 +582,8 @@ export function DigitalNotebookMatrix({
         }),
       });
 
-      const result = await res.json();
-      if (!res.ok) {
+      const result = await res.json().catch(() => ({}));
+      if (!res.ok || result.success !== true || Number(result.savedCount) !== submittedDayCount) {
         throw new Error(result.message || 'Failed to save batch matrix.');
       }
 
@@ -485,8 +609,8 @@ export function DigitalNotebookMatrix({
         type: 'success',
         text:
           language === 'rw'
-            ? `✓ Byabitswe neza! Iminsi 15 yemejwe: litiro ${result.totalVolume?.toLocaleString() || summary.totalLiters} L.`
-            : `✓ Saved successfully! 15 days confirmed: ${result.totalVolume?.toLocaleString() || summary.totalLiters} L.`,
+            ? `✓ Byabitswe neza! Iminsi ${submittedDayCount} y'aborozi yemejwe. Igiteranyo cy'iki gihe: ${summary.totalLiters.toLocaleString()} L.`
+            : `✓ Saved successfully! ${submittedDayCount} farmer-day entr${submittedDayCount === 1 ? 'y' : 'ies'} confirmed. Period total: ${summary.totalLiters.toLocaleString()} L.`,
       });
 
       if (onSaveSuccess) {
@@ -740,7 +864,7 @@ export function DigitalNotebookMatrix({
           </div>
         ) : (
           <div className="matrix-table-scroll">
-            <table className="matrix-table" aria-label="Ikaye y'Amata Matrix">
+            <table ref={matrixTableRef} className="matrix-table" aria-label="Ikaye y'Amata Matrix">
               <thead>
                 <tr className="matrix-header-row-primary">
                   {/* Sticky Frozen Top-Left Header */}
@@ -825,6 +949,9 @@ export function DigitalNotebookMatrix({
                                 type="text"
                                 inputMode="decimal"
                                 className={`matrix-cell-input ${morningUnsaved ? 'is-unsaved' : ''}`}
+                                data-farmer-index={fIdx}
+                                data-day-index={dIdx}
+                                data-session="morning"
                                 value={morningVal}
                                 placeholder="—"
                                 disabled={saving || draftNeedsRestore}
@@ -834,7 +961,7 @@ export function DigitalNotebookMatrix({
                                   boxShadow: `0 0 0 1px ${saveFailed ? '#dc2626' : '#d97706'}`,
                                 } : undefined}
                                 onChange={(e) => handleCellChange(farmer.farmerId, d, 'morning', e.target.value)}
-                                onKeyDown={(e) => handleCellKeyDown(e, fIdx, farmer.farmerId, dIdx, d, 'morning')}
+                                onKeyDown={handleCellKeyDown}
                                 aria-label={`${farmer.farmerName} umunsi ${d} igitondo${morningUnsaved ? (saveFailed ? ' — Save failed, unsaved' : ' — Unsaved') : ''}`}
                               />
                             </td>
@@ -846,6 +973,9 @@ export function DigitalNotebookMatrix({
                                 type="text"
                                 inputMode="decimal"
                                 className={`matrix-cell-input ${eveningUnsaved ? 'is-unsaved' : ''}`}
+                                data-farmer-index={fIdx}
+                                data-day-index={dIdx}
+                                data-session="evening"
                                 value={eveningVal}
                                 placeholder="—"
                                 disabled={saving || draftNeedsRestore}
@@ -855,7 +985,7 @@ export function DigitalNotebookMatrix({
                                   boxShadow: `0 0 0 1px ${saveFailed ? '#dc2626' : '#d97706'}`,
                                 } : undefined}
                                 onChange={(e) => handleCellChange(farmer.farmerId, d, 'evening', e.target.value)}
-                                onKeyDown={(e) => handleCellKeyDown(e, fIdx, farmer.farmerId, dIdx, d, 'evening')}
+                                onKeyDown={handleCellKeyDown}
                                 aria-label={`${farmer.farmerName} umunsi ${d} nimugoroba${eveningUnsaved ? (saveFailed ? ' — Save failed, unsaved' : ' — Unsaved') : ''}`}
                               />
                             </td>
@@ -922,7 +1052,7 @@ export function DigitalNotebookMatrix({
             type="button"
             className="matrix-save-all-button"
             onClick={handleSaveAll}
-            disabled={saving || loading || draftNeedsRestore || filteredFarmers.length === 0}
+            disabled={saving || loading || draftNeedsRestore || pendingCellCount === 0 || filteredFarmers.length === 0}
           >
             {saving ? (
               <>

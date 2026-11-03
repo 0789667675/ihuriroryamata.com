@@ -6,7 +6,9 @@ const path = require('node:path');
 const Milk = require('../lib/services/milk-service.js');
 const MilkAdjustment = require('../lib/services/milk-adjustment-service.js');
 const MilkRepository = require('../lib/repositories/milkRepository.js');
+const MilkAdjustmentRepository = require('../lib/repositories/milkAdjustmentRepository.js');
 const { buildIfishiVolumeRows } = require('../lib/utils/ifishi-ledger.js');
+const ReportRepository = require('../lib/repositories/reportRepository.js');
 
 test('daily milk API keeps database diagnostics out of client responses', () => {
   const route = fs.readFileSync(path.join(__dirname, '..', 'app', 'api', 'milk', 'daily', 'route.js'), 'utf8');
@@ -284,6 +286,308 @@ test('milk update and void stay within the authenticated owner scope', async () 
   await assert.rejects(() => Milk.voidMilkRecord({ id: 10, ownerUserId, reason: ' ', repository }), /void reason/i);
 });
 
+test('milk corrections preserve stored price and transport snapshots', async () => {
+  let updated;
+  const result = await Milk.updateMilkRecord({
+    id: 10,
+    ownerUserId,
+    date: '2026-10-02',
+    volumeMorning: 2,
+    volumeEvening: 3,
+    reason: 'Corrected notebook entry',
+    repository: {
+      getMilkRecord: async () => ({
+        id: 10,
+        farmer_id: farmer.id,
+        price_per_liter: 400,
+        transport_rate_per_liter: 20,
+      }),
+      getMilkContext: async () => ({ farmer, center: { id: 5 }, pricePerLiter: 900 }),
+      updateMilkRecord: async (input) => { updated = input; return input; },
+    },
+  });
+
+  assert.equal(result.pricePerLiter, 400);
+  assert.equal(result.amount, 2000);
+  assert.equal(updated.transportRatePerLiter, 20);
+  assert.equal(updated.reason, 'Corrected notebook entry');
+});
+
+test('correcting all milk quantities to zero requires a reason and voids the existing record', async () => {
+  let voided;
+  const repository = {
+    getMilkRecord: async () => ({ id: 10, farmer_id: farmer.id }),
+    voidMilkRecord: async (input) => { voided = input; return { record: { id: input.id, status: 'cancelled' } }; },
+  };
+
+  await assert.rejects(() => Milk.updateMilkRecord({
+    id: 10,
+    ownerUserId,
+    date: '2026-10-02',
+    volumeMorning: 0,
+    volumeEvening: 0,
+    repository,
+  }), /correction reason is required/i);
+
+  const result = await Milk.updateMilkRecord({
+    id: 10,
+    ownerUserId,
+    date: '2026-10-02',
+    volumeMorning: 0,
+    volumeEvening: 0,
+    reason: 'Incorrect farmer entry',
+    repository,
+  });
+  assert.equal(result.record.status, 'cancelled');
+  assert.deepEqual(voided, {
+    id: 10,
+    ownerUserId,
+    actorId: ownerUserId,
+    reason: 'Incorrect farmer entry',
+  });
+});
+
+test('milk update rejects invalid input and returns not-found for a missing record', async () => {
+  await assert.rejects(() => Milk.updateMilkRecord({
+    id: 10,
+    ownerUserId,
+    date: '2026-02-30',
+    volumeMorning: 1,
+    repository: {},
+  }), /valid date/i);
+
+  const result = await Milk.updateMilkRecord({
+    id: 10,
+    ownerUserId,
+    date: '2026-10-02',
+    volumeMorning: 1,
+    repository: { getMilkRecord: async () => null },
+  });
+  assert.equal(result, null);
+});
+
+test('Collector correction resolves its record owner and denies cross-owner access', async () => {
+  const calls = [];
+  const result = await Milk.updateMilkRecord({
+    id: 10,
+    ownerUserId: 99,
+    collectorUserId: 99,
+    date: '2026-10-02',
+    volumeMorning: 1,
+    repository: {
+      resolveMilkRecordScope: async (scope) => {
+        calls.push(scope);
+        return { ownerUserId: 42, collectorUserId: 99 };
+      },
+      getMilkRecord: async (id, scopedOwner, collectorId) => {
+        calls.push({ id, scopedOwner, collectorId });
+        return null;
+      },
+    },
+  });
+  assert.equal(result, null);
+  assert.deepEqual(calls, [
+    { ownerUserId: 99, collectorUserId: 99, recordId: 10 },
+    { id: 10, scopedOwner: 42, collectorId: 99 },
+  ]);
+});
+
+test('milk correction transaction stores authoritative valid totals and complete audit history', async () => {
+  const statements = [];
+  const before = {
+    id: 10,
+    owner_user_id: ownerUserId,
+    farmer_id: farmer.id,
+    date: '2026-10-02',
+    status: 'valid',
+    volume_liters: 8,
+    volume_morning: 5,
+    volume_evening: 3,
+    price_per_liter: 400,
+    amount: 3200,
+    transport_rate_per_liter: 20,
+  };
+  const client = {
+    query: async (text, values = []) => {
+      statements.push({ text, values });
+      if (text.includes('SELECT mr.* FROM milk_records mr')) return { rows: [before] };
+      if (text.includes('FROM farmers') && text.includes('SELECT id, name, owner_user_id')) {
+        return { rows: [{ id: farmer.id, owner_user_id: ownerUserId, collectionCenter: 'North Site' }] };
+      }
+      if (text.includes('FROM collection_centers')) return { rows: [{ id: 5, owner_user_id: ownerUserId, name: 'North Site', pricePerLiter: 900 }] };
+      if (text.includes('FROM collection_center_prices')) return { rows: [] };
+      if (text.includes('INSERT INTO collection_sessions')) return { rows: [{ id: 70 }] };
+      if (text.includes('UPDATE milk_records SET collection_session_id')) return { rows: [{
+        ...before,
+        collection_session_id: 70,
+        volume_liters: 5,
+        volume_morning: 2,
+        volume_evening: 3,
+        price_per_liter: 400,
+        amount: 2000,
+        original_volume_liters: 5,
+        original_volume_morning: 2,
+        original_volume_evening: 3,
+        original_amount: 2000,
+        valid_volume_liters: 5,
+        valid_volume_morning: 2,
+        valid_volume_evening: 3,
+        valid_amount: 2000,
+      }] };
+      return { rows: [] };
+    },
+    release: () => {},
+  };
+
+  const result = await MilkRepository.updateMilkRecord({
+    id: 10,
+    ownerUserId,
+    actorId: 77,
+    date: '2026-10-02',
+    collectionCenterId: 5,
+    volumeMorning: 2,
+    volumeEvening: 3,
+    volume: 5,
+    pricePerLiter: 400,
+    amount: 2000,
+    transportRatePerLiter: 20,
+    reason: 'Corrected notebook entry',
+    poolProvider: () => ({ connect: async () => client }),
+  });
+
+  const update = statements.find(({ text }) => text.includes('UPDATE milk_records SET collection_session_id'));
+  assert.match(update.text, /valid_volume_liters = \$6/);
+  assert.match(update.text, /valid_amount = \$10/);
+  assert.match(update.text, /original_volume_liters = \$6/);
+  assert.deepEqual(update.values.slice(5, 11), [5, 2, 3, 400, 2000, 20]);
+  assert.equal(result.validVolumeLiters, 5);
+  assert.equal(result.validAmount, 2000);
+
+  const audit = statements.find(({ text }) => text.includes('INSERT INTO audit_logs'));
+  assert.equal(audit.values[1], 'corrected');
+  assert.equal(audit.values[3], 77);
+  const details = JSON.parse(audit.values[2]);
+  assert.deepEqual(details.previousValue, { volumeMorning: 5, volumeEvening: 3, volume: 8 });
+  assert.deepEqual(details.newValue, { volumeMorning: 2, volumeEvening: 3, volume: 5 });
+  assert.equal(details.reason, 'Corrected notebook entry');
+  assert.match(audit.text, /changed_by, owner_user_id/);
+
+  const reportQuery = ReportRepository.buildFarmerTotalsQuery({
+    ownerUserId,
+    rangeStart: '2026-10-01',
+    rangeEnd: '2026-10-31',
+  });
+  assert.match(reportQuery.text, /SUM\(COALESCE\(mr\.valid_volume_liters, mr\.volume_liters\)\) AS total_volume/);
+  assert.match(reportQuery.text, /COALESCE\(NULLIF\(mr\.valid_amount, 0\)/);
+});
+
+test('repeating an identical milk correction does not write another audit event', async () => {
+  const statements = [];
+  const existing = {
+    id: 10,
+    owner_user_id: ownerUserId,
+    farmer_id: farmer.id,
+    date: '2026-10-02',
+    status: 'valid',
+    volume_liters: 5,
+    volume_morning: 2,
+    volume_evening: 3,
+    price_per_liter: 400,
+    amount: 2000,
+    transport_rate_per_liter: 20,
+  };
+  const client = {
+    query: async (text, values = []) => {
+      statements.push({ text, values });
+      if (text.includes('SELECT mr.* FROM milk_records mr')) return { rows: [existing] };
+      return { rows: [] };
+    },
+    release: () => {},
+  };
+  await MilkRepository.updateMilkRecord({
+    id: 10,
+    ownerUserId,
+    actorId: 77,
+    date: '2026-10-02',
+    collectionCenterId: 5,
+    volumeMorning: 2,
+    volumeEvening: 3,
+    volume: 5,
+    pricePerLiter: 400,
+    amount: 2000,
+    transportRatePerLiter: 20,
+    poolProvider: () => ({ connect: async () => client }),
+  });
+  assert.equal(statements.some(({ text }) => text.includes('INSERT INTO audit_logs')), false);
+  assert.equal(statements.some(({ text }) => text.includes('UPDATE milk_records SET')), false);
+});
+
+test('voiding a milk correction preserves the record and audits actor, reason, and before/after values', async () => {
+  const statements = [];
+  const existing = {
+    id: 10,
+    owner_user_id: ownerUserId,
+    farmer_id: farmer.id,
+    date: '2026-10-02',
+    status: 'valid',
+    volume_liters: 5,
+    volume_morning: 2,
+    volume_evening: 3,
+    amount: 2000,
+  };
+  const client = {
+    query: async (text, values = []) => {
+      statements.push({ text, values });
+      if (text.includes('SELECT mr.* FROM milk_records mr')) return { rows: [existing] };
+      if (text.includes('UPDATE milk_records SET')) return { rows: [{ ...existing, status: 'cancelled', valid_volume_liters: 0 }] };
+      return { rows: [] };
+    },
+    release: () => {},
+  };
+  const result = await MilkRepository.voidMilkRecord({
+    id: 10,
+    ownerUserId,
+    actorId: 77,
+    reason: 'Incorrect farmer entry',
+    poolProvider: () => ({ connect: async () => client }),
+  });
+
+  assert.equal(result.alreadyVoided, false);
+  assert.equal(result.record.status, 'cancelled');
+  assert.equal(statements.some(({ text }) => /DELETE\s+FROM\s+milk_records/i.test(text)), false);
+  const audit = statements.find(({ text }) => text.includes('INSERT INTO audit_logs'));
+  const details = JSON.parse(audit.values[1]);
+  assert.match(audit.text, /changed_by, owner_user_id/);
+  assert.equal(audit.values[2], 77);
+  assert.equal(details.reason, 'Incorrect farmer entry');
+  assert.deepEqual(details.previousValue, { volumeMorning: 2, volumeEvening: 3, volume: 5, amount: 2000 });
+  assert.deepEqual(details.newValue, { volumeMorning: 0, volumeEvening: 0, volume: 0, amount: 0 });
+});
+
+test('record-specific Collector scope only resolves active assigned-owner records', async () => {
+  let queryText;
+  const assigned = await MilkRepository.resolveMilkRecordScope({
+    ownerUserId: 99,
+    collectorUserId: 99,
+    recordId: 10,
+    runQuery: async (text) => {
+      queryText = text;
+      return { rows: [{ ownerUserId: 42 }] };
+    },
+  });
+  assert.deepEqual(assigned, { ownerUserId: 42, collectorUserId: 99 });
+  assert.match(queryText, /ca\.revoked_at IS NULL/);
+  assert.match(queryText, /f\.collector_user_id = \$3/);
+
+  const denied = await MilkRepository.resolveMilkRecordScope({
+    ownerUserId: 99,
+    collectorUserId: 99,
+    recordId: 11,
+    runQuery: async () => ({ rows: [] }),
+  });
+  assert.deepEqual(denied, { ownerUserId: 99, collectorUserId: null });
+});
+
 test('milk history uses a bounded keyset cursor and validates date ranges', async () => {
   let filters;
   const expected = { data: [], pageSize: 20, hasMore: false, nextCursor: null };
@@ -525,6 +829,55 @@ test('whole-day cancellation preserves prior adjustment rows and audits cancelle
   const audit = statements.find(({ text }) => text.includes("INSERT INTO audit_logs") && text.includes("'milk_collection_adjustment'"));
   assert.equal(audit.values[1], 'cancelled');
   assert.match(audit.values[2], /Collection cancelled/);
+});
+
+test('collection loss recalculation excludes individually voided and corrected records', async () => {
+  const statements = [];
+  const client = {
+    query: async (text, values = []) => {
+      statements.push({ text, values });
+      if (text.includes('SELECT mr.*')) {
+        assert.match(text, /al\.action IN \('voided', 'corrected'\)/);
+        return { rows: [{
+          id: 21,
+          owner_user_id: ownerUserId,
+          farmer_id: 8,
+          volume_morning: 10,
+          volume_evening: 0,
+          original_volume_morning: 10,
+          original_volume_evening: 0,
+          original_amount: 4000,
+          amount: 4000,
+        }] };
+      }
+      if (text.includes('INSERT INTO milk_collection_adjustments')) return { rows: [{ id: 32 }] };
+      return { rows: [] };
+    },
+    release: () => {},
+  };
+  const result = await MilkAdjustmentRepository.applyCollectionAdjustment({
+    ownerUserId,
+    collectionCenterId: 5,
+    date: '2026-10-01',
+    period: 'all',
+    lossPercentage: 20,
+    reason: 'Collection spill',
+    adjustedBy: ownerUserId,
+    poolProvider: () => ({ connect: async () => client }),
+  });
+
+  assert.equal(result.affectedRecords, 1);
+  assert.equal(result.originalAmount, 4000);
+  assert.equal(result.validAmount, 3200);
+  const recordWrite = statements.find(({ text }) => text.includes('valid_volume_morning = $1'));
+  assert.equal(recordWrite.values.at(-2), 21);
+});
+
+test('milk record API rejects non-Collector account types before writes', () => {
+  const route = fs.readFileSync(path.join(__dirname, '..', 'app', 'api', 'milk', '[id]', 'route.js'), 'utf8');
+  assert.match(route, /requireAccountType\(user, 'COLLECTOR'\)/);
+  assert.match(route, /collectorUserId: user\.id/);
+  assert.match(route, /A valid JSON object is required[\s\S]*status: 400/);
 });
 
 test('daily collection accepts collector-scoped filtering and preserves owner assignment', async () => {

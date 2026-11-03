@@ -19,7 +19,7 @@ const env = {
   LMBTECH_ALLOW_REAL_PAYMENTS: 'true',
 };
 
-const schedulerConfig = (paths = ['/api/cron/subscription-emails', '/api/cron/notifications']) => () => ({
+const schedulerConfig = (paths = ['/api/cron/subscription-emails', '/api/cron/subscription-email-outbox', '/api/cron/notifications']) => () => ({
   configured: true,
   crons: paths.map((jobPath) => ({ path: jobPath, schedule: '0 6 * * *' })),
   detail: 'vercel.json was found.',
@@ -32,6 +32,7 @@ const healthyQuery = ({
   paymentFailures = [],
   jobRuns = [
     { job_id: 'notification_evaluation', status: 'succeeded', started_at: '2026-10-21T09:00:00.000Z', finished_at: '2026-10-21T09:00:05.000Z', summary: { evaluated: 2 }, error_code: null, failed_recent: 0 },
+    { job_id: 'subscription_email_outbox', status: 'succeeded', started_at: '2026-10-21T09:45:00.000Z', finished_at: '2026-10-21T09:45:05.000Z', summary: { sent: 1 }, error_code: null, failed_recent: 0 },
     { job_id: 'subscription_emails', status: 'succeeded', started_at: '2026-10-21T08:00:00.000Z', finished_at: '2026-10-21T08:00:05.000Z', summary: { sent: 1 }, error_code: null, failed_recent: 0 },
   ],
 } = {}) => async (sql) => {
@@ -76,7 +77,8 @@ test('platform health reports real database, migration, email, outbox, payment, 
   assert.equal(health.scheduler.runHistoryAvailable, true);
   assert.equal(health.scheduler.jobs.find((job) => job.id === 'subscription_emails').scheduled, true);
   assert.equal(health.scheduler.jobs.find((job) => job.id === 'subscription_emails').lastResult, 'succeeded');
-  assert.equal(health.scheduler.jobs.find((job) => job.id === 'notification_evaluation').expectedCadence, 'not_documented');
+  assert.equal(health.scheduler.jobs.find((job) => job.id === 'notification_evaluation').expectedCadence, 'every 15 minutes');
+  assert.equal(health.scheduler.jobs.find((job) => job.id === 'subscription_email_outbox').status, 'healthy');
   assert.equal(health.notificationEvaluation.status, 'healthy');
   assert.equal(health.notificationEvaluation.lastResult, 'succeeded');
 });
@@ -182,11 +184,12 @@ test('platform health reports unavailable run history and an unscheduled notific
     runQuery: healthyQuery(),
     mailer: resendMailer,
     env,
+    now: new Date('2026-10-21T10:00:00.000Z'),
     readSchedulerConfig: schedulerConfig(['/api/cron/subscription-emails']),
   });
   assert.equal(unscheduled.scheduler.status, 'warning');
   assert.equal(unscheduled.scheduler.jobs.find((job) => job.id === 'notification_evaluation').scheduled, false);
-  assert.match(unscheduled.notificationEvaluation.detail, /cadence is not documented/i);
+  assert.match(unscheduled.notificationEvaluation.detail, /no matching schedule is configured/i);
 });
 
 test('platform health handles an unconfigured database without throwing or inventing healthy checks', async () => {

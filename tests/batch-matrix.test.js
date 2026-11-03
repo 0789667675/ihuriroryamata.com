@@ -124,11 +124,14 @@ test('Batch Matrix API: exports robust GET and POST handlers', () => {
 test('Batch Matrix API: saves atomically and upserts records idempotently', () => {
   const fs = require('fs');
   const routeContent = fs.readFileSync('app/api/milk/batch-matrix/route.js', 'utf8');
-  assert.match(routeContent, /await client\.query\('BEGIN'\)/, 'Batch save must run inside a transaction');
-  assert.match(routeContent, /ON CONFLICT \(farmer_id, month, year, day\)\s+DO UPDATE/, 'Retry must upsert the same farmer-day record');
-  assert.match(routeContent, /await client\.query\('ROLLBACK'\)/, 'Failed batches must roll back instead of partially saving');
-  assert.match(routeContent, /await client\.query\('COMMIT'\)/, 'Successful batches must commit as a unit');
-  assert.doesNotMatch(routeContent, /failedEntries|successEntries|partialSuccess/, 'Batch API does not expose per-record partial results');
+  const repositoryContent = fs.readFileSync('lib/repositories/milkMatrixRepository.js', 'utf8');
+  assert.match(repositoryContent, /await client\.query\('BEGIN'\)/, 'Batch save must run inside a transaction');
+  assert.match(repositoryContent, /ON CONFLICT \(farmer_id, month, year, day\) DO UPDATE/, 'Retry must upsert the same farmer-day record');
+  assert.match(repositoryContent, /await client\.query\('ROLLBACK'\)/, 'Failed batches must roll back instead of partially saving');
+  assert.match(repositoryContent, /await client\.query\('COMMIT'\)/, 'Successful batches must commit as a unit');
+  assert.match(repositoryContent, /FROM unnest\([\s\S]*?\) AS batch/, 'Milk rows must be written with one set-based insert');
+  assert.match(routeContent, /saveMilkMatrixBatch\(\{ user, input: body \}\)/, 'POST route must delegate to the tested batch repository');
+  assert.doesNotMatch(repositoryContent, /failedEntries|successEntries|partialSuccess/, 'Batch API does not expose per-record partial results');
 });
 
 test('Security & DB: authenticate and postgres exports support batch matrix ingestion', () => {

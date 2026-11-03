@@ -68,7 +68,11 @@ const makeFixture = async () => {
     },
   };
   const rateLimits = { consumeRateLimit: async () => true };
-  const mailer = { messages: [], sendEmailChangeConfirmation: async (message) => mailer.messages.push(message) };
+  const mailer = {
+    messages: [],
+    sendEmailChangeConfirmation: async (message) => mailer.messages.push(message),
+    sendPasswordChangedNotice: async (message) => mailer.messages.push({ type: 'password_changed', ...message }),
+  };
   const audit = async (entry) => auditEntries.push(entry);
   return { user, repository, rateLimits, mailer, audit, auditEntries, get pendingEmailChange() { return pendingEmailChange; } };
 };
@@ -191,8 +195,11 @@ test('change password verifies the current password and the new password authent
     currentPassword: 'CurrentPassword123!',
     newPassword: 'NewPassword123!',
     repository: fixture.repository,
+    mailer: fixture.mailer,
     audit: fixture.audit,
   });
+  assert.equal(fixture.mailer.messages[0].type, 'password_changed');
+  assert.equal(fixture.mailer.messages[0].email, fixture.user.email);
   const result = await loginUser({ repository: fixture.repository, email: fixture.user.email, password: 'NewPassword123!' });
   assert.equal(result.user.id, fixture.user.id);
 });

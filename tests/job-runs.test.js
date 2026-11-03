@@ -81,7 +81,11 @@ test('cron routes record job history and middleware allows cron routes to reach 
   const fs = require('node:fs');
   const path = require('node:path');
   const read = (relativePath) => fs.readFileSync(path.join(__dirname, '..', relativePath), 'utf8');
-  for (const routePath of ['app/api/cron/notifications/route.js', 'app/api/cron/subscription-emails/route.js']) {
+  for (const routePath of [
+    'app/api/cron/notifications/route.js',
+    'app/api/cron/subscription-emails/route.js',
+    'app/api/cron/subscription-email-outbox/route.js',
+  ]) {
     const route = read(routePath);
     assert.match(route, /withJobRun/);
     assert.match(route, /result\.skipped/);

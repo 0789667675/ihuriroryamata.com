@@ -75,3 +75,21 @@ test('canonical Collector tier migration preserves prices and only deactivates r
   assert.match(migration, /SET is_active = FALSE/);
   assert.doesNotMatch(migration, /DROP TABLE|TRUNCATE|DELETE FROM/i);
 });
+
+test('subscription email status migration preserves existing events and records provider acceptance IDs', () => {
+  const migration = fs.readFileSync(path.join(__dirname, '..', 'supabase', 'migrations', '026_subscription_email_status.sql'), 'utf8');
+  assert.match(migration, /ADD COLUMN IF NOT EXISTS provider_message_id/);
+  assert.match(migration, /'payment_confirmation'[\s\S]*'payment_status'[\s\S]*'subscription_usage_exceeded'/);
+  assert.doesNotMatch(migration, /DELETE FROM subscription_email_events/i);
+});
+
+test('notification and business email migrations support emitted priorities and transactional outbox events', () => {
+  const priorityMigration = fs.readFileSync(path.join(root, 'supabase', 'migrations', '027_notification_priority_values.sql'), 'utf8');
+  const businessEmailMigration = fs.readFileSync(path.join(root, 'supabase', 'migrations', '028_business_event_email_outbox.sql'), 'utf8');
+  assert.match(priorityMigration, /ADD VALUE IF NOT EXISTS 'high'/);
+  assert.match(priorityMigration, /ADD VALUE IF NOT EXISTS 'info'/);
+  assert.match(priorityMigration, /ADD VALUE IF NOT EXISTS 'success'/);
+  assert.match(businessEmailMigration, /ALTER COLUMN subscription_id DROP NOT NULL/);
+  assert.match(businessEmailMigration, /'business_event'/);
+  assert.doesNotMatch(businessEmailMigration, /DELETE FROM|TRUNCATE|DROP TABLE/i);
+});

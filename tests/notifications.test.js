@@ -47,6 +47,56 @@ test('notification dedupe keys include tenant-independent event dimensions and u
   assert.equal(NotificationRepository.buildDedupeKey({ type: 'missed', farmerId: 7, center: 'North', date: '2026-10-01', period: 'morning' }), 'missed|7|North|2026-10-01|morning|default');
 });
 
+test('confirmed business activity notifications require stable references and preserve owner-scoped dedupe', async () => {
+  const saved = [];
+  const repository = {
+    upsertNotification: async (input) => {
+      saved.push(input);
+      return { created: true, notification: input };
+    },
+  };
+  const input = {
+    type: 'milk_record_corrected',
+    ownerUserId,
+    farmerId: 7,
+    farmerName: 'Aline',
+    date: '2026-10-01',
+    reference: 'milk-record-correction:99:2026-10-01T10:00:00Z',
+    repository,
+  };
+  const first = await Notifications.createBusinessActivityNotification(input);
+  const second = await Notifications.createBusinessActivityNotification(input);
+  assert.equal(first.notification.ownerUserId, ownerUserId);
+  assert.equal(saved[0].details.evidence, 'confirmed_business_event');
+  assert.equal(saved[0].details.params.farmer, 'Aline');
+  assert.equal(first.notification.dedupeKey, second.notification.dedupeKey);
+  assert.match(first.notification.dedupeKey, /milk-record-correction:99/);
+  await assert.rejects(() => Notifications.createBusinessActivityNotification({ ...input, type: 'unsupported_event' }), /Unsupported business activity/i);
+  await assert.rejects(() => Notifications.createBusinessActivityNotification({ ...input, reference: '' }), /reference is required/i);
+});
+
+test('confirmed milk, settlement, debt, and password mutation routes emit business activity notices', () => {
+  const milkRoute = readRoute('app/api/milk/[id]/route.js');
+  const settlementRoute = readRoute('app/api/farmer-settlements/route.js');
+  const adjustmentRoute = readRoute('app/api/milk/daily/adjust/route.js');
+  const accountService = readRoute('lib/services/account-service.js');
+  const resetService = readRoute('lib/services/password-reset-service.js');
+  assert.match(milkRoute, /isNewVoid \? 'milk_record_voided' : 'milk_record_corrected'/);
+  assert.match(milkRoute, /alreadyVoided === false/);
+  for (const [source, event] of [
+    [milkRoute, 'milk_record_voided'],
+    [adjustmentRoute, 'milk_collection_adjusted'],
+    [settlementRoute, 'settlement_confirmed'],
+    [settlementRoute, 'cash_payout_approved'],
+    [settlementRoute, 'debt_created'],
+    [settlementRoute, 'debt_repaid'],
+    [accountService, 'password_changed'],
+    [resetService, 'password_reset_completed'],
+  ]) {
+    assert.match(source, new RegExp(`type:\\s*'${event}'`));
+  }
+});
+
 test('successful farmer create and update routes emit non-blocking owner-scoped notifications', () => {
   const createRoute = readRoute('app/api/farmers/route.ts');
   const updateRoute = readRoute('app/api/farmers/[id]/route.js');
