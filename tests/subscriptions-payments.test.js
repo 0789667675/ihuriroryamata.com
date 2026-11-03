@@ -891,6 +891,35 @@ test('email provider failures remain queued and are never reported as delivered'
   assert.deepEqual(failedEvent, { eventId: 90, errorCode: 'EMAIL_PROVIDER_REJECTED' });
 });
 
+test('outbox events without a provider acceptance ID remain pending', async () => {
+  let markedSent = false;
+  let failedEvent;
+  const result = await Subscriptions.deliverSubscriptionEmails({
+    repository: {
+      claimSubscriptionEmailEvents: async () => [{ id: 94, event_type: 'payment_confirmation', recipient: 'payer@example.test', payload: {} }],
+      markSubscriptionEmailSent: async () => { markedSent = true; },
+      markSubscriptionEmailFailed: async (input) => { failedEvent = input; },
+    },
+    mailer: { sendPaymentConfirmation: async () => ({}) },
+  });
+  assert.deepEqual(result, { sent: 0, failed: 1, attempted: 1 });
+  assert.equal(markedSent, false);
+  assert.deepEqual(failedEvent, { eventId: 94, errorCode: 'EMAIL_PROVIDER_INVALID_RESPONSE' });
+});
+
+test('owner-triggered outbox claims are restricted to that owner', async () => {
+  let statement;
+  await SubscriptionRepository.claimSubscriptionEmailEvents({
+    ownerUserId: 42,
+    paymentId: 19,
+    limit: 8,
+    runQuery: async (text, values) => { statement = { text, values }; return { rows: [] }; },
+  });
+  assert.match(statement.text, /AND payment_id = \$1/);
+  assert.match(statement.text, /AND owner_user_id = \$2/);
+  assert.deepEqual(statement.values, [19, 42, 8]);
+});
+
 test('terminal payment outbox retries reuse a stable provider key and record provider acceptance', async () => {
   const providerKeys = [];
   const acceptedMessages = [];
@@ -955,6 +984,31 @@ test('subscription email event dates and reminder comparisons use Africa/Kigali 
   assert.match(source, /subscription-expired:[\s\S]*AT TIME ZONE 'Africa\/Kigali'/);
 });
 
+test('daily subscription processing retries outbox work idempotently', async () => {
+  let scheduled = 0;
+  let sent = false;
+  let deliveryCalls = 0;
+  const repository = {
+    scheduleSubscriptionEmailEvents: async () => {
+      scheduled += 1;
+      return { expired: 0, remindersQueued: 0 };
+    },
+    claimSubscriptionEmailEvents: async () => {
+      if (sent) return [];
+      return [{ id: 95, event_key: 'daily-event-95', event_type: 'payment_status', recipient: 'owner@example.test', payload: {} }];
+    },
+    markSubscriptionEmailSent: async () => { sent = true; },
+    markSubscriptionEmailFailed: async () => {},
+  };
+  const mailer = { sendPaymentStatus: async () => { deliveryCalls += 1; return { messageId: 'accepted-95' }; } };
+  const first = await Subscriptions.runSubscriptionEmailJob({ repository, mailer });
+  const second = await Subscriptions.runSubscriptionEmailJob({ repository, mailer });
+  assert.equal(scheduled, 2);
+  assert.equal(first.delivery.sent, 1);
+  assert.equal(second.delivery.attempted, 0);
+  assert.equal(deliveryCalls, 1);
+});
+
 test('subscription email job schedules only explicitly configured reminder offsets', async () => {
   let scheduledOffsets;
   let sentReminder;
@@ -966,7 +1020,7 @@ test('subscription email job schedules only explicitly configured reminder offse
       markSubscriptionEmailSent: async () => {},
       markSubscriptionEmailFailed: async () => {},
     },
-    mailer: { sendSubscriptionReminder: async (message) => { sentReminder = message; } },
+    mailer: { sendSubscriptionReminder: async (message) => { sentReminder = message; return { messageId: 'resend-reminder-91' }; } },
   });
   assert.deepEqual(scheduledOffsets, [7, 1]);
   assert.equal(sentReminder.to, 'owner@example.test');

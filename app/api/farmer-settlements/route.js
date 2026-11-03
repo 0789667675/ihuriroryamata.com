@@ -8,6 +8,7 @@ const { createSettlementRecord, confirmSettlement, hasValidSaccoAccount } = requ
 const { requireCollector, assertAssignedCollector, parsePositiveId, parsePositiveAmount, parsePeriod } = require('@/lib/services/farmer-settlement-access.js');
 const { getCurrentAccountingPeriod } = require('@/lib/utils/accounting-period.js');
 const Notifications = require('@/lib/services/notification-service.js');
+const Subscriptions = require('@/lib/services/subscription-service.js');
 
 export const runtime = 'nodejs';
 
@@ -50,6 +51,7 @@ const notifySettlementActivity = async ({ type, ownerUserId, farmerId, farmerNam
     const code = error?.code ? String(error.code).replace(/[^A-Za-z0-9_-]/g, '').slice(0, 80) : 'NOTIFICATION_WRITE_FAILED';
     console.error('[settlements] Business activity notification failed.', { code, ownerUserId: Number(ownerUserId) || null, type });
   }
+  await Subscriptions.deliverOwnerSubscriptionEmails({ ownerUserId });
 };
 
 export async function GET(request) {

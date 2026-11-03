@@ -27,7 +27,12 @@ export async function POST(request) {
     state.set(user.id, Date.now());
     let data;
     try {
-      data = await Notifications.evaluateOperationalAlerts({ ownerUserId: user.id, accountType: user.accountType, now: new Date() });
+      data = await Notifications.evaluateOperationalAlerts({
+        ownerUserId: user.id,
+        accountType: user.accountType,
+        now: new Date(),
+        daysBack: Notifications.ON_DEMAND_EVALUATION_DAYS_BACK,
+      });
     } catch (error) {
       state.delete(user.id);
       throw error;

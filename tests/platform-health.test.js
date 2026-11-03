@@ -19,7 +19,7 @@ const env = {
   LMBTECH_ALLOW_REAL_PAYMENTS: 'true',
 };
 
-const schedulerConfig = (paths = ['/api/cron/subscription-emails', '/api/cron/subscription-email-outbox', '/api/cron/notifications']) => () => ({
+const schedulerConfig = (paths = ['/api/cron/subscription-emails']) => () => ({
   configured: true,
   crons: paths.map((jobPath) => ({ path: jobPath, schedule: '0 6 * * *' })),
   detail: 'vercel.json was found.',
@@ -77,8 +77,8 @@ test('platform health reports real database, migration, email, outbox, payment, 
   assert.equal(health.scheduler.runHistoryAvailable, true);
   assert.equal(health.scheduler.jobs.find((job) => job.id === 'subscription_emails').scheduled, true);
   assert.equal(health.scheduler.jobs.find((job) => job.id === 'subscription_emails').lastResult, 'succeeded');
-  assert.equal(health.scheduler.jobs.find((job) => job.id === 'notification_evaluation').expectedCadence, 'every 15 minutes');
-  assert.equal(health.scheduler.jobs.find((job) => job.id === 'subscription_email_outbox').status, 'healthy');
+  assert.equal(health.scheduler.jobs.find((job) => job.id === 'notification_evaluation').expectedCadence, 'on demand');
+  assert.equal(health.scheduler.jobs.find((job) => job.id === 'notification_evaluation').scheduled, false);
   assert.equal(health.notificationEvaluation.status, 'healthy');
   assert.equal(health.notificationEvaluation.lastResult, 'succeeded');
 });
@@ -111,7 +111,7 @@ test('platform health marks queued, stale, failed outbox and recent payments as 
   assert.equal(health.payments.recentFailures[0].id, 9);
   assert.equal(health.scheduler.status, 'warning');
   assert.equal(health.scheduler.jobs.find((job) => job.id === 'subscription_emails').lastResult, 'failed');
-  assert.equal(health.notificationEvaluation.status, 'warning');
+  assert.equal(health.notificationEvaluation.status, 'healthy');
   assert.doesNotMatch(JSON.stringify(health), /re_test_only_not_a_real_secret/);
 });
 
@@ -166,7 +166,7 @@ test('platform health does not return ok when outbox evidence is unavailable', a
   assert.equal(health.payments.status, 'healthy');
 });
 
-test('platform health reports unavailable run history and an unscheduled notification job honestly', async () => {
+test('platform health reports unavailable run history and treats notification evaluation as request-driven', async () => {
   const withoutRuns = await Health.getPlatformHealth({
     runQuery: async (sql, values) => {
       if (sql.includes('platform_job_runs')) throw new Error('relation does not exist');
@@ -178,7 +178,7 @@ test('platform health reports unavailable run history and an unscheduled notific
   });
   assert.equal(withoutRuns.scheduler.status, 'warning');
   assert.equal(withoutRuns.scheduler.runHistoryAvailable, false);
-  assert.equal(withoutRuns.notificationEvaluation.status, 'unavailable');
+  assert.equal(withoutRuns.notificationEvaluation.status, 'healthy');
 
   const unscheduled = await Health.getPlatformHealth({
     runQuery: healthyQuery(),
@@ -187,9 +187,9 @@ test('platform health reports unavailable run history and an unscheduled notific
     now: new Date('2026-10-21T10:00:00.000Z'),
     readSchedulerConfig: schedulerConfig(['/api/cron/subscription-emails']),
   });
-  assert.equal(unscheduled.scheduler.status, 'warning');
+  assert.equal(unscheduled.scheduler.status, 'healthy');
   assert.equal(unscheduled.scheduler.jobs.find((job) => job.id === 'notification_evaluation').scheduled, false);
-  assert.match(unscheduled.notificationEvaluation.detail, /no matching schedule is configured/i);
+  assert.match(unscheduled.notificationEvaluation.detail, /when an authenticated owner opens/i);
 });
 
 test('platform health handles an unconfigured database without throwing or inventing healthy checks', async () => {

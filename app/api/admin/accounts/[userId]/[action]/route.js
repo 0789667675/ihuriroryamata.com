@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 
 const { getAuthenticatedUser } = require('@/lib/security/authenticate.js');
 const Admin = require('@/lib/services/platform-admin-service.js');
+const Subscriptions = require('@/lib/services/subscription-service.js');
 const { resolvePublicBaseUrl } = require('@/lib/config/public-url.js');
 
 export const runtime = 'nodejs';
@@ -20,6 +21,7 @@ export async function POST(request, { params }) {
       baseUrl: resolvePublicBaseUrl({ request }),
     });
     if (!result) return NextResponse.json({ message: 'Account or subscription not found.' }, { status: 404 });
+    await Subscriptions.deliverOwnerSubscriptionEmails({ ownerUserId: params.userId });
     return NextResponse.json(result);
   } catch (error) {
     return NextResponse.json({

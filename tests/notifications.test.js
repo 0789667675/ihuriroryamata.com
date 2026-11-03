@@ -48,10 +48,12 @@ test('notification dedupe keys include tenant-independent event dimensions and u
 });
 
 test('confirmed business activity notifications require stable references and preserve owner-scoped dedupe', async () => {
-  const saved = [];
+  const saved = new Map();
   const repository = {
     upsertNotification: async (input) => {
-      saved.push(input);
+      const existing = saved.get(input.dedupeKey);
+      if (existing) return { created: false, notification: existing };
+      saved.set(input.dedupeKey, input);
       return { created: true, notification: input };
     },
   };
@@ -67,18 +69,55 @@ test('confirmed business activity notifications require stable references and pr
   const first = await Notifications.createBusinessActivityNotification(input);
   const second = await Notifications.createBusinessActivityNotification(input);
   assert.equal(first.notification.ownerUserId, ownerUserId);
-  assert.equal(saved[0].details.evidence, 'confirmed_business_event');
-  assert.equal(saved[0].details.params.farmer, 'Aline');
+  assert.equal(saved.size, 1);
+  assert.equal(saved.values().next().value.details.evidence, 'confirmed_business_event');
+  assert.equal(saved.values().next().value.details.params.farmer, 'Aline');
+  assert.equal(second.created, false);
   assert.equal(first.notification.dedupeKey, second.notification.dedupeKey);
   assert.match(first.notification.dedupeKey, /milk-record-correction:99/);
   await assert.rejects(() => Notifications.createBusinessActivityNotification({ ...input, type: 'unsupported_event' }), /Unsupported business activity/i);
   await assert.rejects(() => Notifications.createBusinessActivityNotification({ ...input, reference: '' }), /reference is required/i);
 });
 
+test('opening notifications reconciles only the authenticated owner before reading', () => {
+  const route = readRoute('app/api/notifications/route.js');
+  assert.match(route, /if \(user\.role !== 'super_admin'\)[\s\S]*?Notifications\.evaluateOperationalAlerts\(\{[\s\S]*?ownerUserId: user\.id/);
+  assert.match(route, /Audit\.createAuditLog\([\s\S]*?ownerUserId: user\.id/);
+  assert.ok(route.indexOf('evaluateOperationalAlerts') < route.indexOf('Notifications.getNotifications'));
+  assert.match(route, /EVALUATION_THROTTLE_MS/);
+  assert.match(route, /daysBack: Notifications\.ON_DEMAND_EVALUATION_DAYS_BACK/);
+  const evaluateRoute = readRoute('app/api/notifications/evaluate/route.js');
+  assert.match(evaluateRoute, /daysBack: Notifications\.ON_DEMAND_EVALUATION_DAYS_BACK/);
+});
+
+test('on-demand notification reconciliation backfills bounded dates and supporting history', async () => {
+  let dateRange;
+  let historyRange;
+  const repository = {
+    getAlertOwnerScope: async () => ({ accountType: 'COLLECTOR', accountStatus: 'active', dairyUserId: null }),
+    getCollectionCenters: async () => [],
+    getAlertFarmers: async () => [],
+    getAlertMilkRecords: async (input) => { historyRange = input; return []; },
+    getAlertsForEvaluation: async (input) => { dateRange = input; return []; },
+    resolveOperationalAlerts: async () => [],
+  };
+  const result = await Notifications.evaluateOperationalAlerts({
+    ownerUserId,
+    now: new Date('2026-10-01T10:00:00Z'),
+    daysBack: 30,
+    repository,
+  });
+  assert.equal(result.rangeStart, '2026-09-01');
+  assert.equal(dateRange.startDate, '2026-09-01');
+  assert.equal(historyRange.startDate, '2026-09-01');
+  assert.equal(historyRange.endDate, '2026-10-01');
+});
+
 test('confirmed milk, settlement, debt, and password mutation routes emit business activity notices', () => {
   const milkRoute = readRoute('app/api/milk/[id]/route.js');
   const settlementRoute = readRoute('app/api/farmer-settlements/route.js');
   const adjustmentRoute = readRoute('app/api/milk/daily/adjust/route.js');
+  const adminAccountRoute = readRoute('app/api/admin/accounts/[userId]/[action]/route.js');
   const accountService = readRoute('lib/services/account-service.js');
   const resetService = readRoute('lib/services/password-reset-service.js');
   assert.match(milkRoute, /isNewVoid \? 'milk_record_voided' : 'milk_record_corrected'/);
@@ -95,6 +134,8 @@ test('confirmed milk, settlement, debt, and password mutation routes emit busine
   ]) {
     assert.match(source, new RegExp(`type:\\s*'${event}'`));
   }
+  assert.match(settlementRoute, /Subscriptions\.deliverOwnerSubscriptionEmails\(\{ ownerUserId \}\)/);
+  assert.match(adminAccountRoute, /Subscriptions\.deliverOwnerSubscriptionEmails\(\{ ownerUserId: params\.userId \}\)/);
 });
 
 test('successful farmer create and update routes emit non-blocking owner-scoped notifications', () => {

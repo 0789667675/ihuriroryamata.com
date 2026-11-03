@@ -60,3 +60,17 @@ test('missing billing exemption schema defaults to non-exempt and keeps expired 
     (error) => error.statusCode === 403 && error.code === SUBSCRIPTION_EXPIRED
   );
 });
+
+test('subscription expiration is enforced from current database time without a scheduled mutation', async () => {
+  const statements = [];
+  const subscription = await SubscriptionRepository.getSubscription(42, async (text) => {
+    statements.push(text);
+    return { rows: statements.length === 2 ? [{ id: 42, status: 'active', effective_status: 'expired', subscription_ends_at: '2026-10-31T21:00:00.000Z' }] : [] };
+  });
+  await assert.rejects(
+    () => requireActiveSubscription({ id: 42, role: 'user' }, { getSubscription: async () => subscription }),
+    (error) => error.statusCode === 403 && error.code === SUBSCRIPTION_EXPIRED
+  );
+  assert.match(statements[1], /us\.subscription_ends_at <= NOW\(\) THEN 'expired'/);
+  assert.match(statements[1], /COALESCE\(us\.payment_due_at, us\.trial_ends_at\) <= NOW\(\) THEN 'suspended'/);
+});

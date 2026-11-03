@@ -8,10 +8,8 @@ const { withJobRun } = require('@/lib/repositories/jobRunRepository.js');
 
 export const runtime = 'nodejs';
 
-// Authorized only by the platform cron secret (shared with the subscription
-// email job). Evaluates missing-milk and operational reminders for every active
-// owner account on a schedule, so reminders are created by reliable server-side
-// logic rather than only when a workspace page is visited.
+// Optional external maintenance endpoint. The primary notification path is the
+// owner-scoped reconciliation performed when notifications are read.
 const authorized = (request) => {
   const secret = process.env.CRON_SECRET;
   const supplied = request.headers.get('authorization') || '';
@@ -40,6 +38,7 @@ export async function POST(request) {
             ownerUserId: user.id,
             accountType: user.accountType,
             now: new Date(),
+            daysBack: Notifications.ON_DEMAND_EVALUATION_DAYS_BACK,
           });
           evaluated += 1;
           createdCount += data.createdCount;
