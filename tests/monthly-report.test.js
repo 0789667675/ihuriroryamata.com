@@ -229,7 +229,8 @@ test('Ukwezi half-month reconciliation separates retained, cash, SACCO, and carr
   assert.equal(accounting.unexplainedDiscrepancy, 0);
   assert.equal(accounting.debtRepaymentAmount + accounting.cashConfirmedAmount + accounting.retainedUnpaidAmount + accounting.saccoDistributionInstruction, 6000);
   assert.equal(accounting.ownerGrossReconciliation.discrepancy, 0);
-  assert.equal(accounting.farmers.some((farmer) => farmer.farmerId === 3), false);
+  assert.equal(accounting.farmers.some((farmer) => farmer.farmerId === 3), true);
+  assert.equal(accounting.farmers.find((farmer) => farmer.farmerId === 3).netAmount, 0);
 
   const overpayment = await Reports.getSummary({
     ownerUserId: 77,
@@ -287,6 +288,52 @@ test('manual cash paid to a SACCO-eligible farmer reduces SACCO instruction with
   assert.equal(summary.settlementAccounting.saccoDistributionInstruction, 1500);
   assert.equal(summary.settlementAccounting.unexplainedDiscrepancy, 0);
   assert.equal(summary.farmerPayments[0].netAmount, 2000);
+});
+
+test('Ukwezi separately recovers Igipande per half-month and includes inactive farmers', async () => {
+  const farmers = [
+    { farmerId: 1, farmerName: 'Delivering farmer', accountNumber: 'RW-12345', totalVolume: 2, grossAmount: 160, totalTransport: 0, totalDeductions: 0, milkValueComplete: true, transportIsComplete: true },
+    { farmerId: 2, farmerName: 'Inactive farmer', accountNumber: null, totalVolume: 0, grossAmount: 0, totalTransport: 0, totalDeductions: 0, milkValueComplete: true, transportIsComplete: true },
+  ];
+  const repository = {
+    ...reportRepository({ accountType: 'COLLECTION_CENTER' }),
+    getTotalFarmers: async () => farmers.length,
+    getPeriodTotals: async () => ({ totalVolume: 2, totalAmount: 160 }),
+    getFarmerTotals: async () => farmers,
+    getMilkLossRecords: async () => [],
+  };
+  let processedFarmers;
+  const settlementRepository = {
+    getPeriodFinancials: async () => ({
+      settlements: [{ farmer_id: 1, payment_type: 'CASH', amount: 20, settled_amount: 20, status: 'CONFIRMED' }],
+      repayments: [{ farmer_id: 1, amount: 10 }],
+      debts: [],
+    }),
+    ensureIgipandePeriod: async ({ rangeStart, rangeEnd, farmers: eligible }) => {
+      assert.equal(rangeStart, '2026-11-16');
+      assert.equal(rangeEnd, '2026-11-30');
+      processedFarmers = eligible;
+      return new Map([
+        [1, { chargeAmount: 100, contributionRecoveredAmount: 50, contributionOutstandingBalance: 50, periodRecoveredAmount: 50, outstandingBalance: 50, status: 'PARTIALLY_PAID' }],
+        [2, { chargeAmount: 100, contributionRecoveredAmount: 0, contributionOutstandingBalance: 100, periodRecoveredAmount: 0, outstandingBalance: 100, status: 'UNPAID' }],
+      ]);
+    },
+  };
+  const summary = await Reports.getSummary({
+    ownerUserId: 77,
+    query: { periodType: 'second-half', month: 11, year: 2026 },
+    repository,
+    settlementRepository,
+  });
+
+  assert.deepEqual(processedFarmers.map((farmer) => farmer.availableEarnings), [130, 0]);
+  assert.equal(summary.farmerPayments.length, 1);
+  assert.equal(summary.settlementAccounting.igipandeChargeAmount, 200);
+  assert.equal(summary.settlementAccounting.igipandeRecoveryAmount, 50);
+  assert.equal(summary.settlementAccounting.igipandeOutstandingBalance, 150);
+  assert.equal(summary.settlementAccounting.debtRepaymentAmount, 10);
+  assert.equal(summary.settlementAccounting.saccoDistributionInstruction, 80);
+  assert.equal(summary.settlementAccounting.farmers.find((farmer) => farmer.farmerId === 2).settlement.igipandeStatus, 'UNPAID');
 });
 
 test('missing settlement tables preserve core Ukwezi and explicitly mark settlement accounting unavailable', async () => {

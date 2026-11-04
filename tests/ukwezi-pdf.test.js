@@ -238,8 +238,21 @@ test('Ukwezi PDF route uses the authenticated owner and selected period context'
 });
 
 test('Ukwezi PDF renderer includes Igenzura rya Nyirayo line items in settlement reconciliation', async () => {
+  const igipandeFarmers = report.farmerPayments.slice(0, 2).map((farmer, index) => ({
+    ...farmer,
+    settlement: {
+      saccoDistributionInstruction: 0,
+      retainedUnpaidAmount: 0,
+      igipandeCharge: 100,
+      igipandeContributionRecoveredAmount: index === 0 ? 60 : 0,
+      igipandeContributionOutstandingBalance: index === 0 ? 40 : 100,
+      igipandeStatus: index === 0 ? 'PARTIALLY_PAID' : 'UNPAID',
+    },
+  }));
   const auditReport = {
     ...report,
+    rangeStart: '2026-11-16',
+    rangeEnd: '2026-11-30',
     nyirayoMilkValue: 208400,
     farmersMilkValue: 707400,
     nyirayoBaseDifference: -499000,
@@ -254,6 +267,9 @@ test('Ukwezi PDF renderer includes Igenzura rya Nyirayo line items in settlement
       cashApprovedAmount: 0,
       cashConfirmedAmount: 0,
       debtRepaymentAmount: 0,
+      igipandeChargeAmount: 200,
+      igipandeRecoveryAmount: 60,
+      igipandeOutstandingBalance: 140,
       outstandingDebt: 0,
       debtBalancesComplete: true,
       retainedUnpaidAmount: 288000,
@@ -268,7 +284,7 @@ test('Ukwezi PDF renderer includes Igenzura rya Nyirayo line items in settlement
         operationalMargin: -472000,
         totalAfterOperations: -184000,
       },
-      farmers: report.farmerPayments.slice(0, 2),
+      farmers: igipandeFarmers,
     },
   };
 

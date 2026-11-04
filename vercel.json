@@ -3,6 +3,10 @@
     {
       "path": "/api/cron/subscription-emails",
       "schedule": "0 6 * * *"
+    },
+    {
+      "path": "/api/cron/igipande-contributions",
+      "schedule": "15 0 * * *"
     }
   ]
 }

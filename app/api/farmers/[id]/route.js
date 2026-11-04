@@ -56,9 +56,16 @@ export async function DELETE(request, { params }) {
     if (!user) return NextResponse.json({ message: 'Not authenticated.' }, { status: 401 });
     requireAccountType(user, ['COLLECTOR', 'COLLECTION_CENTER']);
     await requireActiveSubscription(user);
-    const deleted = await Farmers.deleteFarmer({ id: params.id, ownerUserId: user.id, actorId: user.id });
+    const body = await request.json().catch(() => ({}));
+    const deleted = await Farmers.deleteFarmer({
+      id: params.id,
+      ownerUserId: user.id,
+      actorId: user.id,
+      reason: body.reason,
+      confirmationName: body.confirmationName,
+    });
     if (!deleted) return NextResponse.json({ message: 'Farmer not found.' }, { status: 404 });
-    return new Response(null, { status: 204 });
+    return NextResponse.json(deleted, { status: 200 });
   } catch (error) {
     return respondWithError(error, 'Failed to delete farmer.');
   }

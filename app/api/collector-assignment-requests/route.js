@@ -7,12 +7,17 @@ const Assignments = require('@/lib/services/collector-assignment-service.js');
 
 export const runtime = 'nodejs';
 
-const respond = (error, fallback) => NextResponse.json({
-  message: error.statusCode && error.statusCode < 500 ? error.message : fallback,
-  ...(error.code ? { code: error.code } : {}),
-}, {
-  status: error.statusCode || (error.code === 'DATABASE_NOT_CONFIGURED' || error.code === 'SESSION_SECRET_NOT_CONFIGURED' ? 503 : 500),
-});
+const respond = (error, fallback) => {
+  const migrationMissing = error.code === '42P01';
+  return NextResponse.json({
+    message: migrationMissing
+      ? 'Collector requests are unavailable until migration 025 is applied. / Gusaba kujya mu kigo ntibiboneka kugeza migration 025 ikozwe.'
+      : error.statusCode && error.statusCode < 500 ? error.message : fallback,
+    ...(migrationMissing ? { code: 'ASSIGNMENT_REQUESTS_MIGRATION_REQUIRED' } : error.code ? { code: error.code } : {}),
+  }, {
+    status: migrationMissing ? 503 : error.statusCode || (error.code === 'DATABASE_NOT_CONFIGURED' || error.code === 'SESSION_SECRET_NOT_CONFIGURED' ? 503 : 500),
+  });
+};
 
 export async function GET(request) {
   try {

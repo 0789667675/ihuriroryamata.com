@@ -55,6 +55,7 @@ test('migration scaffold preserves the required owner and admin model', () => {
   assert.match(healthRoute, /information_schema\.columns[\s\S]*?table_name = 'notifications'/);
   assert.match(healthRoute, /REQUIRED_NOTIFICATION_COLUMNS\.every/);
   assert.match(healthRoute, /REQUIRED_MIGRATIONS\.every/);
+  assert.match(healthRoute, /'028',\s*'029',\s*'030'/);
   assert.match(healthRoute, /export const dynamic = 'force-dynamic'/);
   assert.match(healthRoute, /migrated,\s*\}/);
   assert.doesNotMatch(healthRoute, /migrated:\s*true/);

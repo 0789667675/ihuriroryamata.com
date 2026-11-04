@@ -982,6 +982,12 @@ test('subscription email event dates and reminder comparisons use Africa/Kigali 
   const source = fs.readFileSync(path.join(__dirname, '..', 'lib', 'repositories', 'subscriptionRepository.js'), 'utf8');
   assert.match(source, /end_date AT TIME ZONE 'Africa\/Kigali'\)::date = \$1::date \+ \$2::integer/);
   assert.match(source, /subscription-expired:[\s\S]*AT TIME ZONE 'Africa\/Kigali'/);
+  const expiryQueryStart = source.indexOf('const { rows: scheduled } = await client.query(');
+  const expiryQueryEnd = source.indexOf('const offsets =', expiryQueryStart);
+  const expiryQuery = source.slice(expiryQueryStart, expiryQueryEnd);
+  assert.match(expiryQuery, /\$1::timestamptz/);
+  assert.match(expiryQuery, /,\s*\[now\]\s*\);/);
+  assert.doesNotMatch(expiryQuery, /\$2\b/);
 });
 
 test('daily subscription processing retries outbox work idempotently', async () => {

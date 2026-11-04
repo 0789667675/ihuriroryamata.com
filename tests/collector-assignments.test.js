@@ -328,6 +328,8 @@ test('collector request routes enforce account types and expose only server-side
 
   assert.match(requestRoute, /requireAccountType\(user, 'COLLECTOR'\)/);
   assert.match(requestRoute, /Assignments\.listDairyRequests/);
+  assert.match(requestRoute, /ASSIGNMENT_REQUESTS_MIGRATION_REQUIRED/);
+  assert.match(requestRoute, /migration 025 is applied/);
   assert.match(requestRoute, /dairyUserId: input\.dairyUserId/);
   assert.match(decisionRoute, /requireAccountType\(user, 'COLLECTION_CENTER'\)/);
   assert.match(decisionRoute, /requireAccountType\(user, 'COLLECTOR'\)/);

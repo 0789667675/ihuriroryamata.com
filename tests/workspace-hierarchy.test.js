@@ -300,6 +300,21 @@ test('Collector farmer deductions are created only through the shared modal', ()
   }
 });
 
+test('Collector Ukwezi opens a period-bound deduction modal from farmer rows', () => {
+  const ukwezi = workspace.slice(workspace.indexOf('const renderUkwezi'), workspace.indexOf('const renderTransport'));
+
+  assert.match(ukwezi, /const selectedUkweziRange = getHalfMonthDateRange/);
+  assert.match(ukwezi, /isCollector \? <th>\{publicLanguage\.t\('actions'\)\}<\/th> : null/);
+  assert.match(ukwezi, /openFarmerDeduction\(row\.farmerId, row\.farmerName, selectedUkweziRange\.startDate, selectedUkweziRange\.endDate/);
+  assert.match(ukwezi, /className="ukwezi-mobile-card"[\s\S]*?openFarmerDeduction\(row\.farmerId/);
+  assert.match(workspace, /deductionCreateOpen && deductionContextFarmer \? <Modal/);
+  assert.match(workspace, /onSubmit=\{createDeduction\}/);
+  assert.match(workspace, /min=\{deductionContextFarmer\.periodStart\} max=\{deductionContextFarmer\.periodEnd\}/);
+  assert.match(workspace, /deductionContextFarmer\.grossAmount/);
+  assert.match(workspace, /deductionContextFarmer\.totalTransport/);
+  assert.match(workspace, /deductionSubmittingRef\.current/);
+});
+
 test('Owner Ifishi is the only Collector owner-milk entry form', () => {
   const milkEntry = fs.readFileSync(path.join(__dirname, '..', 'components', 'views', 'milk-records-view.tsx'), 'utf8');
   const ownerService = fs.readFileSync(path.join(__dirname, '..', 'lib', 'services', 'owner-ifishi-service.js'), 'utf8');

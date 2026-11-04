@@ -8,6 +8,7 @@ import {
   BookOpen,
   ChevronDown,
   Edit3,
+  GitMerge,
   History,
   Plus,
   Search,
@@ -74,6 +75,7 @@ type FarmersViewProps = {
   onOpenHistory: (farmer: Farmer) => void;
   onOpenIfishi: (farmer: Farmer) => void;
   onEdit: (farmer: Farmer) => void;
+  onMerge: (farmer: Farmer) => void;
   onDelete: (farmer: Farmer) => void;
   collectorName: (collectorUserId?: number | null) => string;
   formatFarmerNumber: (value?: number | null) => string;
@@ -143,6 +145,7 @@ export function FarmersView({
   onOpenHistory,
   onOpenIfishi,
   onEdit,
+  onMerge,
   onDelete,
   collectorName,
   formatFarmerNumber,
@@ -270,6 +273,7 @@ export function FarmersView({
               <button type="button" className="icon-button" title={t('viewFarmerHistory')} aria-label={`${t('viewFarmerHistory')}: ${farmer.name}`} onClick={() => onOpenHistory(farmer)}><History size={16} aria-hidden="true" /></button>
               <button type="button" className="icon-button" title={t('navIfishi')} aria-label={`${t('navIfishi')}: ${farmer.name}`} onClick={() => onOpenIfishi(farmer)}><BookOpen size={16} aria-hidden="true" /></button>
               <button type="button" className="icon-button" title={t('edit')} aria-label={`${t('edit')}: ${farmer.name}`} onClick={() => onEdit(farmer)}><Edit3 size={16} aria-hidden="true" /></button>
+              {isCollector ? <button type="button" className="icon-button" title={language === 'en' ? 'Merge duplicate farmer' : 'Huza umworozi w’impimbano'} aria-label={`${language === 'en' ? 'Merge' : 'Huza'}: ${farmer.name}`} onClick={() => onMerge(farmer)}><GitMerge size={16} aria-hidden="true" /></button> : null}
               <button type="button" className="icon-button danger-text" title={t('delete')} aria-label={`${t('delete')}: ${farmer.name}`} onClick={() => onDelete(farmer)}><Trash2 size={16} aria-hidden="true" /></button>
             </div></td>
           </tr>)}</tbody></table></div>
@@ -281,6 +285,7 @@ export function FarmersView({
               <button type="button" className="button button-secondary small-button" aria-label={`${t('viewFarmerHistory')}: ${farmer.name}`} onClick={() => onOpenHistory(farmer)}><History size={14} aria-hidden="true" />{t('viewFarmerHistory')}</button>
               <button type="button" className="button button-secondary small-button" aria-label={`${t('navIfishi')}: ${farmer.name}`} onClick={() => onOpenIfishi(farmer)}><BookOpen size={14} aria-hidden="true" />{t('navIfishi')}</button>
               <button type="button" className="button button-secondary small-button" aria-label={`${t('edit')}: ${farmer.name}`} onClick={() => onEdit(farmer)}><Edit3 size={14} aria-hidden="true" />{t('edit')}</button>
+              {isCollector ? <button type="button" className="button button-secondary small-button" aria-label={`${language === 'en' ? 'Merge' : 'Huza'}: ${farmer.name}`} onClick={() => onMerge(farmer)}><GitMerge size={14} aria-hidden="true" />{language === 'en' ? 'Merge' : 'Huza'}</button> : null}
               <button type="button" className="button button-secondary small-button danger-text" aria-label={`${t('delete')}: ${farmer.name}`} onClick={() => onDelete(farmer)}><Trash2 size={14} aria-hidden="true" />{t('delete')}</button>
             </footer>
           </article>)}</div>

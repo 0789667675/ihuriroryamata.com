@@ -579,7 +579,7 @@ test('Collection Center owners can configure only their own Ikigo without Collec
   );
 });
 
-test('farmer with historical milk is not deleted or cascaded', async () => {
+test('farmer deletion requires a reason before any data is changed', async () => {
   const statements = [];
   const pool = {
     connect: async () => ({
@@ -597,7 +597,7 @@ test('farmer with historical milk is not deleted or cascaded', async () => {
 
   await assert.rejects(
     () => DomainRepository.deleteFarmer({ id: 7, ownerUserId: owner.id, actorId: owner.id, poolProvider: () => pool }),
-    (error) => error.code === 'FARMER_HAS_HISTORY' && error.statusCode === 409
+    (error) => error.code === 'FARMER_DELETE_REASON_REQUIRED' && error.statusCode === 400
   );
   assert.equal(statements.some(({ text }) => text.includes('DELETE FROM farmers')), false);
   assert.equal(statements.some(({ text }) => text.includes('ROLLBACK')), true);

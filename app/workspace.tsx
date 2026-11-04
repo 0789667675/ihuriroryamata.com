@@ -32,6 +32,8 @@ import { AnimatedCounter } from '@/components/ui/animated-counter';
 import { TypingDisplay } from '@/components/ui/typing-display';
 import { DashboardView } from '@/components/views/dashboard-view';
 import { FarmersView } from '@/components/views/farmers-view';
+import { FarmerDeletionDialog } from '@/components/views/farmer-deletion-dialog';
+import { FarmerMergeDialog } from '@/components/views/farmer-merge-dialog';
 import { MilkRecordsView } from '@/components/views/milk-records-view';
 import { DeductionView, type DeductionGroupSummary, type DeductionHistoryItem } from '@/components/views/deductions-view';
 import { SettlementBatchProgress, type SettlementBatchRecord, type SettlementBatchState } from '@/components/views/settlement-batch-progress';
@@ -84,6 +86,13 @@ const checkSessionExpiry = () => {
 type User = { id: number; name: string; email: string; role: string; accountType: string; language?: 'rw' | 'en'; emailVerified?: boolean };
 type AccountProfile = { id: number; name: string; email: string; phone: string | null; nationalId: string | null; accountNumber: string | null; profilePicture: string | null; role: string; accountType: string; accountStatus: string; emailVerified: boolean; language?: 'rw' | 'en' };
 type Farmer = { id: number; name: string; location: string | null; phone: string | null; nationalId: string | null; accountNumber: string | null; collectionCenter: string | null; cowType: string | null; collectorUserId?: number | null; farmerNumber?: number | null };
+type FarmerDeletionImpact = { farmer: { name: string; farmerNumber?: number | null }; counts: Record<string, number>; affectedPeriods: Array<{ start: string; end: string }>; settledPaymentEvidence: { settlements: unknown[]; farmerPayments: Array<{ count: number; amount: number }> } };
+type FarmerMergePreview = {
+  source: { id: number; name: string; counts: Record<string, number> };
+  target: { id: number; name: string; counts: Record<string, number> };
+  milkConflicts: Array<{ sourceRecordId: number; targetRecordId: number; date: string; source: { morning: number; evening: number; valid: number; status: string; price: number; transportRate: number; sessionId: number | null }; target: { morning: number; evening: number; valid: number; status: string; price: number; transportRate: number; sessionId: number | null } }>;
+  settlementReferenceConflicts: Array<{ sourceId: number; targetId: number; paymentType: string; paymentReference: string }>;
+};
 type Center = { id: number; name: string; owner_user_id?: number; pricePerLiter: number; transportRatePerLiter: number; morning_start: string; morning_end: string; evening_start: string; evening_end: string; tank_capacity_liters?: number | null; tankCapacityLiters?: number | null };
 type Page<T> = { data: T[]; nextCursor: string | null; hasMore: boolean; pageSize: number };
 type DailyRow = { farmerId: number; farmerName: string; farmerNumber?: number | null; phone?: string; nationalId?: string; collectionCenter?: string | null; collectorUserId?: number | null; collectorName?: string | null; recordId?: number; volumeMorning: number; volumeEvening: number; totalVolume: number; volumeLiters?: number; amount: number; status?: string; delivered?: boolean; deliveryStatus?: 'delivered' | 'missing'; abacundaCount?: number; presentCount?: number };
@@ -137,7 +146,7 @@ type Notice = {
 type ReportFarmerRow = { farmerId: number; farmerName: string; nationalId?: string | null; idNumber?: string | null; phone?: string | null; accountNumber?: string | null; totalVolume: number; originalVolume?: number; lostVolume?: number; pricePerLiter?: number; grossAmount: number; totalTransport: number | null; transportIsComplete?: boolean; totalDeductions: number; ifishiTotalDeductions?: number; ifishiNetAmount?: number | null; netAmount: number | null };
 type ReportOwnerRow = { farmerId: null; farmerName: string; name: string; isOwner: true; nationalId?: string | null; idNumber?: string | null; phone?: string | null; accountNumber?: string | null; totalVolume: number; pricePerLiter: number | null; grossAmount: number | null; totalTransport: number | null; totalDeductions: number; farmerPayable?: number; netAmount: number | null; nyirayoMilkValue?: number | null; farmersMilkValue?: number | null; nyirayoBaseDifference?: number | null; transportAmount?: number | null; farmerDeductions?: number | null; retainedNoAccountFarmerAmount?: number | null; unaccountedFarmersPool?: number | null; nyirayoOperationalMargin?: number | null; nyirayoTotalAfterOperations?: number | null };
 type CollectorSettlementFields = { collectorFarmerMilkValue?: number | null; collectorFarmerPayable?: number | null; collectorAccountingComplete?: boolean | null; collectorAccountingMissingInputs?: string[] };
-type SettlementAccounting = { farmerGross: number | null; expectedFarmerPayable: number | null; farmersMilkValue?: number | null; farmerTransportTotal?: number | null; farmerDeductionsTotal?: number | null; farmerPayableTotal?: number | null; accountRoutedPayable?: number | null; ownerListRoutedPayable?: number | null; saccoEligiblePayable: number | null; saccoDistributionInstruction: number | null; saccoConfirmedAmount: number; retainedUnpaidAmount: number | null; cashApprovedAmount: number; cashConfirmedAmount: number; debtRepaymentAmount: number; outstandingDebt: number | null; legacyUnallocatedDebtRepayments: number; debtBalancesComplete: boolean; unexplainedDiscrepancy: number | null; ownerGrossReconciliation: { ownerGross: number | null; farmerGross: number | null; surplus: number | null; discrepancy: number | null; baseDifference?: number | null; transportAmount?: number | null; farmerDeductions?: number | null; retainedNoAccountFarmerAmount?: number | null; operationalMargin?: number | null; totalAfterOperations?: number | null; nyirayoRecordedMilkValue?: number | null; farmersComparisonMilkValue?: number | null; nyirayoMilkDifference?: number | null; nyirayoTransportAmount?: number | null; nyirayoDeductionsAmount?: number | null; nyirayoOwnAccountingBalance?: number | null; ownerNameListFarmerSettlementAmount?: number | null; nyirayoTotalWithOwnerList?: number | null }; farmers: Array<ReportFarmerRow & { settlement: { saccoEligible: boolean; saccoDistributionInstruction: number | null; cashApprovedAmount: number; cashConfirmedAmount: number; debtRepaymentAmount: number; outstandingDebt: number | null; retainedUnpaidAmount: number | null; unexplainedDiscrepancy: number | null } }> };
+type SettlementAccounting = { farmerGross: number | null; expectedFarmerPayable: number | null; farmersMilkValue?: number | null; farmerTransportTotal?: number | null; farmerDeductionsTotal?: number | null; farmerPayableTotal?: number | null; accountRoutedPayable?: number | null; ownerListRoutedPayable?: number | null; saccoEligiblePayable: number | null; saccoDistributionInstruction: number | null; saccoConfirmedAmount: number; retainedUnpaidAmount: number | null; cashApprovedAmount: number; cashConfirmedAmount: number; debtRepaymentAmount: number; igipandeChargeAmount: number; igipandeRecoveryAmount: number; igipandeOutstandingBalance: number; outstandingDebt: number | null; legacyUnallocatedDebtRepayments: number; debtBalancesComplete: boolean; unexplainedDiscrepancy: number | null; ownerGrossReconciliation: { ownerGross: number | null; farmerGross: number | null; surplus: number | null; discrepancy: number | null; baseDifference?: number | null; transportAmount?: number | null; farmerDeductions?: number | null; retainedNoAccountFarmerAmount?: number | null; operationalMargin?: number | null; totalAfterOperations?: number | null; nyirayoRecordedMilkValue?: number | null; farmersComparisonMilkValue?: number | null; nyirayoMilkDifference?: number | null; nyirayoTransportAmount?: number | null; nyirayoDeductionsAmount?: number | null; nyirayoOwnAccountingBalance?: number | null; ownerNameListFarmerSettlementAmount?: number | null; nyirayoTotalWithOwnerList?: number | null }; farmers: Array<ReportFarmerRow & { settlement: { saccoEligible: boolean; saccoDistributionInstruction: number | null; cashApprovedAmount: number; cashConfirmedAmount: number; debtRepaymentAmount: number; igipandeCharge: number; igipandeContributionRecoveredAmount: number; igipandeContributionOutstandingBalance: number; igipandeRecoveryAmount: number; igipandeOutstandingBalance: number; igipandeStatus: string; outstandingDebt: number | null; retainedUnpaidAmount: number | null; unexplainedDiscrepancy: number | null } }> };
 type Report = { totalFarmers: number; totalVolume: number; totalMorning: number; totalEvening: number; totalRevenueMonth: number; ownerGeneratedGross?: number | null; ownerGeneratedVolume?: number; totalDeductionsMonth: number; totalTransportFeesMonth: number; netRevenueMonth: number; pricePerLiter?: number | null; collectorAccountingComplete?: boolean | null; collectorAccountingMissingInputs?: string[]; todayTotal: number; todayMorning: number; todayEvening: number; rangeStart: string; rangeEnd: string; collectorPayable: number | null; collectorGross?: number | null; collectorActualVolume?: number; collectorOriginalVolume?: number; collectorLostVolume?: number; collectorFarmersValidLiters?: number; collectorTotalFarmersPayable?: number; collectorFarmerMilkValue?: number | null; collectorFarmerDeductions?: number; collectorFarmerTransport?: number; collectorSurplusAmount?: number | null; collectorPayableFromBreakdown?: number | null; collectorIsReconciled?: boolean | null; collectorProfile?: { name: string } | null; collectorEntries?: Array<{ id: number; date: string; status: string; volumeLiters: number; effectiveVolumeLiters: number; farmerLostLiters: number; voidReason?: string | null; voidedBy?: number | null; voidedAt?: string | null }>; milkLossRecords?: Array<{ id: number; farmerId: number; farmerName: string; date: string; status: string; originalVolume: number; validVolume: number; lostVolume: number; reason: string | null; adjustedBy: number | null; adjustedAt: string | null }>; collectorSettlementRows?: any[]; ownerSettlementRow?: ReportOwnerRow | null; farmerPayments: ReportFarmerRow[]; settlementAccounting?: SettlementAccounting | null; settlementAccountingStatus?: 'AVAILABLE' | 'MIGRATION_REQUIRED' | null; nyirayoMilkValue?: number | null; farmersMilkValue?: number | null; nyirayoBaseDifference?: number | null; transportAmount?: number | null; farmerDeductions?: number | null; retainedNoAccountFarmerAmount?: number | null; unaccountedFarmersPool?: number | null; nyirayoOperationalMargin?: number | null; nyirayoTotalAfterOperations?: number | null };
 type Account = { user_id: number; account_name: string; account_email: string; account_type: string; account_status: string; effective_status: string; email_verified: boolean; farmer_count: number; center_count: number; phone?: string | null; subscription_status?: string | null; payment_due_at?: string | null; billing_exempt?: boolean; plan_code?: string | null; days_remaining?: number | null };
 type AdminAccountDetails = { account: { id: number; name: string; email: string; account_type: string; account_status: string; email_verified: boolean; phone: string | null; created_at: string }; subscription: { status: string; effective_status?: string; billing_exempt?: boolean; exemption_reason?: string | null; exemption_granted_at?: string | null; exemption_revoked_at?: string | null; plan_id: number | null; current_price: number | string | null; currency: string | null; tier_code: string | null; access_started_at: string | null; payment_due_at: string | null; subscription_started_at: string | null; subscription_ends_at: string | null } | null; counts: { centers: number; farmers: number; milk_records: number; deductions: number; payments: number; notifications: number } };
@@ -652,6 +661,25 @@ export default function Workspace() {
   const [farmerSortDirection, setFarmerSortDirection] = useState<'asc' | 'desc'>('asc');
   const [farmerForm, setFarmerForm] = useState({ name: '', collectionCenterId: '', phone: '', nationalId: '', accountNumber: '', cowType: '', collectorUserId: '' });
   const [farmerCreateOpen, setFarmerCreateOpen] = useState(false);
+  const [farmerDeletionTarget, setFarmerDeletionTarget] = useState<Farmer | null>(null);
+  const [farmerDeletionImpact, setFarmerDeletionImpact] = useState<FarmerDeletionImpact | null>(null);
+  const [farmerDeletionLoading, setFarmerDeletionLoading] = useState(false);
+  const [farmerDeletionReason, setFarmerDeletionReason] = useState('');
+  const [farmerDeletionConfirmation, setFarmerDeletionConfirmation] = useState('');
+  const [farmerDeletionError, setFarmerDeletionError] = useState('');
+  const [farmerDeletionBusy, setFarmerDeletionBusy] = useState(false);
+  const [farmerMergeSource, setFarmerMergeSource] = useState<Farmer | null>(null);
+  const [farmerMergeCandidates, setFarmerMergeCandidates] = useState<Farmer[]>([]);
+  const [farmerMergeCandidatesHasMore, setFarmerMergeCandidatesHasMore] = useState(false);
+  const [farmerMergeCandidatesCursor, setFarmerMergeCandidatesCursor] = useState<string | null>(null);
+  const [farmerMergeTargetId, setFarmerMergeTargetId] = useState('');
+  const [farmerMergePreview, setFarmerMergePreview] = useState<FarmerMergePreview | null>(null);
+  const [farmerMergeLoading, setFarmerMergeLoading] = useState(false);
+  const [farmerMergeSaving, setFarmerMergeSaving] = useState(false);
+  const [farmerMergeError, setFarmerMergeError] = useState('');
+  const [farmerMergeReason, setFarmerMergeReason] = useState('');
+  const [farmerMergeConfirmation, setFarmerMergeConfirmation] = useState('');
+  const [farmerMergeResolutions, setFarmerMergeResolutions] = useState<Record<string, string>>({});
   const [farmerBatchOpen, setFarmerBatchOpen] = useState(false);
   const [farmerBatchRows, setFarmerBatchRows] = useState<Array<{ name: string; collectionCenterId: string; phone: string; nationalId: string; accountNumber: string; cowType: string; collectorUserId: string }>>([
     { name: '', collectionCenterId: '', phone: '', nationalId: '', accountNumber: '', cowType: '', collectorUserId: '' },
@@ -848,6 +876,18 @@ export default function Workspace() {
   const [deductionBatchError, setDeductionBatchError] = useState('');
   const [deductionBatchSubmitting, setDeductionBatchSubmitting] = useState(false);
   const [deductionCreateError, setDeductionCreateError] = useState('');
+  const [deductionContextFarmer, setDeductionContextFarmer] = useState<{
+    id: number;
+    name: string;
+    periodStart: string;
+    periodEnd: string;
+    totalVolume: number;
+    pricePerLiter: number | null;
+    grossAmount: number | null;
+    totalDeductions: number;
+    totalTransport: number | null;
+    netAmount: number | null;
+  } | null>(null);
   const [deductionInspectorOpen, setDeductionInspectorOpen] = useState(false);
   const [deductionInspectorFarmer, setDeductionInspectorFarmer] = useState<{ id: number; name: string | null } | null>(null);
   const [deductionHistoryRows, setDeductionHistoryRows] = useState<DeductionHistoryItem[]>([]);
@@ -2881,12 +2921,138 @@ const visibleTabs = (isAdmin
   };
 
   const deleteFarmer = async (farmer: Farmer) => {
-    if (!window.confirm(formatPublicCopy(publicLanguage.language, 'farmerDeleteConfirm', 'Delete {name}? This also removes linked milk history.', { name: farmer.name }))) return;
-    await run(async () => {
-      await api(`/api/farmers/${farmer.id}`, { method: 'DELETE' });
-      await loadFarmers();
-      setNotice(publicLanguage.t('farmerDeletedNotice'));
-    });
+    setFarmerDeletionTarget(farmer);
+    setFarmerDeletionImpact(null);
+    setFarmerDeletionReason('');
+    setFarmerDeletionConfirmation('');
+    setFarmerDeletionError('');
+    setFarmerDeletionLoading(true);
+    try {
+      const impact = await api<FarmerDeletionImpact>(`/api/farmers/${farmer.id}/deletion-preview`, { cache: 'no-store' });
+      setFarmerDeletionImpact(impact);
+    } catch (reason) {
+      setFarmerDeletionError(reason instanceof Error ? reason.message : 'Failed to inspect farmer records.');
+    } finally {
+      setFarmerDeletionLoading(false);
+    }
+  };
+
+  const confirmFarmerDeletion = async () => {
+    if (!farmerDeletionTarget || !farmerDeletionImpact || farmerDeletionBusy) return;
+    setFarmerDeletionBusy(true);
+    setFarmerDeletionError('');
+    try {
+      await api(`/api/farmers/${farmerDeletionTarget.id}`, json('DELETE', {
+        reason: farmerDeletionReason.trim(),
+        confirmationName: farmerDeletionConfirmation.trim(),
+      }));
+      const deletedName = farmerDeletionTarget.name;
+      setFarmerDeletionTarget(null);
+      setFarmerDeletionImpact(null);
+      await Promise.all([loadFarmers(), loadDaily(), loadReport('current-half')]);
+      if (tab === 'ukwezi') await loadUkwezi();
+      if (tab === 'settlements' && isCollector) await loadSettlementData();
+      setNotice(publicLanguage.language === 'en' ? `${deletedName} was permanently deleted.` : `${deletedName} yasibwe burundu.`);
+    } catch (reason) {
+      setFarmerDeletionError(reason instanceof Error ? reason.message : 'Failed to delete farmer.');
+    } finally {
+      setFarmerDeletionBusy(false);
+    }
+  };
+
+  const closeFarmerMerge = (force = false) => {
+    if (farmerMergeSaving && !force) return;
+    setFarmerMergeSource(null);
+    setFarmerMergeCandidates([]);
+    setFarmerMergeCandidatesHasMore(false);
+    setFarmerMergeCandidatesCursor(null);
+    setFarmerMergeTargetId('');
+    setFarmerMergePreview(null);
+    setFarmerMergeError('');
+    setFarmerMergeReason('');
+    setFarmerMergeConfirmation('');
+    setFarmerMergeResolutions({});
+  };
+
+  const openFarmerMerge = async (farmer: Farmer) => {
+    setFarmerMergeSource(farmer);
+    setFarmerMergeCandidates([]);
+    setFarmerMergeCandidatesHasMore(false);
+    setFarmerMergeCandidatesCursor(null);
+    setFarmerMergeTargetId('');
+    setFarmerMergePreview(null);
+    setFarmerMergeError('');
+    setFarmerMergeReason('');
+    setFarmerMergeConfirmation('');
+    setFarmerMergeResolutions({});
+    setFarmerMergeLoading(true);
+    try {
+      const result = await api<Page<Farmer>>('/api/farmers?limit=100');
+      setFarmerMergeCandidates(result.data.filter((candidate) => candidate.id !== farmer.id));
+      setFarmerMergeCandidatesHasMore(Boolean(result.hasMore));
+      setFarmerMergeCandidatesCursor(result.nextCursor);
+    } catch (reason) {
+      setFarmerMergeError(reason instanceof Error ? reason.message : 'Failed to load destination farmers.');
+    } finally {
+      setFarmerMergeLoading(false);
+    }
+  };
+
+  const loadMoreFarmerMergeCandidates = async () => {
+    if (!farmerMergeCandidatesHasMore || !farmerMergeCandidatesCursor || farmerMergeLoading) return;
+    setFarmerMergeLoading(true);
+    try {
+      const result = await api<Page<Farmer>>(`/api/farmers?limit=100&cursor=${encodeURIComponent(farmerMergeCandidatesCursor)}`);
+      setFarmerMergeCandidates((current) => [...current, ...result.data.filter((candidate) => candidate.id !== farmerMergeSource?.id)]);
+      setFarmerMergeCandidatesHasMore(Boolean(result.hasMore));
+      setFarmerMergeCandidatesCursor(result.nextCursor);
+    } catch (reason) {
+      setFarmerMergeError(reason instanceof Error ? reason.message : 'Failed to load more farmers.');
+    } finally {
+      setFarmerMergeLoading(false);
+    }
+  };
+
+  const selectFarmerMergeTarget = async (targetId: string) => {
+    setFarmerMergeTargetId(targetId);
+    setFarmerMergePreview(null);
+    setFarmerMergeResolutions({});
+    setFarmerMergeError('');
+    if (!farmerMergeSource || !targetId) return;
+    setFarmerMergeLoading(true);
+    try {
+      const preview = await api<FarmerMergePreview>(`/api/farmers/${farmerMergeSource.id}/merge-preview?targetFarmerId=${encodeURIComponent(targetId)}`, { cache: 'no-store' });
+      setFarmerMergePreview(preview);
+    } catch (reason) {
+      setFarmerMergeError(reason instanceof Error ? reason.message : 'Failed to inspect merge records.');
+    } finally {
+      setFarmerMergeLoading(false);
+    }
+  };
+
+  const confirmFarmerMerge = async () => {
+    if (!farmerMergeSource || !farmerMergePreview || farmerMergeSaving) return;
+    setFarmerMergeSaving(true);
+    setFarmerMergeError('');
+    try {
+      await api(`/api/farmers/${farmerMergeSource.id}/merge`, json('POST', {
+        targetFarmerId: Number(farmerMergeTargetId),
+        reason: farmerMergeReason.trim(),
+        resolutions: Object.entries(farmerMergeResolutions).map(([key, keepRecordId]) => {
+          const [sourceRecordId, targetRecordId] = key.split(':').map(Number);
+          return { sourceRecordId, targetRecordId, action: keepRecordId };
+        }),
+      }));
+      closeFarmerMerge(true);
+      await Promise.all([loadFarmers(), loadDaily(), loadReport('current-half')]);
+      if (tab === 'ukwezi') await loadUkwezi();
+      if (tab === 'settlements' && isCollector) await loadSettlementData();
+      setNotice(publicLanguage.language === 'en' ? 'Farmer profiles merged.' : 'Aborozi bahujwe neza.');
+    } catch (reason) {
+      setFarmerMergeError(reason instanceof Error ? reason.message : 'Failed to merge farmers.');
+    } finally {
+      setFarmerMergeSaving(false);
+    }
   };
 
   const createCenter = async (event: React.FormEvent) => {
@@ -3022,6 +3188,7 @@ const visibleTabs = (isAdmin
     try {
       await api('/api/deductions', json('POST', { ...deductionForm, farmerId: Number(deductionForm.farmerId), amount: Number(deductionForm.amount) }));
       setDeductionCreateOpen(false);
+      setDeductionContextFarmer(null);
       setDeductionForm({ farmerId: '', amount: '', type: 'Other', date: today(), reason: '', notes: '' });
       setDeductionFarmerSearch('');
       setNotice(publicLanguage.t('deductionsSaved'));
@@ -3036,6 +3203,27 @@ const visibleTabs = (isAdmin
       deductionSubmittingRef.current = false;
       setBusy(false);
     }
+  };
+
+  const openFarmerDeduction = (
+    farmerId: number,
+    farmerName: string | null,
+    periodStart: string,
+    periodEnd: string,
+    breakdown: { totalVolume: number; pricePerLiter: number | null; grossAmount: number | null; totalDeductions: number; totalTransport: number | null; netAmount: number | null },
+  ) => {
+    const id = Number(farmerId);
+    if (!Number.isSafeInteger(id) || id <= 0) return;
+    setDeductionContextFarmer({
+      id,
+      name: farmerName?.trim() || `#${id}`,
+      periodStart,
+      periodEnd,
+      ...breakdown,
+    });
+    setDeductionForm({ farmerId: String(id), amount: '', type: 'Other', date: periodStart, reason: '', notes: '' });
+    setDeductionCreateError('');
+    setDeductionCreateOpen(true);
   };
 
   const paySubscription = async () => run(async () => {
@@ -3390,6 +3578,7 @@ const visibleTabs = (isAdmin
         onOpenHistory={openFarmerHistory}
         onOpenIfishi={(farmer) => openIfishiForFarmer(farmer.id, farmer.name)}
         onEdit={editFarmerStart}
+        onMerge={(farmer) => { if (isCollector) void openFarmerMerge(farmer); }}
         onDelete={(farmer) => { void deleteFarmer(farmer); }}
         collectorName={getFarmerCollectorName}
         formatFarmerNumber={formatFarmerNumber}
@@ -3957,7 +4146,19 @@ const visibleTabs = (isAdmin
           <Send size={14} aria-hidden="true" />
           {publicLanguage.language === 'en' ? 'Send SMS/WhatsApp' : 'Oherereza Ubutumwa'}
         </button>
-        <button type="button" className="button button-secondary small-button" disabled={!farmerId} onClick={() => { setDeductionForm((prev) => ({ ...prev, farmerId: String(farmerId), date: today() })); setDeductionCreateOpen(true); }}><Plus size={14} aria-hidden="true" />{publicLanguage.language === 'en' ? 'Add Deduction' : 'Ongera Ikurwaho'}</button>
+        {isCollector ? <button type="button" className="button button-secondary small-button" disabled={!farmerId} onClick={() => {
+          if (!farmerId) return;
+          const period = getHalfMonthDateRange(Number(ukweziYear), Number(ukweziMonth), ukweziPeriod);
+          setFarmerHistoryOpen(false);
+          openFarmerDeduction(farmerId, farmerName, period.startDate, period.endDate, {
+            totalVolume: Number(matchingReportFarmer?.totalVolume ?? historyTotalLiters),
+            pricePerLiter: matchingReportFarmer?.pricePerLiter == null ? null : Number(matchingReportFarmer.pricePerLiter),
+            grossAmount: matchingReportFarmer?.grossAmount == null ? null : Number(matchingReportFarmer.grossAmount),
+            totalDeductions: Number(matchingReportFarmer?.totalDeductions || 0),
+            totalTransport: matchingReportFarmer?.totalTransport == null ? null : Number(matchingReportFarmer.totalTransport),
+            netAmount: matchingReportFarmer?.netAmount == null ? null : Number(matchingReportFarmer.netAmount),
+          });
+        }}><Plus size={14} aria-hidden="true" />{publicLanguage.language === 'en' ? 'Add Deduction' : 'Ongera Ikurwaho'}</button> : null}
         <button type="button" className="button button-secondary small-button" disabled={!matchingFarmerObj} onClick={() => { if (matchingFarmerObj) { setFarmerHistoryOpen(false); editFarmerStart(matchingFarmerObj as Farmer); } }}><Edit3 size={14} aria-hidden="true" />{publicLanguage.language === 'en' ? 'Edit Details' : 'Hindura Amakuru'}</button>
         <button type="button" className="button button-primary small-button" disabled={!farmerId} onClick={() => { if (!farmerId) return; setFarmerHistoryOpen(false); openIfishiForFarmer(farmerId, farmerName, historyFarmer || undefined); }}><BookOpen size={14} aria-hidden="true" />{publicLanguage.t('navIfishi')}</button>
       </div>
@@ -4854,10 +5055,11 @@ const visibleTabs = (isAdmin
     const searchTerm = settlementSearch.trim().toLocaleLowerCase();
     const matchesSearch = (row: any) => !searchTerm || [row.farmerName, row.farmer_name, row.phone, row.nationalId, row.accountNumber]
       .some((value) => String(value || '').toLocaleLowerCase().includes(searchTerm));
-    const accountsFarmers = farmerRows.filter((farmer) => Boolean(farmer.settlement?.saccoEligible) && matchesSearch(farmer));
-    const cashFarmers = farmerRows.filter((farmer) => !farmer.settlement?.saccoEligible && matchesSearch(farmer));
+    const accountsFarmers = farmerRows.filter((farmer) => Number(farmer.totalVolume || 0) > 0 && Boolean(farmer.settlement?.saccoEligible) && matchesSearch(farmer));
+    const cashFarmers = farmerRows.filter((farmer) => Number(farmer.totalVolume || 0) > 0 && !farmer.settlement?.saccoEligible && matchesSearch(farmer));
     const remainingCashFarmers = cashFarmers.filter((farmer) => Number(farmer.settlement?.retainedUnpaidAmount || 0) > 0);
     const retainedRows = farmerRows.filter((farmer) => !farmer.settlement.saccoEligible && Number(farmer.settlement.retainedUnpaidAmount || 0) > 0);
+    const igipandeRows = farmerRows.filter((farmer) => Number(farmer.settlement?.igipandeCharge || 0) > 0 && matchesSearch(farmer));
     const settlementRecords = (settlementData?.data || []).filter(matchesSearch);
     const visibleDebts = settlementDebts.filter(matchesSearch);
     const settlementNumber = new Intl.NumberFormat(publicLanguage.language === 'rw' ? 'rw-RW' : 'en-GB', { maximumFractionDigits: 2 });
@@ -4879,6 +5081,11 @@ const visibleTabs = (isAdmin
       };
       return statusKeys[status] ? publicLanguage.t(statusKeys[status]) : status;
     };
+    const igipandeStatus = (status: string) => status === 'PAID'
+      ? publicLanguage.t('igipandeStatusPaid')
+      : status === 'PARTIALLY_PAID'
+        ? publicLanguage.t('igipandeStatusPartial')
+        : publicLanguage.t('igipandeStatusUnpaid');
     const requestKey = (scope: string) => {
       settlementRequestKeys.current[scope] ||= globalThis.crypto?.randomUUID?.() || `${user?.id}-${Date.now()}-${Math.random().toString(36).slice(2)}`;
       return settlementRequestKeys.current[scope];
@@ -4995,12 +5202,13 @@ const visibleTabs = (isAdmin
       reconciliation.saccoConfirmedAmount,
       reconciliation.cashConfirmedAmount,
       reconciliation.debtRepaymentAmount,
+      reconciliation.igipandeRecoveryAmount,
       reconciliation.saccoDistributionInstruction,
       reconciliation.retainedUnpaidAmount,
       reconciliation.unexplainedDiscrepancy,
       reconciliation.expectedFarmerPayable,
     ] : [];
-    const payableBreakdownAvailable = breakdownValues.length === 7
+    const payableBreakdownAvailable = breakdownValues.length === 8
       && breakdownValues.every((value) => value !== null && value !== undefined);
     const ownerGrossCheck = reconciliation?.ownerGrossReconciliation;
     const ownerGrossCheckAvailable = ownerGrossCheck
@@ -5029,7 +5237,7 @@ const visibleTabs = (isAdmin
       synchronizeCurrentAccountingHalf(month, settlementYear, setSettlementHalf);
     };
 
-    const totalSettledSoFar = (reconciliation?.saccoConfirmedAmount || 0) + (reconciliation?.cashConfirmedAmount || 0) + (reconciliation?.debtRepaymentAmount || 0);
+    const totalSettledSoFar = (reconciliation?.saccoConfirmedAmount || 0) + (reconciliation?.cashConfirmedAmount || 0) + (reconciliation?.debtRepaymentAmount || 0) + (reconciliation?.igipandeRecoveryAmount || 0);
 
     return <div className="ukwezi-view">
       <section className="panel">
@@ -5370,10 +5578,20 @@ const visibleTabs = (isAdmin
                 <div><span>{publicLanguage.t('settlementsCashReceived')}</span><b>{settlementMoney(reconciliation.cashConfirmedAmount)} RWF</b></div>
                 <div><span>{publicLanguage.t('settlementsDebtRepaid')}</span><b>{settlementMoney(reconciliation.debtRepaymentAmount)} RWF</b></div>
                 <div><span>{publicLanguage.t('settlementsDebtOutstanding')}</span><b>{reconciliation.debtBalancesComplete ? `${settlementMoney(reconciliation.outstandingDebt)} RWF` : publicLanguage.t('settlementsIncompleteAccounting')}</b></div>
+                <div><span>{publicLanguage.t('igipandeRecoveryThisPeriod')}</span><b>{settlementMoney(reconciliation.igipandeRecoveryAmount)} RWF</b></div>
+                <div><span>{publicLanguage.t('igipandeOutstandingTotal')}</span><b>{settlementMoney(reconciliation.igipandeOutstandingBalance)} RWF</b></div>
                 <div><span>{publicLanguage.t('settlementsUnexplainedDifference')}</span><b>{settlementMoney(reconciliation.unexplainedDiscrepancy)} RWF</b></div>
               </div>
 
-              {payableBreakdownAvailable ? <p className="muted-note">{publicLanguage.t('settlementsPayableBreakdown')}: {settlementMoney(breakdownValues[0])} + {settlementMoney(breakdownValues[1])} + {settlementMoney(breakdownValues[2])} + {settlementMoney(breakdownValues[3])} + {settlementMoney(breakdownValues[4])} + ({settlementMoney(breakdownValues[5])}) = {settlementMoney(breakdownValues[6])} RWF</p> : <p className="muted-note">{publicLanguage.t('ukweziBreakdownUnavailable')}</p>}
+              {igipandeRows.length ? <section className="settlement-operations">
+                <div className="panel-heading"><div><span className="eyebrow">{publicLanguage.t('igipandePeriod')}: {settlementDate(settlementReport.rangeStart)} – {settlementDate(settlementReport.rangeEnd)}</span><h3>{publicLanguage.t('igipandeTitle')}</h3></div></div>
+                <div className="table-scroll settlements-desktop-table"><table><thead><tr><th>{publicLanguage.t('settlementsFarmer')}</th><th>{publicLanguage.t('igipandePeriod')}</th><th>{publicLanguage.t('igipandeCharge')}</th><th>{publicLanguage.t('igipandeRecovered')}</th><th>{publicLanguage.t('igipandeOutstanding')}</th><th>{publicLanguage.t('igipandeStatus')}</th></tr></thead><tbody>
+                  {igipandeRows.map((farmer) => <tr key={`igipande-${farmer.farmerId}`}><td>{farmer.farmerName}</td><td>{settlementDate(settlementReport.rangeStart)} – {settlementDate(settlementReport.rangeEnd)}</td><td>{settlementMoney(farmer.settlement.igipandeCharge)} RWF</td><td>{settlementMoney(farmer.settlement.igipandeContributionRecoveredAmount)} RWF</td><td>{settlementMoney(farmer.settlement.igipandeContributionOutstandingBalance)} RWF</td><td>{igipandeStatus(farmer.settlement.igipandeStatus)}</td></tr>)}
+                </tbody></table></div>
+                <div className="settlements-mobile-list">{igipandeRows.map((farmer) => <article className="settlement-mobile-card" key={`igipande-mobile-${farmer.farmerId}`}><header><b>{farmer.farmerName}</b><strong>{igipandeStatus(farmer.settlement.igipandeStatus)}</strong></header><dl><div><dt>{publicLanguage.t('igipandePeriod')}</dt><dd>{settlementDate(settlementReport.rangeStart)} – {settlementDate(settlementReport.rangeEnd)}</dd></div><div><dt>{publicLanguage.t('igipandeCharge')}</dt><dd>{settlementMoney(farmer.settlement.igipandeCharge)} RWF</dd></div><div><dt>{publicLanguage.t('igipandeRecovered')}</dt><dd>{settlementMoney(farmer.settlement.igipandeContributionRecoveredAmount)} RWF</dd></div><div><dt>{publicLanguage.t('igipandeOutstanding')}</dt><dd>{settlementMoney(farmer.settlement.igipandeContributionOutstandingBalance)} RWF</dd></div></dl></article>)}</div>
+              </section> : null}
+
+              {payableBreakdownAvailable ? <p className="muted-note">{publicLanguage.t('settlementsPayableBreakdown')}: {breakdownValues.slice(0, 6).map((value) => settlementMoney(value)).join(' + ')} + ({settlementMoney(breakdownValues[6])}) = {settlementMoney(breakdownValues[7])} RWF</p> : <p className="muted-note">{publicLanguage.t('ukweziBreakdownUnavailable')}</p>}
 
               {renderNyirayoAuditCard({
                 nyirayoMilkValue: ownerGrossCheck?.ownerGross ?? settlementReport?.nyirayoMilkValue ?? settlementReport?.collectorGross,
@@ -5820,6 +6038,7 @@ const visibleTabs = (isAdmin
     ];
     const years = getAccountingYears();
     const bilingualMonths = getBilingualMonthNames();
+    const selectedUkweziRange = getHalfMonthDateRange(Number(ukweziYear), Number(ukweziMonth), ukweziPeriod);
     const ukweziPdfParams = new URLSearchParams({ month: ukweziMonth, year: ukweziYear, periodType: ukweziPeriod });
     ukweziPdfParams.set('language', publicLanguage.language);
     const activeCenterName = centers.find((center) => String(center.id) === selectedCenter)?.name;
@@ -5880,10 +6099,10 @@ const visibleTabs = (isAdmin
             nyirayoTotalAfterOperations: ukweziReport.nyirayoTotalAfterOperations,
           }) : null}
           {isCollector && ukweziReport.settlementAccountingStatus === 'MIGRATION_REQUIRED' ? <section className="settlement-reconciliation" role="status"><b>{publicLanguage.t('ukweziReconciliationUnavailable')}</b><span>{publicLanguage.t('ukweziReconciliationUnavailableDetail')}</span></section> : null}
-          {settlementRows.length || ownerRow ? <><div className="table-scroll ukwezi-settlement-table"><table><thead><tr><th>No</th><th>{sortableUkweziHeader('name', publicLanguage.t(isDairy ? 'assignedCollectors' : 'milkFarmer'))}</th>{isDairy ? <th>{publicLanguage.t('navAbacunda')}</th> : <th>{publicLanguage.t('accountNationalId')}</th>}<th>{publicLanguage.t('accountPhone')} / {publicLanguage.t('accountNumber')}</th><th>{sortableUkweziHeader('volume', publicLanguage.t('reportsVolume'))}</th><th>{publicLanguage.t('milkPrice')} / L</th><th>{publicLanguage.t('reportsGross')}</th>{isCollector ? <th>{publicLanguage.t('reportsTransport')}</th> : null}<th>{publicLanguage.t('dashboardDeductions')}</th><th>{sortableUkweziHeader('payable', publicLanguage.t('reportsNet'))}</th></tr></thead><tbody>
-            {settlementRows.map((row: any, index: number) => <tr key={`${isDairy ? 'collector' : 'farmer'}-${isDairy ? row.collectorUserId : row.farmerId}`}><td>{index + 1}</td><td>{isDairy ? row.name : row.farmerName}</td>{isDairy ? <td>{row.assignedFarmerCount}</td> : <td>{row.nationalId || row.idNumber || '—'}</td>}<td>{[row.phone, row.accountNumber].filter(Boolean).join(' / ') || '—'}</td><td>{liters(row.totalVolume)} L</td><td>{row.totalVolume > 0 ? `${money(row.pricePerLiter || 0)} RWF` : '—'}</td><td>{row.grossAmount == null ? '—' : `${money(row.grossAmount)} RWF`}</td>{isCollector ? <td>{money(row.totalTransport)} RWF</td> : null}<td>{money(row.totalDeductions)} RWF</td><td>{row.netAmount == null ? '—' : `${money(row.netAmount)} RWF`}</td></tr>)}
-            {ownerRow ? <tr className="owner-settlement-row"><td>{settlementRows.length + 1}</td><td><b>{ownerRow.farmerName}</b><small className="block-muted">{publicLanguage.t('ukweziOwnerRow')}</small></td><td>{ownerRow.nationalId || ownerRow.idNumber || '—'}</td><td>{[ownerRow.phone, ownerRow.accountNumber].filter(Boolean).join(' / ') || '—'}</td><td>{liters(ownerRow.totalVolume)} L</td><td>{ownerRow.pricePerLiter == null ? '—' : `${money(ownerRow.pricePerLiter)} RWF`}</td><td>{ownerRow.grossAmount == null ? '—' : `${money(ownerRow.grossAmount)} RWF`}</td>{isCollector ? <td>{money(ownerRow.totalTransport)} RWF</td> : null}<td>{money(ownerRow.totalDeductions)} RWF</td><td>{ownerRow.netAmount == null ? '—' : `${money(ownerRow.netAmount)} RWF`}</td></tr> : null}
-          </tbody></table></div><div className="ukwezi-mobile-list">{settlementRows.map((row: any) => <article className="ukwezi-mobile-card" key={`mobile-${isDairy ? row.collectorUserId : row.farmerId}`}><header><b>{isDairy ? row.name : row.farmerName}</b><strong>{liters(row.totalVolume)} L</strong></header><dl>{isDairy ? <div><dt>{publicLanguage.t('navAbacunda')}</dt><dd>{row.assignedFarmerCount}</dd></div> : <div><dt>{publicLanguage.t('accountNationalId')}</dt><dd>{row.nationalId || row.idNumber || '—'}</dd></div>}<div><dt>{publicLanguage.t('milkPrice')} / L</dt><dd>{row.totalVolume > 0 ? `${money(row.pricePerLiter || 0)} RWF` : '—'}</dd></div><div><dt>{publicLanguage.t('reportsGross')}</dt><dd>{row.grossAmount == null ? '—' : `${money(row.grossAmount)} RWF`}</dd></div>{isCollector ? <div><dt>{publicLanguage.t('reportsTransport')}</dt><dd>{money(row.totalTransport)} RWF</dd></div> : null}<div><dt>{publicLanguage.t('dashboardDeductions')}</dt><dd>{money(row.totalDeductions)} RWF</dd></div><div><dt>{publicLanguage.t('reportsNet')}</dt><dd>{row.netAmount == null ? '—' : `${money(row.netAmount)} RWF`}</dd></div></dl><p>{[row.phone, row.accountNumber].filter(Boolean).join(' / ') || '—'}</p></article>)}{ownerRow ? <article className="ukwezi-mobile-card owner-settlement-row"><header><b>{ownerRow.farmerName} · {publicLanguage.t('ukweziOwnerRow')}</b><strong>{liters(ownerRow.totalVolume)} L</strong></header><dl><div><dt>{publicLanguage.t('reportsGross')}</dt><dd>{ownerRow.grossAmount == null ? '—' : `${money(ownerRow.grossAmount)} RWF`}</dd></div>{isCollector ? <div><dt>{publicLanguage.t('reportsTransport')}</dt><dd>{money(ownerRow.totalTransport)} RWF</dd></div> : null}<div><dt>{publicLanguage.t('dashboardDeductions')}</dt><dd>{money(ownerRow.totalDeductions)} RWF</dd></div><div><dt>{publicLanguage.t('reportsNet')}</dt><dd>{ownerRow.netAmount == null ? '—' : `${money(ownerRow.netAmount)} RWF`}</dd></div></dl></article> : null}</div></> : null}
+          {settlementRows.length || ownerRow ? <><div className="table-scroll ukwezi-settlement-table"><table><thead><tr><th>No</th><th>{sortableUkweziHeader('name', publicLanguage.t(isDairy ? 'assignedCollectors' : 'milkFarmer'))}</th>{isDairy ? <th>{publicLanguage.t('navAbacunda')}</th> : <th>{publicLanguage.t('accountNationalId')}</th>}<th>{publicLanguage.t('accountPhone')} / {publicLanguage.t('accountNumber')}</th><th>{sortableUkweziHeader('volume', publicLanguage.t('reportsVolume'))}</th><th>{publicLanguage.t('milkPrice')} / L</th><th>{publicLanguage.t('reportsGross')}</th>{isCollector ? <th>{publicLanguage.t('reportsTransport')}</th> : null}<th>{publicLanguage.t('dashboardDeductions')}</th><th>{sortableUkweziHeader('payable', publicLanguage.t('reportsNet'))}</th>{isCollector ? <th>{publicLanguage.t('actions')}</th> : null}</tr></thead><tbody>
+            {settlementRows.map((row: any, index: number) => <tr key={`${isDairy ? 'collector' : 'farmer'}-${isDairy ? row.collectorUserId : row.farmerId}`}><td>{index + 1}</td><td>{isDairy ? row.name : row.farmerName}</td>{isDairy ? <td>{row.assignedFarmerCount}</td> : <td>{row.nationalId || row.idNumber || '—'}</td>}<td>{[row.phone, row.accountNumber].filter(Boolean).join(' / ') || '—'}</td><td>{liters(row.totalVolume)} L</td><td>{row.totalVolume > 0 ? `${money(row.pricePerLiter || 0)} RWF` : '—'}</td><td>{row.grossAmount == null ? '—' : `${money(row.grossAmount)} RWF`}</td>{isCollector ? <td>{money(row.totalTransport)} RWF</td> : null}<td>{money(row.totalDeductions)} RWF</td><td>{row.netAmount == null ? '—' : `${money(row.netAmount)} RWF`}</td>{isCollector ? <td><button type="button" className="button button-secondary small-button" onClick={() => openFarmerDeduction(row.farmerId, row.farmerName, selectedUkweziRange.startDate, selectedUkweziRange.endDate, { totalVolume: Number(row.totalVolume || 0), pricePerLiter: row.pricePerLiter == null ? null : Number(row.pricePerLiter), grossAmount: row.grossAmount == null ? null : Number(row.grossAmount), totalDeductions: Number(row.totalDeductions || 0), totalTransport: row.totalTransport == null ? null : Number(row.totalTransport), netAmount: row.netAmount == null ? null : Number(row.netAmount) })}><Plus size={14} aria-hidden="true" />{publicLanguage.t('deductionsAdd')}</button></td> : null}</tr>)}
+            {ownerRow ? <tr className="owner-settlement-row"><td>{settlementRows.length + 1}</td><td><b>{ownerRow.farmerName}</b><small className="block-muted">{publicLanguage.t('ukweziOwnerRow')}</small></td><td>{ownerRow.nationalId || ownerRow.idNumber || '—'}</td><td>{[ownerRow.phone, ownerRow.accountNumber].filter(Boolean).join(' / ') || '—'}</td><td>{liters(ownerRow.totalVolume)} L</td><td>{ownerRow.pricePerLiter == null ? '—' : `${money(ownerRow.pricePerLiter)} RWF`}</td><td>{ownerRow.grossAmount == null ? '—' : `${money(ownerRow.grossAmount)} RWF`}</td>{isCollector ? <td>{money(ownerRow.totalTransport)} RWF</td> : null}<td>{money(ownerRow.totalDeductions)} RWF</td><td>{ownerRow.netAmount == null ? '—' : `${money(ownerRow.netAmount)} RWF`}</td>{isCollector ? <td>—</td> : null}</tr> : null}
+          </tbody></table></div><div className="ukwezi-mobile-list">{settlementRows.map((row: any) => <article className="ukwezi-mobile-card" key={`mobile-${isDairy ? row.collectorUserId : row.farmerId}`}><header><b>{isDairy ? row.name : row.farmerName}</b><strong>{liters(row.totalVolume)} L</strong></header><dl>{isDairy ? <div><dt>{publicLanguage.t('navAbacunda')}</dt><dd>{row.assignedFarmerCount}</dd></div> : <div><dt>{publicLanguage.t('accountNationalId')}</dt><dd>{row.nationalId || row.idNumber || '—'}</dd></div>}<div><dt>{publicLanguage.t('milkPrice')} / L</dt><dd>{row.totalVolume > 0 ? `${money(row.pricePerLiter || 0)} RWF` : '—'}</dd></div><div><dt>{publicLanguage.t('reportsGross')}</dt><dd>{row.grossAmount == null ? '—' : `${money(row.grossAmount)} RWF`}</dd></div>{isCollector ? <div><dt>{publicLanguage.t('reportsTransport')}</dt><dd>{money(row.totalTransport)} RWF</dd></div> : null}<div><dt>{publicLanguage.t('dashboardDeductions')}</dt><dd>{money(row.totalDeductions)} RWF</dd></div><div><dt>{publicLanguage.t('reportsNet')}</dt><dd>{row.netAmount == null ? '—' : `${money(row.netAmount)} RWF`}</dd></div></dl><p>{[row.phone, row.accountNumber].filter(Boolean).join(' / ') || '—'}</p>{isCollector ? <button type="button" className="button button-secondary button-block" onClick={() => openFarmerDeduction(row.farmerId, row.farmerName, selectedUkweziRange.startDate, selectedUkweziRange.endDate, { totalVolume: Number(row.totalVolume || 0), pricePerLiter: row.pricePerLiter == null ? null : Number(row.pricePerLiter), grossAmount: row.grossAmount == null ? null : Number(row.grossAmount), totalDeductions: Number(row.totalDeductions || 0), totalTransport: row.totalTransport == null ? null : Number(row.totalTransport), netAmount: row.netAmount == null ? null : Number(row.netAmount) })}><Plus size={14} aria-hidden="true" />{publicLanguage.t('deductionsAdd')}</button> : null}</article>)}{ownerRow ? <article className="ukwezi-mobile-card owner-settlement-row"><header><b>{ownerRow.farmerName} · {publicLanguage.t('ukweziOwnerRow')}</b><strong>{liters(ownerRow.totalVolume)} L</strong></header><dl><div><dt>{publicLanguage.t('reportsGross')}</dt><dd>{ownerRow.grossAmount == null ? '—' : `${money(ownerRow.grossAmount)} RWF`}</dd></div>{isCollector ? <div><dt>{publicLanguage.t('reportsTransport')}</dt><dd>{money(ownerRow.totalTransport)} RWF</dd></div> : null}<div><dt>{publicLanguage.t('dashboardDeductions')}</dt><dd>{money(ownerRow.totalDeductions)} RWF</dd></div><div><dt>{publicLanguage.t('reportsNet')}</dt><dd>{ownerRow.netAmount == null ? '—' : `${money(ownerRow.netAmount)} RWF`}</dd></div></dl></article> : null}</div></> : null}
           {lossRows.length ? <section className="ukwezi-loss-reconciliation"><div className="panel-heading"><div><span className="eyebrow">{publicLanguage.t('ifishiLost')}</span><h3>{publicLanguage.t('ukweziLossReconciliation')}</h3></div></div><div className="table-scroll"><table><thead><tr><th>{publicLanguage.t('milkCollectionDate')}</th><th>{publicLanguage.t('account')}</th><th>{publicLanguage.t('ifishiOriginal')}</th><th>{publicLanguage.t('ifishiValid')}</th><th>{publicLanguage.t('ifishiLost')}</th><th>{publicLanguage.t('paymentStatus')}</th><th>{publicLanguage.t('ifishiReason')}</th><th>{publicLanguage.t('actor')}</th><th>{publicLanguage.t('when')}</th></tr></thead><tbody>{lossRows.map((row) => <tr key={row.key}><td>{row.date}</td><td>{row.source}</td><td>{liters(row.original)} L</td><td>{liters(row.valid)} L</td><td>{liters(row.lost)} L</td><td>{row.status}</td><td>{row.reason || '—'}</td><td>{row.actor || '—'}</td><td>{row.when ? formatDateLabel(row.when, publicLanguage.language, { day: 'numeric', month: 'long', year: 'numeric', time: 'short' }) : '—'}</td></tr>)}</tbody></table></div></section> : null}
         </> : <div className="workspace-empty workspace-loading" role="status"><span className="loading-indicator" />{publicLanguage.t('dashboardLoading')}</div>}
       </section>
@@ -6826,6 +7045,92 @@ const visibleTabs = (isAdmin
         {adminAccountDetailsOpen ? renderAdminAccountDetailsModal() : null}
         {grantDaysAccount ? renderGrantDaysModal() : null}
       </section></div>
+      {isCollector && deductionCreateOpen && deductionContextFarmer ? <Modal
+        ariaLabel={publicLanguage.t('deductionsAdd')}
+        className="modal-panel-wide deduction-inspector-modal"
+        onClose={() => {
+          if (busy) return;
+          setDeductionCreateOpen(false);
+          setDeductionContextFarmer(null);
+          setDeductionCreateError('');
+        }}
+        dismissible={!busy}
+      >
+        <div className="panel-heading">
+          <div>
+            <span className="eyebrow">{publicLanguage.t('navUkwezi')} · {deductionContextFarmer.periodStart} – {deductionContextFarmer.periodEnd}</span>
+            <h2>{publicLanguage.t('deductionsAdd')} · {deductionContextFarmer.name}</h2>
+          </div>
+          <button type="button" className="icon-button" onClick={() => {
+            setDeductionCreateOpen(false);
+            setDeductionContextFarmer(null);
+            setDeductionCreateError('');
+          }} disabled={busy} aria-label={publicLanguage.t('cancel')}><X size={18} aria-hidden="true" /></button>
+        </div>
+        <div className="metric-strip">
+          <div><span>{publicLanguage.t('reportsVolume')}</span><b>{liters(deductionContextFarmer.totalVolume)} L</b></div>
+          <div><span>{publicLanguage.t('reportsAppliedPrice')}</span><b>{deductionContextFarmer.pricePerLiter == null ? '—' : `${money(deductionContextFarmer.pricePerLiter)} RWF/L`}</b></div>
+          <div><span>{publicLanguage.t('reportsGross')}</span><b>{deductionContextFarmer.grossAmount == null ? publicLanguage.t('reportsIncomplete') : `${money(deductionContextFarmer.grossAmount)} RWF`}</b></div>
+          <div><span>{publicLanguage.t('reportsTransport')}</span><b>{deductionContextFarmer.totalTransport == null ? publicLanguage.t('reportsIncomplete') : `${money(deductionContextFarmer.totalTransport)} RWF`}</b></div>
+          <div><span>{publicLanguage.t('dashboardDeductions')}</span><b>{money(deductionContextFarmer.totalDeductions)} RWF</b></div>
+          <div><span>{publicLanguage.t('reportsNet')}</span><b>{deductionContextFarmer.netAmount == null ? publicLanguage.t('reportsIncomplete') : `${money(deductionContextFarmer.netAmount)} RWF`}</b></div>
+        </div>
+        <form className="form-stack compact" onSubmit={createDeduction}>
+          <label>{publicLanguage.t('deductionsAmount')}<input type="number" min="0.01" step="0.01" required value={deductionForm.amount} onChange={(event) => setDeductionForm((current) => ({ ...current, amount: event.target.value }))} /></label>
+          <label>{publicLanguage.t('deductionsType')}<select value={deductionForm.type} onChange={(event) => setDeductionForm((current) => ({ ...current, type: event.target.value }))}><option value="Advance">Advance</option><option value="Umwenda">Umwenda</option><option value="Other">Other</option></select></label>
+          <label>{publicLanguage.t('deductionsDate')}<input type="date" min={deductionContextFarmer.periodStart} max={deductionContextFarmer.periodEnd} required value={deductionForm.date} onChange={(event) => setDeductionForm((current) => ({ ...current, date: event.target.value }))} /></label>
+          <label>{publicLanguage.t('deductionsReason')}<input maxLength={500} required value={deductionForm.reason} onChange={(event) => setDeductionForm((current) => ({ ...current, reason: event.target.value }))} /></label>
+          <label>{publicLanguage.t('deductionsNotes')}<textarea rows={3} maxLength={1000} value={deductionForm.notes} onChange={(event) => setDeductionForm((current) => ({ ...current, notes: event.target.value }))} /></label>
+          {deductionCreateError ? <p className="form-error" role="alert">{deductionCreateError}</p> : null}
+          <div className="form-actions">
+            <button type="button" className="button button-secondary" onClick={() => {
+              setDeductionCreateOpen(false);
+              setDeductionContextFarmer(null);
+              setDeductionCreateError('');
+            }} disabled={busy}>{publicLanguage.t('cancel')}</button>
+            <button className="button button-primary" disabled={busy || !deductionForm.amount || !deductionForm.reason}>{busy ? publicLanguage.t('wait') : publicLanguage.t('deductionsAdd')}</button>
+          </div>
+        </form>
+      </Modal> : null}
+      <FarmerDeletionDialog
+        open={Boolean(farmerDeletionTarget)}
+        language={publicLanguage.language}
+        impact={farmerDeletionImpact}
+        loading={farmerDeletionLoading}
+        error={farmerDeletionError}
+        reason={farmerDeletionReason}
+        confirmationName={farmerDeletionConfirmation}
+        busy={farmerDeletionBusy}
+        onReasonChange={setFarmerDeletionReason}
+        onConfirmationNameChange={setFarmerDeletionConfirmation}
+        onClose={() => {
+          if (farmerDeletionBusy) return;
+          setFarmerDeletionTarget(null);
+          setFarmerDeletionImpact(null);
+          setFarmerDeletionError('');
+        }}
+        onConfirm={() => { void confirmFarmerDeletion(); }}
+      />
+      <FarmerMergeDialog
+        open={Boolean(farmerMergeSource)}
+        source={farmerMergeSource}
+        candidates={farmerMergeCandidates}
+        targetId={farmerMergeTargetId}
+        preview={farmerMergePreview}
+        loading={farmerMergeLoading}
+        saving={farmerMergeSaving}
+        error={farmerMergeError}
+        reason={farmerMergeReason}
+        confirmation={farmerMergeConfirmation}
+        resolutions={farmerMergeResolutions}
+        language={publicLanguage.language}
+        onTargetChange={(targetId) => { void selectFarmerMergeTarget(targetId); }}
+        onReasonChange={setFarmerMergeReason}
+        onConfirmationChange={setFarmerMergeConfirmation}
+        onResolutionChange={(key, action) => setFarmerMergeResolutions((current) => ({ ...current, [key]: action }))}
+        onClose={closeFarmerMerge}
+        onSubmit={() => { void confirmFarmerMerge(); }}
+      />
       {farmerHistoryOpen && farmerHistoryFarmer ? <Modal ariaLabel={publicLanguage.t('farmerHistoryTitle')} className="modal-panel-wide farmer-history-modal" onClose={() => setFarmerHistoryOpen(false)} dismissible={!farmerHistoryLoading}>{renderFarmerHistory()}</Modal> : null}
       {lossEventOpen && (
         <Modal ariaLabel={publicLanguage.t('recordLossEvent')} className="loss-event-modal" onClose={() => setLossEventOpen(false)} dismissible={!lossEventLoading}>
