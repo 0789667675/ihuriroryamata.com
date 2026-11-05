@@ -18,7 +18,20 @@ export async function GET(request) {
     requireAccountType(user, 'COLLECTOR');
     const params = new URL(request.url).searchParams;
     const groupBy = String(params.get('groupBy') || '').trim().toLowerCase();
-    const result = groupBy === 'farmer'
+    const view = String(params.get('view') || '').trim().toLowerCase();
+    const result = view === 'farmer-ledger'
+      ? await Deductions.listFarmerPeriodLedger({
+          ownerUserId: user.id,
+          collectorUserId: user.id,
+          periodStart: params.get('periodStart'),
+          periodEnd: params.get('periodEnd'),
+          configurationId: params.get('configurationId'),
+          farmerStatus: params.get('farmerStatus') || 'ALL',
+          search: params.get('search') || '',
+          cursor: params.get('cursor'),
+          limit: params.get('limit') || 100,
+        })
+      : groupBy === 'farmer'
       ? await Deductions.listDeductionGroups({
           ownerUserId: user.id,
           collectorUserId: user.id,

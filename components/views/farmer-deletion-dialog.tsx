@@ -7,7 +7,7 @@ type DeletionImpact = {
   farmer: { name: string; farmerNumber?: number | null };
   counts: Record<string, number>;
   affectedPeriods: Array<{ start: string; end: string }>;
-  settledPaymentEvidence: { settlements: unknown[]; farmerPayments: Array<{ count: number; amount: number }> };
+  settledPaymentEvidence: { settlements: unknown[]; farmerPayments: Array<{ count: number; amount: number }>; debtRepayments: unknown[]; igipandeRecoveries: unknown[]; deductionBatchItems: Array<{ recovered_amount?: number }> };
 };
 
 type Props = {
@@ -31,12 +31,15 @@ const labels = {
     loading: 'Turimo kureba amakuru yose azagerwaho…',
     records: 'Amakuru azakurwaho mu ibaruramari rikora',
     milk: 'Inyandiko z’amata',
-    losses: 'Ibyatakaye cyangwa byahinduwe',
+    losses: 'Ibyatakaye mu mata',
+    corrections: 'Inyandiko z’amata zahinduwe',
     deductions: 'Ibyakuweho',
     payments: 'Ubwishyu bw’umworozi',
     settlements: 'Ubwishyu bwemejwe',
     debts: 'Imyenda',
     repayments: 'Kwishyura imyenda',
+    igipande: 'Igipande n’amafaranga yakoreshejwe mu kwishyura',
+    batches: 'Ibyakuweho mu byiciro',
     notifications: 'Imenyesha',
     periods: 'Ibihe bya Ukwezi bizongera kubarwa',
     paid: 'Amafaranga yishyuwe azabikwa mu bubiko bw’ubugenzuzi kugira ngo yemezwe mu mateka.',
@@ -51,12 +54,15 @@ const labels = {
     loading: 'Checking all related records…',
     records: 'Records removed from active accounting',
     milk: 'Milk records',
-    losses: 'Losses or corrections',
+    losses: 'Milk losses',
+    corrections: 'Milk corrections',
     deductions: 'Deductions',
     payments: 'Farmer payments',
     settlements: 'Settlements',
     debts: 'Debt ledgers',
     repayments: 'Debt repayments',
+    igipande: 'Igipande contributions and recoveries',
+    batches: 'Batched deductions',
     notifications: 'Notifications',
     periods: 'Ukwezi periods to recalculate',
     paid: 'Evidence of actual payments will be preserved in the administrative archive.',
@@ -71,11 +77,14 @@ const labels = {
 const rows = [
   ['milkRecords', 'milk'],
   ['milkLosses', 'losses'],
+  ['milkCorrections', 'corrections'],
   ['deductions', 'deductions'],
   ['farmerPayments', 'payments'],
   ['settlements', 'settlements'],
   ['debtLedgers', 'debts'],
   ['debtRepayments', 'repayments'],
+  ['igipandeContributions', 'igipande'],
+  ['deductionBatchItems', 'batches'],
   ['notifications', 'notifications'],
 ] as const;
 
@@ -98,6 +107,9 @@ export function FarmerDeletionDialog({
   const paidEvidenceCount = impact
     ? impact.settledPaymentEvidence.settlements.length
       + impact.settledPaymentEvidence.farmerPayments.reduce((total, item) => total + item.count, 0)
+      + impact.settledPaymentEvidence.debtRepayments.length
+      + impact.settledPaymentEvidence.igipandeRecoveries.length
+      + impact.settledPaymentEvidence.deductionBatchItems.filter((item) => Number(item.recovered_amount) > 0).length
     : 0;
   const canDelete = Boolean(impact && reason.trim().length >= 5
     && confirmationName.trim() === impact.farmer.name && !busy && !loading);

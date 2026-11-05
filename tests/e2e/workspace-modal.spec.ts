@@ -744,7 +744,7 @@ test('unknown and role-restricted direct tabs normalize to the allowed dashboard
   expect(await page.evaluate(async () => (await fetch('/api/farmer-settlements')).status)).toBe(403);
 });
 
-test('Collector settlements uses report accounting, while Ukwezi keeps its milk table', async ({ page }) => {
+test('Collector settlements uses report accounting, while Ukwezi shows eligible payment rosters', async ({ page }) => {
   await openWorkspace(page, collector, 'tab=settlements&flow=synthetic');
   const summary = page.locator('.settlement-reconciliation');
   const reconciliationTable = page.locator('.settlement-farmer-table');
@@ -767,11 +767,40 @@ test('Collector settlements uses report accounting, while Ukwezi keeps its milk 
 
   await page.getByRole('button', { name: 'Ukwezi', exact: true }).first().click();
   await expect(page.getByRole('heading', { name: 'Ukwezi' })).toBeVisible();
-  await expect(page.locator('.ukwezi-settlement-table')).toBeVisible();
+  const paymentRoster = page.locator('.ukwezi-payment-roster');
+  await expect(paymentRoster).toBeVisible();
   await expect(page.locator('.settlement-farmer-table')).toHaveCount(0);
   await expect(page.getByText('Payment history')).toHaveCount(0);
-  await expect(page.locator('.ukwezi-settlement-table')).toContainText(/Milk price|Igiciro cy'amata|Igiciro \/ L/i);
-  await expect(page.locator('.ukwezi-settlement-table')).toContainText(/Transport|Ibyo gutwara|Transport/i);
+  await expect(paymentRoster).toContainText('Aline Test Farmer');
+  await expect(paymentRoster).toContainText('3,500.00 RWF');
+  await expect(paymentRoster).toContainText(/Farmers without accounts|Aborozi badafite nimero ya konti/i);
+  await expect(paymentRoster).toContainText(/Milk volume \(L\)|Ingano y’amata \(L\)/i);
+  await expect(paymentRoster).toContainText(/National ID number|Nomero y'indangamuntu/i);
+  await expect(paymentRoster).toContainText(/Ejoheza \(RWF\)|FRW ya Ejoheza/i);
+  for (const viewport of [
+    { width: 375, height: 812 },
+    { width: 844, height: 390 },
+    { width: 768, height: 1024 },
+    { width: 1280, height: 800 },
+  ]) {
+    await page.setViewportSize(viewport);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1)).toBe(true);
+    if (viewport.width <= 980) {
+      await expect(paymentRoster.locator('.ukwezi-payment-desktop')).toBeHidden();
+      await expect(paymentRoster.locator('.ukwezi-payment-mobile').first()).toBeVisible();
+      await expect(paymentRoster.locator('.ukwezi-mobile-card').first()).toBeVisible();
+      await expect(paymentRoster.locator('.ukwezi-mobile-card').first()).toContainText(/Account number|Nimero ya konti/i);
+    } else {
+      await expect(paymentRoster.locator('.ukwezi-payment-desktop').first()).toBeVisible();
+      const scroller = paymentRoster.locator('.ukwezi-payment-desktop').first();
+      const metrics = await scroller.evaluate((element) => ({
+        overflows: element.scrollWidth > element.clientWidth,
+        overflowX: getComputedStyle(element).overflowX,
+      }));
+      expect(metrics.overflows).toBe(true);
+      expect(metrics.overflowX).toBe('auto');
+    }
+  }
 });
 
 test('settlement tables render as phone cards and stay contained tables at tablet and desktop widths', async ({ page }) => {

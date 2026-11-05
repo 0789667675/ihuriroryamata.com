@@ -4,6 +4,7 @@ node_modules/
 # Next.js
 .next/
 .next-playwright/
+.next-ui-smoke/
 .next-build-verify/
 .next-build-verify
 out/

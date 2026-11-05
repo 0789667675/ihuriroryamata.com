@@ -97,6 +97,17 @@ and `028_business_event_email_outbox.sql` are additive reliability changes: they
 record provider acceptance, align notification priority values with emitted events,
 and extend the existing email outbox for owner-scoped financial notices.
 
+`030_igipande_half_month_contributions.sql` is retained as migration history for a
+retired automatic contribution rule. The application no longer schedules, creates,
+recovers, or reports those charges. Do not delete its migration or existing rows;
+inspect any deployed records and preserve finalized financial history for explicit
+owner review. If migration 030 is still pending, do not apply it; have the database
+owner record it as intentionally retired through the approved migration-ledger
+process before applying migration 031. If it was already applied, leave its tables
+and records untouched. Migration `031_deduction_period_batch_management.sql` is
+independent of migration 030 and adds the manual, period-bound deduction control
+center.
+
 ## How migrations are applied
 
 This repository has no Supabase CLI configuration (`config.toml`) and no automated

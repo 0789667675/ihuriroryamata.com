@@ -107,7 +107,8 @@ test('Settlements and shared navigation use paired locale copy and accessible la
   assert.match(settlementView, /formatDateLabel\(value, publicLanguage\.language/);
   assert.match(settlementView, /new Intl\.NumberFormat\(publicLanguage\.language/);
   assert.match(workspace, /ukweziReconciliationUnavailableDetail/);
-  assert.equal((ukweziView.match(/publicLanguage\.t\('ukweziReconciliationUnavailableDetail'\)/g) || []).length, 1);
+  assert.match(settlementView, /publicLanguage\.t\('ukweziReconciliationUnavailableDetail'\)/);
+  assert.equal((ukweziView.match(/publicLanguage\.t\('ukweziReconciliationUnavailableDetail'\)/g) || []).length, 0);
   assert.match(workspace, /publicLanguage\.t\(settlementError\)/);
   assert.match(workspace, /settlementsRetry/);
   assert.doesNotMatch(publicCopy, /settlementsLoadError: '[^']*Ongera ugerageze/);
@@ -236,9 +237,34 @@ test('Ukwezi UI requests selected half-months and only scopes a Dairy to its act
   assert.match(workspace, /synchronizeCurrentAccountingHalf\(month, year, setSettlementHalf\)/);
   assert.match(ukwezi, /new URLSearchParams\(\{ month: ukweziMonth, year: ukweziYear, periodType: ukweziPeriod \}\)/);
   assert.match(ukwezi, /ukweziPdfParams\.set\('language', publicLanguage\.language\)/);
-  assert.match(ukwezi, /if \(isDairy && activeCenterName\) ukweziPdfParams\.set\('collectionCenter', activeCenterName\)/);
+  assert.match(ukwezi, /if \(reportCenterName\) ukweziPdfParams\.set\('collectionCenter', reportCenterName\)/);
   assert.match(ukwezi, /ukweziReport\.rangeStart\} – \{ukweziReport\.rangeEnd/);
-  assert.doesNotMatch(workspace, /ejo.?heza/i);
+  assert.match(publicCopy, /ukweziColEjoheza:/);
+  assert.match(publicCopy, /ukweziEjohezaNoRecords:/);
+});
+
+test('Collector Ukwezi separates summary, owner accounting, and positive-payable routes', () => {
+  const ukwezi = workspace.slice(workspace.indexOf('const renderUkwezi'), workspace.indexOf('const renderTransport'));
+  const roster = fs.readFileSync(path.join(__dirname, '..', 'components', 'views', 'collector-ukwezi-payment-roster.tsx'), 'utf8');
+  const monthlyReport = fs.readFileSync(path.join(__dirname, '..', 'lib', 'services', 'monthly-report-service.js'), 'utf8');
+
+  assert.match(ukwezi, /className="ukwezi-summary"/);
+  assert.match(ukwezi, /className="ukwezi-owner-accounting"/);
+  assert.match(ukwezi, /className=\{`ukwezi-reconciliation/);
+  assert.match(ukwezi, /ownerGrossForCheck\) - totalDistributed/);
+  assert.match(ukwezi, /Number\(row\.validVolumeLiters \?\? row\.totalVolume \?\? 0\) > 0/);
+  assert.match(ukwezi, /return Number\.isFinite\(payable\) \? Math\.max\(0, payable\) : null/);
+  assert.match(ukwezi, /account\.length >= 4 && !\['N\/A', 'NA', '—', '-', 'NONE', 'NULL'\]\.includes\(account\.toUpperCase\(\)\)/);
+  assert.match(monthlyReport, /const hasValidSaccoAccount = \(farmer\) =>/);
+  assert.match(monthlyReport, /!\['N\/A', 'NA'\]\.includes\(acc\.toUpperCase\(\)\) && acc\.length >= 4/);
+  assert.match(roster, /t\('ukweziColNationalId'\)/);
+  assert.match(roster, /t\('ukweziColTotalDeductions'\)/);
+  assert.match(roster, /t\('ukweziPaymentAmount'\)/);
+  assert.match(roster, /t\('ukweziColAccountNumber'\)/);
+  assert.match(roster, /t\('ukweziOwnerAccount'\)/);
+  assert.match(publicCopy, /ukweziDistributionFormula:/);
+  assert.match(styles, /\.ukwezi-payment-desktop \{ display: none; \}/);
+  assert.match(styles, /\.ukwezi-summary-grid \{ grid-template-columns: repeat\(2, minmax\(0, 1fr\)\); \}/);
 });
 
 test('Active Ikigo selection stays valid and falls back to the first center when needed', () => {
@@ -275,6 +301,7 @@ test('Subscription API failures are not presented as missing subscriptions or em
 test('Collector farmer deductions are created only through the shared modal', () => {
   const view = workspace.slice(workspace.indexOf('const renderDeductions'), workspace.indexOf('const renderReports'));
   const deductionView = fs.readFileSync(path.join(__dirname, '..', 'components', 'views', 'deductions-view.tsx'), 'utf8');
+  const deductionRepository = fs.readFileSync(path.join(__dirname, '..', 'lib', 'repositories', 'deductionRepository.js'), 'utf8');
 
   assert.match(view, /<DeductionView/);
   assert.match(view, /onAddDeduction=\{async \(input\) => \{ await createDeductionFromView\(input\); \}\}/);
@@ -287,15 +314,24 @@ test('Collector farmer deductions are created only through the shared modal', ()
   assert.match(workspace, /const refreshDeductionView = async/);
   assert.match(workspace, /const refreshDeductionAccounting = async/);
   assert.match(deductionView, /const today = \(\) => getAccountingDate\(\)/);
+  assert.match(deductionRepository, /FROM farmers f[\s\S]*LEFT JOIN LATERAL/);
+  assert.match(deductionView, /deductionFilterNotDeducted/);
+  assert.match(deductionView, /deductionFilterPartial/);
+  assert.match(deductionView, /deductionFilterDebt/);
+  assert.match(deductionView, /onLoadAllEligible/);
+  assert.match(deductionView, /deductionBatchConfirmation/);
+  assert.match(deductionView, /onApplyConfiguredBatch/);
+  assert.match(deductionView, /deduction-summary-grid/);
+  assert.match(deductionView, /deduction-row-breakdown/);
+  assert.match(deductionView, /inspectLedgerFarmer/);
+  assert.doesNotMatch(deductionView, /deduction-screen-panel|deductionsRecent|sortableHeader/);
+  assert.doesNotMatch(deductionView, /onOpenBatchCreate/);
   assert.doesNotMatch(deductionView, /toISOString\(\)|articleclassName|divclassName/);
-  assert.match(deductionView, /sortableHeader\('date'/);
-  assert.match(deductionView, /sortableHeader\('farmerName'/);
-  assert.match(deductionView, /sortableHeader\('amount'/);
   assert.match(deductionView, /t\('deductionsClear'\)/);
   assert.doesNotMatch(deductionView, /t\('delete'\)/);
   assert.match(publicCopy, /deductionsClear: 'Shyira ko byarangiye'/);
   assert.match(publicCopy, /deductionsClear: 'Mark cleared'/);
-  for (const selector of ['.deduction-group-grid', '.deduction-group-card', '.deduction-history-list', '.deduction-history-item', '.deduction-history-actions']) {
+  for (const selector of ['.deduction-summary-grid', '.deduction-row-breakdown', '.deduction-history-list', '.deduction-history-item', '.deduction-history-actions']) {
     assert.ok(styles.includes(selector), `missing responsive deduction style ${selector}`);
   }
 });
@@ -525,4 +561,16 @@ test('tables use mobile cards on phones and retain table layout outside the phon
   assert.match(workspace, /table-scroll settlements-desktop-table/);
   assert.match(workspace, /settlement-mobile-card/);
   assert.doesNotMatch(styles, /\.milk-mobile-list,[\s\S]*?\.ukwezi-mobile-list \{ display: none !important; \}/);
+});
+
+test('deduction batch and configuration routes require a Collector and active subscription for writes', () => {
+  const configRoute = fs.readFileSync(path.join(__dirname, '..', 'app', 'api', 'deductions', 'configurations', 'route.js'), 'utf8');
+  const configItemRoute = fs.readFileSync(path.join(__dirname, '..', 'app', 'api', 'deductions', 'configurations', '[id]', 'route.js'), 'utf8');
+  const batchRoute = fs.readFileSync(path.join(__dirname, '..', 'app', 'api', 'deductions', 'batch', 'route.js'), 'utf8');
+  for (const route of [configRoute, configItemRoute, batchRoute]) assert.match(route, /requireAccountType\(user, 'COLLECTOR'\)/);
+  for (const route of [configItemRoute, batchRoute]) assert.match(route, /requireActiveSubscription\(user\)/);
+  assert.match(configRoute, /listDeductionConfigurations/);
+  assert.match(configRoute, /createDeductionConfiguration/);
+  assert.match(configItemRoute, /updateDeductionConfiguration/);
+  assert.match(batchRoute, /applyDeductionBatch/);
 });

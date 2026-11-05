@@ -33,11 +33,11 @@ import { TypingDisplay } from '@/components/ui/typing-display';
 import { DashboardView } from '@/components/views/dashboard-view';
 import { FarmersView } from '@/components/views/farmers-view';
 import { FarmerDeletionDialog } from '@/components/views/farmer-deletion-dialog';
-import { FarmerMergeDialog } from '@/components/views/farmer-merge-dialog';
 import { MilkRecordsView } from '@/components/views/milk-records-view';
-import { DeductionView, type DeductionGroupSummary, type DeductionHistoryItem } from '@/components/views/deductions-view';
+import { DeductionView, type DeductionConfiguration, type DeductionHistoryItem, type FarmerPeriodLedgerRow, type FarmerPeriodLedgerSummary } from '@/components/views/deductions-view';
 import { SettlementBatchProgress, type SettlementBatchRecord, type SettlementBatchState } from '@/components/views/settlement-batch-progress';
 import { FarmerSettlementHistory, type SettlementHistoryRecord } from '@/components/views/farmer-settlement-history';
+import { CollectorUkweziPaymentRoster } from '@/components/views/collector-ukwezi-payment-roster';
 import { usePublicLanguage } from '@/hooks/use-public-language';
 import { formatPublicCopy, type PublicCopyKey } from '@/lib/i18n/public-copy';
 import { formatDateLabel, getMonthNames } from '@/lib/i18n/date-format';
@@ -53,7 +53,7 @@ import {
 } from '@/lib/utils/accounting-period';
 import { resolveWorkspaceTab } from '@/lib/workspace-navigation';
 import { calculateMilkDifference, projectOwnerMilkEntry } from '@/lib/milk-reconciliation';
-import { validateDeductionBatchRows, validateFarmerBatchRows } from '@/lib/utils/multi-entry-validation';
+import { validateFarmerBatchRows } from '@/lib/utils/multi-entry-validation';
 import { confirmSettlementBatch } from '@/lib/utils/settlement-batch';
 
 const sanitizeQueryParam = (val: unknown): string => {
@@ -86,13 +86,7 @@ const checkSessionExpiry = () => {
 type User = { id: number; name: string; email: string; role: string; accountType: string; language?: 'rw' | 'en'; emailVerified?: boolean };
 type AccountProfile = { id: number; name: string; email: string; phone: string | null; nationalId: string | null; accountNumber: string | null; profilePicture: string | null; role: string; accountType: string; accountStatus: string; emailVerified: boolean; language?: 'rw' | 'en' };
 type Farmer = { id: number; name: string; location: string | null; phone: string | null; nationalId: string | null; accountNumber: string | null; collectionCenter: string | null; cowType: string | null; collectorUserId?: number | null; farmerNumber?: number | null };
-type FarmerDeletionImpact = { farmer: { name: string; farmerNumber?: number | null }; counts: Record<string, number>; affectedPeriods: Array<{ start: string; end: string }>; settledPaymentEvidence: { settlements: unknown[]; farmerPayments: Array<{ count: number; amount: number }> } };
-type FarmerMergePreview = {
-  source: { id: number; name: string; counts: Record<string, number> };
-  target: { id: number; name: string; counts: Record<string, number> };
-  milkConflicts: Array<{ sourceRecordId: number; targetRecordId: number; date: string; source: { morning: number; evening: number; valid: number; status: string; price: number; transportRate: number; sessionId: number | null }; target: { morning: number; evening: number; valid: number; status: string; price: number; transportRate: number; sessionId: number | null } }>;
-  settlementReferenceConflicts: Array<{ sourceId: number; targetId: number; paymentType: string; paymentReference: string }>;
-};
+type FarmerDeletionImpact = { farmer: { name: string; farmerNumber?: number | null }; counts: Record<string, number>; affectedPeriods: Array<{ start: string; end: string }>; settledPaymentEvidence: { settlements: unknown[]; farmerPayments: Array<{ count: number; amount: number }>; debtRepayments: unknown[]; igipandeRecoveries: unknown[]; deductionBatchItems: Array<{ recovered_amount?: number }> } };
 type Center = { id: number; name: string; owner_user_id?: number; pricePerLiter: number; transportRatePerLiter: number; morning_start: string; morning_end: string; evening_start: string; evening_end: string; tank_capacity_liters?: number | null; tankCapacityLiters?: number | null };
 type Page<T> = { data: T[]; nextCursor: string | null; hasMore: boolean; pageSize: number };
 type DailyRow = { farmerId: number; farmerName: string; farmerNumber?: number | null; phone?: string; nationalId?: string; collectionCenter?: string | null; collectorUserId?: number | null; collectorName?: string | null; recordId?: number; volumeMorning: number; volumeEvening: number; totalVolume: number; volumeLiters?: number; amount: number; status?: string; delivered?: boolean; deliveryStatus?: 'delivered' | 'missing'; abacundaCount?: number; presentCount?: number };
@@ -145,8 +139,8 @@ type Notice = {
 };
 type ReportFarmerRow = { farmerId: number; farmerName: string; nationalId?: string | null; idNumber?: string | null; phone?: string | null; accountNumber?: string | null; totalVolume: number; originalVolume?: number; lostVolume?: number; pricePerLiter?: number; grossAmount: number; totalTransport: number | null; transportIsComplete?: boolean; totalDeductions: number; ifishiTotalDeductions?: number; ifishiNetAmount?: number | null; netAmount: number | null };
 type ReportOwnerRow = { farmerId: null; farmerName: string; name: string; isOwner: true; nationalId?: string | null; idNumber?: string | null; phone?: string | null; accountNumber?: string | null; totalVolume: number; pricePerLiter: number | null; grossAmount: number | null; totalTransport: number | null; totalDeductions: number; farmerPayable?: number; netAmount: number | null; nyirayoMilkValue?: number | null; farmersMilkValue?: number | null; nyirayoBaseDifference?: number | null; transportAmount?: number | null; farmerDeductions?: number | null; retainedNoAccountFarmerAmount?: number | null; unaccountedFarmersPool?: number | null; nyirayoOperationalMargin?: number | null; nyirayoTotalAfterOperations?: number | null };
-type CollectorSettlementFields = { collectorFarmerMilkValue?: number | null; collectorFarmerPayable?: number | null; collectorAccountingComplete?: boolean | null; collectorAccountingMissingInputs?: string[] };
-type SettlementAccounting = { farmerGross: number | null; expectedFarmerPayable: number | null; farmersMilkValue?: number | null; farmerTransportTotal?: number | null; farmerDeductionsTotal?: number | null; farmerPayableTotal?: number | null; accountRoutedPayable?: number | null; ownerListRoutedPayable?: number | null; saccoEligiblePayable: number | null; saccoDistributionInstruction: number | null; saccoConfirmedAmount: number; retainedUnpaidAmount: number | null; cashApprovedAmount: number; cashConfirmedAmount: number; debtRepaymentAmount: number; igipandeChargeAmount: number; igipandeRecoveryAmount: number; igipandeOutstandingBalance: number; outstandingDebt: number | null; legacyUnallocatedDebtRepayments: number; debtBalancesComplete: boolean; unexplainedDiscrepancy: number | null; ownerGrossReconciliation: { ownerGross: number | null; farmerGross: number | null; surplus: number | null; discrepancy: number | null; baseDifference?: number | null; transportAmount?: number | null; farmerDeductions?: number | null; retainedNoAccountFarmerAmount?: number | null; operationalMargin?: number | null; totalAfterOperations?: number | null; nyirayoRecordedMilkValue?: number | null; farmersComparisonMilkValue?: number | null; nyirayoMilkDifference?: number | null; nyirayoTransportAmount?: number | null; nyirayoDeductionsAmount?: number | null; nyirayoOwnAccountingBalance?: number | null; ownerNameListFarmerSettlementAmount?: number | null; nyirayoTotalWithOwnerList?: number | null }; farmers: Array<ReportFarmerRow & { settlement: { saccoEligible: boolean; saccoDistributionInstruction: number | null; cashApprovedAmount: number; cashConfirmedAmount: number; debtRepaymentAmount: number; igipandeCharge: number; igipandeContributionRecoveredAmount: number; igipandeContributionOutstandingBalance: number; igipandeRecoveryAmount: number; igipandeOutstandingBalance: number; igipandeStatus: string; outstandingDebt: number | null; retainedUnpaidAmount: number | null; unexplainedDiscrepancy: number | null } }> };
+type CollectorSettlementFields = { collectorFarmerMilkValue?: number | null; collectorFarmerPayable?: number | null; collectorAccountingComplete?: boolean | null; collectorAccountingMissingInputs?: string[]; nyirayoTotalWithOwnerList?: number | null };
+type SettlementAccounting = { farmerGross: number | null; expectedFarmerPayable: number | null; farmersMilkValue?: number | null; farmerTransportTotal?: number | null; farmerDeductionsTotal?: number | null; farmerPayableTotal?: number | null; accountRoutedPayable?: number | null; ownerListRoutedPayable?: number | null; saccoEligiblePayable: number | null; saccoDistributionInstruction: number | null; saccoConfirmedAmount: number; retainedUnpaidAmount: number | null; cashApprovedAmount: number; cashConfirmedAmount: number; debtRepaymentAmount: number; outstandingDebt: number | null; legacyUnallocatedDebtRepayments: number; debtBalancesComplete: boolean; unexplainedDiscrepancy: number | null; ownerGrossReconciliation: { ownerGross: number | null; farmerGross: number | null; surplus: number | null; discrepancy: number | null; baseDifference?: number | null; transportAmount?: number | null; farmerDeductions?: number | null; retainedNoAccountFarmerAmount?: number | null; operationalMargin?: number | null; totalAfterOperations?: number | null; nyirayoRecordedMilkValue?: number | null; farmersComparisonMilkValue?: number | null; nyirayoMilkDifference?: number | null; nyirayoTransportAmount?: number | null; nyirayoDeductionsAmount?: number | null; nyirayoOwnAccountingBalance?: number | null; ownerNameListFarmerSettlementAmount?: number | null; nyirayoTotalWithOwnerList?: number | null }; farmers: Array<ReportFarmerRow & { settlement: { saccoEligible: boolean; saccoDistributionInstruction: number | null; cashApprovedAmount: number; cashConfirmedAmount: number; debtRepaymentAmount: number; outstandingDebt: number | null; retainedUnpaidAmount: number | null; unexplainedDiscrepancy: number | null } }> };
 type Report = { totalFarmers: number; totalVolume: number; totalMorning: number; totalEvening: number; totalRevenueMonth: number; ownerGeneratedGross?: number | null; ownerGeneratedVolume?: number; totalDeductionsMonth: number; totalTransportFeesMonth: number; netRevenueMonth: number; pricePerLiter?: number | null; collectorAccountingComplete?: boolean | null; collectorAccountingMissingInputs?: string[]; todayTotal: number; todayMorning: number; todayEvening: number; rangeStart: string; rangeEnd: string; collectorPayable: number | null; collectorGross?: number | null; collectorActualVolume?: number; collectorOriginalVolume?: number; collectorLostVolume?: number; collectorFarmersValidLiters?: number; collectorTotalFarmersPayable?: number; collectorFarmerMilkValue?: number | null; collectorFarmerDeductions?: number; collectorFarmerTransport?: number; collectorSurplusAmount?: number | null; collectorPayableFromBreakdown?: number | null; collectorIsReconciled?: boolean | null; collectorProfile?: { name: string } | null; collectorEntries?: Array<{ id: number; date: string; status: string; volumeLiters: number; effectiveVolumeLiters: number; farmerLostLiters: number; voidReason?: string | null; voidedBy?: number | null; voidedAt?: string | null }>; milkLossRecords?: Array<{ id: number; farmerId: number; farmerName: string; date: string; status: string; originalVolume: number; validVolume: number; lostVolume: number; reason: string | null; adjustedBy: number | null; adjustedAt: string | null }>; collectorSettlementRows?: any[]; ownerSettlementRow?: ReportOwnerRow | null; farmerPayments: ReportFarmerRow[]; settlementAccounting?: SettlementAccounting | null; settlementAccountingStatus?: 'AVAILABLE' | 'MIGRATION_REQUIRED' | null; nyirayoMilkValue?: number | null; farmersMilkValue?: number | null; nyirayoBaseDifference?: number | null; transportAmount?: number | null; farmerDeductions?: number | null; retainedNoAccountFarmerAmount?: number | null; unaccountedFarmersPool?: number | null; nyirayoOperationalMargin?: number | null; nyirayoTotalAfterOperations?: number | null };
 type Account = { user_id: number; account_name: string; account_email: string; account_type: string; account_status: string; effective_status: string; email_verified: boolean; farmer_count: number; center_count: number; phone?: string | null; subscription_status?: string | null; payment_due_at?: string | null; billing_exempt?: boolean; plan_code?: string | null; days_remaining?: number | null };
 type AdminAccountDetails = { account: { id: number; name: string; email: string; account_type: string; account_status: string; email_verified: boolean; phone: string | null; created_at: string }; subscription: { status: string; effective_status?: string; billing_exempt?: boolean; exemption_reason?: string | null; exemption_granted_at?: string | null; exemption_revoked_at?: string | null; plan_id: number | null; current_price: number | string | null; currency: string | null; tier_code: string | null; access_started_at: string | null; payment_due_at: string | null; subscription_started_at: string | null; subscription_ends_at: string | null } | null; counts: { centers: number; farmers: number; milk_records: number; deductions: number; payments: number; notifications: number } };
@@ -615,22 +609,8 @@ export default function Workspace() {
   const publicLanguage = usePublicLanguage();
   const pathname = usePathname();
   const isAuthRoute = pathname === '/login' || pathname === '/register' || pathname === '/forgot-password';
-  const [user, setUser] = useState<User | null>(() => {
-    if (typeof window === 'undefined') return null;
-    try {
-      const stored = sessionStorage.getItem('milk-session-user');
-      return stored ? JSON.parse(stored) : null;
-    } catch {
-      return null;
-    }
-  });
-  const [authLoading, setAuthLoading] = useState(() => {
-    if (typeof window === 'undefined') return true;
-    const isAuth = ['/login', '/register', '/forgot-password'].includes(window.location.pathname);
-    if (isAuth) return false;
-    const stored = sessionStorage.getItem('milk-session-user');
-    return !stored;
-  });
+  const [user, setUser] = useState<User | null>(null);
+  const [authLoading, setAuthLoading] = useState(!isAuthRoute);
   const [authError, setAuthError] = useState('');
   const [authAttempt, setAuthAttempt] = useState(0);
   const [logoutConfirm, setLogoutConfirm] = useState(false);
@@ -668,18 +648,6 @@ export default function Workspace() {
   const [farmerDeletionConfirmation, setFarmerDeletionConfirmation] = useState('');
   const [farmerDeletionError, setFarmerDeletionError] = useState('');
   const [farmerDeletionBusy, setFarmerDeletionBusy] = useState(false);
-  const [farmerMergeSource, setFarmerMergeSource] = useState<Farmer | null>(null);
-  const [farmerMergeCandidates, setFarmerMergeCandidates] = useState<Farmer[]>([]);
-  const [farmerMergeCandidatesHasMore, setFarmerMergeCandidatesHasMore] = useState(false);
-  const [farmerMergeCandidatesCursor, setFarmerMergeCandidatesCursor] = useState<string | null>(null);
-  const [farmerMergeTargetId, setFarmerMergeTargetId] = useState('');
-  const [farmerMergePreview, setFarmerMergePreview] = useState<FarmerMergePreview | null>(null);
-  const [farmerMergeLoading, setFarmerMergeLoading] = useState(false);
-  const [farmerMergeSaving, setFarmerMergeSaving] = useState(false);
-  const [farmerMergeError, setFarmerMergeError] = useState('');
-  const [farmerMergeReason, setFarmerMergeReason] = useState('');
-  const [farmerMergeConfirmation, setFarmerMergeConfirmation] = useState('');
-  const [farmerMergeResolutions, setFarmerMergeResolutions] = useState<Record<string, string>>({});
   const [farmerBatchOpen, setFarmerBatchOpen] = useState(false);
   const [farmerBatchRows, setFarmerBatchRows] = useState<Array<{ name: string; collectionCenterId: string; phone: string; nationalId: string; accountNumber: string; cowType: string; collectorUserId: string }>>([
     { name: '', collectionCenterId: '', phone: '', nationalId: '', accountNumber: '', cowType: '', collectorUserId: '' },
@@ -855,26 +823,22 @@ export default function Workspace() {
     transportRate: 0,
   });
   const [volumes, setVolumes] = useState<Record<number, { morning: string; evening: string }>>({});
-  const [deductionRows, setDeductionRows] = useState<Page<any> | null>(null);
-  const [deductionGroups, setDeductionGroups] = useState<DeductionGroupSummary[]>([]);
-  const [deductionGroupsHasMore, setDeductionGroupsHasMore] = useState(false);
-  const [deductionGroupsNextCursor, setDeductionGroupsNextCursor] = useState<string | null>(null);
-  const [deductionGroupsLoading, setDeductionGroupsLoading] = useState(false);
-  const [deductionSearchQuery, setDeductionSearchQuery] = useState('');
-  const [deductionSearch, setDeductionSearch] = useState('');
-  const [deductionTypeFilter, setDeductionTypeFilter] = useState('');
-  const [deductionStatusFilter, setDeductionStatusFilter] = useState('');
-  const [deductionSortBy, setDeductionSortBy] = useState<'date' | 'farmerName' | 'amount'>('date');
-  const [deductionSortDirection, setDeductionSortDirection] = useState<'asc' | 'desc'>('desc');
+  const [deductionLedgerRows, setDeductionLedgerRows] = useState<FarmerPeriodLedgerRow[]>([]);
+  const [deductionLedgerSummary, setDeductionLedgerSummary] = useState<FarmerPeriodLedgerSummary | null>(null);
+  const [deductionLedgerLoading, setDeductionLedgerLoading] = useState(false);
+  const [deductionLedgerHasMore, setDeductionLedgerHasMore] = useState(false);
+  const [deductionLedgerNextCursor, setDeductionLedgerNextCursor] = useState<string | null>(null);
+  const [deductionLedgerSearch, setDeductionLedgerSearch] = useState('');
+  const [deductionLedgerStatus, setDeductionLedgerStatus] = useState<FarmerPeriodLedgerRow['status'] | 'ALL'>('ALL');
+  const [deductionLedgerConfigurationId, setDeductionLedgerConfigurationId] = useState<number | null>(null);
+  const [deductionPeriod, setDeductionPeriod] = useState(() => {
+    const period = getCurrentAccountingPeriod();
+    return { startDate: period.startDate, endDate: period.endDate };
+  });
+  const [deductionConfigurations, setDeductionConfigurations] = useState<DeductionConfiguration[]>([]);
+  const [deductionConfigurationsLoading, setDeductionConfigurationsLoading] = useState(false);
   const [deductionForm, setDeductionForm] = useState({ farmerId: '', amount: '', type: 'Other', date: today(), reason: '', notes: '' });
   const [deductionCreateOpen, setDeductionCreateOpen] = useState(false);
-  const [deductionBatchOpen, setDeductionBatchOpen] = useState(false);
-  const [deductionBatchFarmerId, setDeductionBatchFarmerId] = useState('');
-  const [deductionBatchRows, setDeductionBatchRows] = useState<Array<{ amount: string; type: string; date: string; reason: string; notes: string }>>([
-    { amount: '', type: 'Advance', date: today(), reason: '', notes: '' },
-  ]);
-  const [deductionBatchError, setDeductionBatchError] = useState('');
-  const [deductionBatchSubmitting, setDeductionBatchSubmitting] = useState(false);
   const [deductionCreateError, setDeductionCreateError] = useState('');
   const [deductionContextFarmer, setDeductionContextFarmer] = useState<{
     id: number;
@@ -1007,6 +971,21 @@ const [report, setReport] = useState<Report | null>(null);
   const [lossEventPeriod, setLossEventPeriod] = useState<'morning' | 'evening' | 'all'>('all');
   const [lossEventPercentage, setLossEventPercentage] = useState('');
   const [lossEventReason, setLossEventReason] = useState('');
+  const [lossEventOtherReason, setLossEventOtherReason] = useState('');
+  const [lossEventConfirmed, setLossEventConfirmed] = useState(false);
+  const [lossPreviewLoading, setLossPreviewLoading] = useState(false);
+  const [lossPreview, setLossPreview] = useState<{
+    farmers: Array<{ farmerId: number; farmerName: string; originalLitres: number; calculatedLossLitres: number; appliedLossLitres: number; remainingValidLitres: number }>;
+    affectedRecords: number;
+    originalLitres: number;
+    calculatedLossLitres: number;
+    appliedLossLitres: number;
+    remainingValidLitres: number;
+    estimatedFarmerMilkValueChange: number;
+    estimatedOwnerMilkDifferenceChange: number;
+    affectedAccountingPeriods: Array<{ startDate: string; endDate: string }>;
+    ownerMilkExcluded: boolean;
+  } | null>(null);
   const [ukweziMonth, setUkweziMonth] = useState(today().slice(5, 7));
   const [ukweziYear, setUkweziYear] = useState(today().slice(0, 4));
   const [ukweziPeriod, setUkweziPeriod] = useState<AccountingHalf>(getCurrentAccountingHalf);
@@ -1697,56 +1676,124 @@ const visibleTabs = (isAdmin
     setFarmerHistoryOpen(true);
   };
 
-  const loadDeductions = async (cursor?: string | null, append = false, overrides: { search?: string; type?: string; status?: string; sortBy?: typeof deductionSortBy; sortDirection?: typeof deductionSortDirection } = {}) => {
-    const params = new URLSearchParams({ limit: '50' });
-    const filters = {
-      search: overrides.search ?? deductionSearch,
-      type: overrides.type ?? deductionTypeFilter,
-      status: overrides.status ?? deductionStatusFilter,
-      sortBy: overrides.sortBy ?? deductionSortBy,
-      sortDirection: overrides.sortDirection ?? deductionSortDirection,
-    };
-    if (filters.search) params.set('search', filters.search);
-    if (filters.type) params.set('type', filters.type);
-    if (filters.status) params.set('status', filters.status);
-    params.set('sortBy', filters.sortBy);
-    params.set('sortDirection', filters.sortDirection);
-    if (cursor) params.set('cursor', cursor);
-    const result = await api<Page<any>>(`/api/deductions?${params}`);
-    setDeductionRows((previous) => append && previous ? { ...result, data: [...previous.data, ...result.data] } : result);
+  const loadDeductionLedger = async (cursor: string | null = null, append = false, overrides: {
+    periodStart?: string;
+    periodEnd?: string;
+    status?: typeof deductionLedgerStatus;
+    search?: string;
+    configurationId?: number | null;
+  } = {}) => {
+    setDeductionLedgerLoading(true);
+    if (!append) setDeductionLedgerSummary(null);
+    try {
+      const params = new URLSearchParams({
+        view: 'farmer-ledger',
+        limit: '100',
+        periodStart: overrides.periodStart || deductionPeriod.startDate,
+        periodEnd: overrides.periodEnd || deductionPeriod.endDate,
+        farmerStatus: overrides.status || deductionLedgerStatus,
+      });
+      const configurationId = overrides.configurationId === undefined ? deductionLedgerConfigurationId : overrides.configurationId;
+      if (configurationId) params.set('configurationId', String(configurationId));
+      const search = overrides.search ?? deductionLedgerSearch;
+      if (search.trim()) params.set('search', search.trim());
+      if (cursor) params.set('cursor', cursor);
+      const result = await api<{ data: FarmerPeriodLedgerRow[]; hasMore: boolean; nextCursor: string | null; summary: FarmerPeriodLedgerSummary }>(`/api/deductions?${params}`);
+      setDeductionLedgerRows((previous) => append ? [...previous, ...result.data] : result.data);
+      setDeductionLedgerHasMore(Boolean(result.hasMore));
+      setDeductionLedgerNextCursor(result.nextCursor || null);
+      setDeductionLedgerSummary(result.summary);
+    } finally {
+      setDeductionLedgerLoading(false);
+    }
   };
 
-  const loadDeductionGroups = async (overrides: { search?: string; type?: string; status?: string; farmerId?: number; sortBy?: typeof deductionSortBy; sortDirection?: typeof deductionSortDirection; cursor?: string | null; append?: boolean } = {}) => {
-    const limit = 50;
-    const params = new URLSearchParams({ groupBy: 'farmer', limit: String(limit) });
-    const search = overrides.search ?? deductionSearch;
-    const type = overrides.type ?? deductionTypeFilter;
-    const status = overrides.status ?? deductionStatusFilter;
-    const sortBy = overrides.sortBy ?? deductionSortBy;
-    const sortDirection = overrides.sortDirection ?? deductionSortDirection;
-    if (search) params.set('search', search);
-    if (type) params.set('type', type);
-    if (status) params.set('status', status);
-    if (overrides.farmerId) params.set('farmerId', String(overrides.farmerId));
-    params.set('sortBy', sortBy);
-    params.set('sortDirection', sortDirection);
-    const cursor = overrides.append ? (overrides.cursor ?? deductionGroupsNextCursor) : null;
-    if (cursor) params.set('cursor', cursor);
-    setDeductionGroupsLoading(true);
-    try {
-      const result = await api<{ data: DeductionGroupSummary[]; hasMore: boolean; pageSize: number; nextCursor: string | null }>(`/api/deductions?${params}`);
-      setDeductionGroups((previous) => {
-        if (!overrides.append) return result.data;
-        const existingIds = new Set(previous.map((group) => group.farmerId));
-        return [...previous, ...result.data.filter((group) => !existingIds.has(group.farmerId))];
+  const loadAllEligibleDeductionFarmers = async () => {
+    const allRows: FarmerPeriodLedgerRow[] = [];
+    let cursor: string | null = null;
+    let hasMore = true;
+    let summary: FarmerPeriodLedgerSummary | null = null;
+    while (hasMore) {
+      const params = new URLSearchParams({
+        view: 'farmer-ledger',
+        limit: '100',
+        periodStart: deductionPeriod.startDate,
+        periodEnd: deductionPeriod.endDate,
+        farmerStatus: 'ALL',
       });
-      setDeductionGroupsHasMore(Boolean(result.hasMore));
-      setDeductionGroupsNextCursor(result.nextCursor ?? null);
-    } catch (reason) {
-      setError(reason instanceof Error ? reason.message : 'Failed to load farmer deduction groups.');
-    } finally {
-      setDeductionGroupsLoading(false);
+      if (deductionLedgerConfigurationId) params.set('configurationId', String(deductionLedgerConfigurationId));
+      if (deductionLedgerSearch.trim()) params.set('search', deductionLedgerSearch.trim());
+      if (cursor) params.set('cursor', cursor);
+      const result = await api<{ data: FarmerPeriodLedgerRow[]; hasMore: boolean; nextCursor: string | null; summary: FarmerPeriodLedgerSummary }>(`/api/deductions?${params}`);
+      allRows.push(...result.data);
+      summary = result.summary;
+      cursor = result.nextCursor;
+      hasMore = Boolean(result.hasMore && cursor);
     }
+    setDeductionLedgerRows(allRows);
+    setDeductionLedgerSummary(summary);
+    setDeductionLedgerStatus('ALL');
+    setDeductionLedgerHasMore(false);
+    setDeductionLedgerNextCursor(null);
+    return allRows;
+  };
+
+  const loadDeductionConfigurations = async () => {
+    setDeductionConfigurationsLoading(true);
+    try {
+      const result = await api<{ data: DeductionConfiguration[] }>('/api/deductions/configurations');
+      setDeductionConfigurations(result.data);
+    } finally {
+      setDeductionConfigurationsLoading(false);
+    }
+  };
+
+  const saveDeductionConfiguration = async (input: Omit<DeductionConfiguration, 'id' | 'executionMode'>, id?: number) => {
+    const url = id ? `/api/deductions/configurations/${id}` : '/api/deductions/configurations';
+    const result = await api<DeductionConfiguration>(url, json(id ? 'PUT' : 'POST', { ...input, executionMode: 'MANUAL' }));
+    setDeductionConfigurations((current) => id
+      ? current.map((configuration) => configuration.id === id ? result : configuration)
+      : [...current, result]);
+    setNotice(publicLanguage.t('deductionConfigurationSaved'));
+    return result;
+  };
+
+  const applyConfiguredDeductionBatch = async ({ configurationId, farmerIds, periodStart, periodEnd }: {
+    configurationId: number;
+    farmerIds: number[];
+    periodStart: string;
+    periodEnd: string;
+  }) => {
+    const response = {
+      succeeded: 0,
+      duplicates: 0,
+      succeededFarmerIds: [] as number[],
+      duplicateFarmerIds: [] as number[],
+      failures: [] as Array<{ farmerId: number; reason: string }>,
+    };
+    const requestId = globalThis.crypto?.randomUUID?.() || `${user?.id}-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    for (let offset = 0; offset < farmerIds.length; offset += 100) {
+      const chunk = farmerIds.slice(offset, offset + 100);
+      const result = await api<{
+        succeeded: Array<{ farmerId: number }>;
+        duplicates: Array<{ farmerId: number }>;
+        failed: Array<{ farmerId: number; reason: string }>;
+      }>('/api/deductions/batch', json('POST', {
+        configurationId,
+        farmerIds: chunk,
+        periodStart,
+        periodEnd,
+        requestKey: `${requestId}-${offset / 100}`,
+      }));
+      response.succeeded += result.succeeded.length;
+      response.duplicates += result.duplicates.length;
+      response.succeededFarmerIds.push(...result.succeeded.map((row) => row.farmerId));
+      response.duplicateFarmerIds.push(...result.duplicates.map((row) => row.farmerId));
+      response.failures.push(...result.failed);
+    }
+    await loadDeductionLedger(null, false, { periodStart, periodEnd });
+    setNotice(publicLanguage.t('deductionBatchSaved').replace('{count}', String(response.succeeded)));
+    return response;
   };
 
   const loadDeductionHistory = async (farmerId: number, cursor?: string | null, append = false) => {
@@ -1776,13 +1823,13 @@ const visibleTabs = (isAdmin
     }
   };
 
-  const openDeductionInspector = async (group: DeductionGroupSummary) => {
-    setDeductionInspectorFarmer({ id: group.farmerId, name: group.farmerName });
+  const openDeductionInspector = async (farmer: { farmerId: number; farmerName: string | null }) => {
+    setDeductionInspectorFarmer({ id: farmer.farmerId, name: farmer.farmerName });
     setDeductionInspectorOpen(true);
     setDeductionHistoryRows([]);
     setDeductionHistoryCursor(null);
     setDeductionHistoryHasMore(false);
-    await loadDeductionHistory(group.farmerId);
+    await loadDeductionHistory(farmer.farmerId);
   };
 
   const refreshDeductionAccounting = async () => {
@@ -1798,13 +1845,7 @@ const visibleTabs = (isAdmin
   };
 
   const refreshDeductionView = async (historyFarmerId?: number) => {
-    const refreshes: Promise<unknown>[] = [loadDeductionGroups({
-      search: deductionSearch,
-      type: deductionTypeFilter,
-      status: deductionStatusFilter,
-      sortBy: deductionSortBy,
-      sortDirection: deductionSortDirection,
-    })];
+    const refreshes: Promise<unknown>[] = [loadDeductionLedger()];
     if (historyFarmerId && deductionInspectorOpen && deductionInspectorFarmer?.id === historyFarmerId) {
       refreshes.push(loadDeductionHistory(historyFarmerId));
     }
@@ -1895,72 +1936,6 @@ const visibleTabs = (isAdmin
       }
     } finally {
       setFarmerBatchSubmitting(false);
-    }
-  };
-
-  const openDeductionBatchCreate = () => {
-    setDeductionBatchFarmerId('');
-    setDeductionBatchRows([{ amount: '', type: 'Advance', date: today(), reason: '', notes: '' }]);
-    setDeductionBatchError('');
-    setDeductionBatchOpen(true);
-    void loadDeductionFarmers();
-  };
-
-  const updateDeductionBatchRow = (index: number, key: keyof typeof deductionBatchRows[number], value: string) => {
-    setDeductionBatchRows((previous) => previous.map((row, rowIndex) => rowIndex === index ? { ...row, [key]: value } : row));
-  };
-
-  const addDeductionBatchRow = () => {
-    setDeductionBatchRows((previous) => [...previous, { amount: '', type: 'Advance', date: today(), reason: '', notes: '' }]);
-  };
-
-  const removeDeductionBatchRow = (index: number) => {
-    setDeductionBatchRows((previous) => previous.length > 1 ? previous.filter((_, rowIndex) => rowIndex !== index) : previous);
-  };
-
-  const submitDeductionBatch = async (event: React.FormEvent) => {
-    event.preventDefault();
-    if (deductionBatchSubmitting || !deductionBatchFarmerId) {
-      if (!deductionBatchFarmerId) setDeductionBatchError(publicLanguage.language === 'en' ? 'Select a farmer before saving deductions.' : 'Hitamo umworozi mbere yo kubika ibyakuweho.');
-      return;
-    }
-    const { valid, errors, total } = validateDeductionBatchRows(deductionBatchRows);
-    if (errors.length) {
-      setDeductionBatchError(errors.map((error) => error.message).join(' '));
-      return;
-    }
-    setDeductionBatchSubmitting(true);
-    setDeductionBatchError('');
-    const failed: string[] = [];
-    let saved = 0;
-
-    try {
-      for (const row of valid) {
-        try {
-          await api('/api/deductions', json('POST', {
-            farmerId: Number(deductionBatchFarmerId),
-            amount: Number(row.amount),
-            type: row.type,
-            date: row.date,
-            reason: row.reason || null,
-            notes: row.notes || null,
-          }));
-          saved += 1;
-        } catch (reason) {
-          failed.push(`Row ${saved + failed.length + 1}: ${reason instanceof Error ? reason.message : 'Failed to save.'}`);
-        }
-      }
-      if (failed.length) {
-        setDeductionBatchError(`${saved} of ${valid.length} deductions saved. Total: ${total}. Failed: ${failed.join(' • ')}`);
-      } else {
-        setDeductionBatchOpen(false);
-        setDeductionBatchRows([{ amount: '', type: 'Advance', date: today(), reason: '', notes: '' }]);
-        setDeductionBatchFarmerId('');
-        setNotice(publicLanguage.language === 'en' ? `Saved ${valid.length} deductions for ${deductionFarmers.find((farmer) => String(farmer.id) === String(deductionBatchFarmerId))?.name || 'the selected farmer'}.` : `Byakozwe ${valid.length} byakuweho ku mworozi wahiswemo.`);
-        await refreshDeductionView(Number(deductionBatchFarmerId));
-      }
-    } finally {
-      setDeductionBatchSubmitting(false);
     }
   };
 
@@ -2516,8 +2491,9 @@ const visibleTabs = (isAdmin
       if (isDairy) loadCollectorRequests().catch((reason) => setCollectorRequestsError(reason instanceof Error ? reason.message : 'Failed to load collector membership requests.'));
     }
     if (tab === 'deductions') {
-      loadDeductionGroups({ search: deductionSearch, type: deductionTypeFilter, status: deductionStatusFilter }).catch((reason) => setError(reason.message));
       loadDeductionFarmers().catch((reason) => setError(reason.message));
+      loadDeductionLedger().catch((reason) => setError(reason.message));
+      loadDeductionConfigurations().catch((reason) => setError(reason.message));
     }
     if (tab === 'billing') void loadBilling();
     if (tab === 'notifications') void loadNotifications();
@@ -2567,6 +2543,34 @@ const visibleTabs = (isAdmin
   useEffect(() => {
     if (user && tab === 'milk' && (!isDairy || selectedCenter)) loadDaily().catch((reason) => setError(reason.message));
   }, [user, tab, isDairy, selectedCenter, collectionDate, ...dailyFilterState, dailySortBy, dailySortDirection]);
+  useEffect(() => {
+    if (!lossEventOpen || !selectedCenter || !collectionDate || lossEventPercentage === '') {
+      setLossPreview(null);
+      setLossPreviewLoading(false);
+      return;
+    }
+    const percentage = Number(lossEventPercentage);
+    if (!Number.isFinite(percentage) || percentage < 0 || percentage > 100) {
+      setLossPreview(null);
+      setLossPreviewLoading(false);
+      return;
+    }
+    let cancelled = false;
+    const params = new URLSearchParams({
+      collectionCenterId: selectedCenter,
+      date: collectionDate,
+      period: lossEventPeriod,
+      lossPercentage: lossEventPercentage,
+    });
+    setLossPreviewLoading(true);
+    setLossPreview(null);
+    setLossEventError('');
+    api<NonNullable<typeof lossPreview>>(`/api/milk/loss?${params}`, { cache: 'no-store' })
+      .then((preview) => { if (!cancelled) setLossPreview(preview); })
+      .catch((reason) => { if (!cancelled) setLossEventError(reason instanceof Error ? reason.message : publicLanguage.t('lossEventSaveError')); })
+      .finally(() => { if (!cancelled) setLossPreviewLoading(false); });
+    return () => { cancelled = true; };
+  }, [lossEventOpen, selectedCenter, collectionDate, lossEventPeriod, lossEventPercentage]);
   useEffect(() => {
     if (user && !isCollector && (tab === 'farmers' || tab === 'milk' || tab === 'centers')) {
       loadCollectorAssignments().catch((reason) => setCollectorAssignmentsError(reason instanceof Error ? reason.message : 'Failed to load collector assignments.'));
@@ -2960,101 +2964,6 @@ const visibleTabs = (isAdmin
     }
   };
 
-  const closeFarmerMerge = (force = false) => {
-    if (farmerMergeSaving && !force) return;
-    setFarmerMergeSource(null);
-    setFarmerMergeCandidates([]);
-    setFarmerMergeCandidatesHasMore(false);
-    setFarmerMergeCandidatesCursor(null);
-    setFarmerMergeTargetId('');
-    setFarmerMergePreview(null);
-    setFarmerMergeError('');
-    setFarmerMergeReason('');
-    setFarmerMergeConfirmation('');
-    setFarmerMergeResolutions({});
-  };
-
-  const openFarmerMerge = async (farmer: Farmer) => {
-    setFarmerMergeSource(farmer);
-    setFarmerMergeCandidates([]);
-    setFarmerMergeCandidatesHasMore(false);
-    setFarmerMergeCandidatesCursor(null);
-    setFarmerMergeTargetId('');
-    setFarmerMergePreview(null);
-    setFarmerMergeError('');
-    setFarmerMergeReason('');
-    setFarmerMergeConfirmation('');
-    setFarmerMergeResolutions({});
-    setFarmerMergeLoading(true);
-    try {
-      const result = await api<Page<Farmer>>('/api/farmers?limit=100');
-      setFarmerMergeCandidates(result.data.filter((candidate) => candidate.id !== farmer.id));
-      setFarmerMergeCandidatesHasMore(Boolean(result.hasMore));
-      setFarmerMergeCandidatesCursor(result.nextCursor);
-    } catch (reason) {
-      setFarmerMergeError(reason instanceof Error ? reason.message : 'Failed to load destination farmers.');
-    } finally {
-      setFarmerMergeLoading(false);
-    }
-  };
-
-  const loadMoreFarmerMergeCandidates = async () => {
-    if (!farmerMergeCandidatesHasMore || !farmerMergeCandidatesCursor || farmerMergeLoading) return;
-    setFarmerMergeLoading(true);
-    try {
-      const result = await api<Page<Farmer>>(`/api/farmers?limit=100&cursor=${encodeURIComponent(farmerMergeCandidatesCursor)}`);
-      setFarmerMergeCandidates((current) => [...current, ...result.data.filter((candidate) => candidate.id !== farmerMergeSource?.id)]);
-      setFarmerMergeCandidatesHasMore(Boolean(result.hasMore));
-      setFarmerMergeCandidatesCursor(result.nextCursor);
-    } catch (reason) {
-      setFarmerMergeError(reason instanceof Error ? reason.message : 'Failed to load more farmers.');
-    } finally {
-      setFarmerMergeLoading(false);
-    }
-  };
-
-  const selectFarmerMergeTarget = async (targetId: string) => {
-    setFarmerMergeTargetId(targetId);
-    setFarmerMergePreview(null);
-    setFarmerMergeResolutions({});
-    setFarmerMergeError('');
-    if (!farmerMergeSource || !targetId) return;
-    setFarmerMergeLoading(true);
-    try {
-      const preview = await api<FarmerMergePreview>(`/api/farmers/${farmerMergeSource.id}/merge-preview?targetFarmerId=${encodeURIComponent(targetId)}`, { cache: 'no-store' });
-      setFarmerMergePreview(preview);
-    } catch (reason) {
-      setFarmerMergeError(reason instanceof Error ? reason.message : 'Failed to inspect merge records.');
-    } finally {
-      setFarmerMergeLoading(false);
-    }
-  };
-
-  const confirmFarmerMerge = async () => {
-    if (!farmerMergeSource || !farmerMergePreview || farmerMergeSaving) return;
-    setFarmerMergeSaving(true);
-    setFarmerMergeError('');
-    try {
-      await api(`/api/farmers/${farmerMergeSource.id}/merge`, json('POST', {
-        targetFarmerId: Number(farmerMergeTargetId),
-        reason: farmerMergeReason.trim(),
-        resolutions: Object.entries(farmerMergeResolutions).map(([key, keepRecordId]) => {
-          const [sourceRecordId, targetRecordId] = key.split(':').map(Number);
-          return { sourceRecordId, targetRecordId, action: keepRecordId };
-        }),
-      }));
-      closeFarmerMerge(true);
-      await Promise.all([loadFarmers(), loadDaily(), loadReport('current-half')]);
-      if (tab === 'ukwezi') await loadUkwezi();
-      if (tab === 'settlements' && isCollector) await loadSettlementData();
-      setNotice(publicLanguage.language === 'en' ? 'Farmer profiles merged.' : 'Aborozi bahujwe neza.');
-    } catch (reason) {
-      setFarmerMergeError(reason instanceof Error ? reason.message : 'Failed to merge farmers.');
-    } finally {
-      setFarmerMergeSaving(false);
-    }
-  };
-
   const createCenter = async (event: React.FormEvent) => {
     event.preventDefault();
     await run(async () => {
@@ -3158,6 +3067,7 @@ const visibleTabs = (isAdmin
   };
   const saveLossEvent = async (event: React.FormEvent) => {
     event.preventDefault();
+    if (!lossEventConfirmed || !lossPreview || lossPreview.affectedRecords === 0) return;
     setLossEventLoading(true);
     setLossEventError('');
     setLossEventStatus('');
@@ -3167,12 +3077,25 @@ const visibleTabs = (isAdmin
         date: collectionDate,
         period: lossEventPeriod,
         lossPercentage: lossEventPercentage,
-        reason: lossEventReason,
+        reason: lossEventReason === 'other' ? lossEventOtherReason.trim() : lossEventReason,
       }));
-      setLossEventStatus(publicLanguage.t(result.corrected ? 'lossEventCorrected' : 'lossEventSaved'));
+      const savedMessage = publicLanguage.t(result.corrected ? 'lossEventCorrected' : 'lossEventSaved');
+      setLossEventStatus(savedMessage);
+      setNotice(savedMessage);
       setLossEventOpen(false);
+      setLossEventConfirmed(false);
       setLossEventPercentage('');
       setLossEventReason('');
+      setLossEventOtherReason('');
+      setLossPreview(null);
+      const refreshes: Promise<unknown>[] = [loadDaily(), loadReport('current-half'), loadUkwezi()];
+      if (ifishiOpen && ifishiFarmerId) refreshes.push(loadIfishiRecords());
+      if (isCollector) refreshes.push(loadSettlementData());
+      try {
+        await Promise.all(refreshes);
+      } catch (reason) {
+        setError(reason instanceof Error ? reason.message : publicLanguage.t('lossRefreshError'));
+      }
     } catch (reason) {
       setLossEventError(reason instanceof Error ? reason.message : publicLanguage.t('lossEventSaveError'));
     } finally {
@@ -3578,7 +3501,6 @@ const visibleTabs = (isAdmin
         onOpenHistory={openFarmerHistory}
         onOpenIfishi={(farmer) => openIfishiForFarmer(farmer.id, farmer.name)}
         onEdit={editFarmerStart}
-        onMerge={(farmer) => { if (isCollector) void openFarmerMerge(farmer); }}
         onDelete={(farmer) => { void deleteFarmer(farmer); }}
         collectorName={getFarmerCollectorName}
         formatFarmerNumber={formatFarmerNumber}
@@ -4500,7 +4422,7 @@ const visibleTabs = (isAdmin
       })}
       onOpenIfishi={(farmerId, farmerName) => openIfishiForFarmer(farmerId, farmerName)}
       onOpenHistory={openFarmerHistory}
-      onOpenLossEvent={() => { setLossEventPercentage(''); setLossEventReason(''); setLossEventOpen(true); }}
+      onOpenLossEvent={() => { setLossEventPercentage(''); setLossEventReason(''); setLossEventOtherReason(''); setLossEventConfirmed(false); setLossPreview(null); setLossEventOpen(true); }}
       onOpenScanner={() => setMilkImportOpen(true)}
       quickAddOpen={quickAddOpen}
       onQuickAddOpenChange={(open) => { if (open) setMilkViewMode('daily'); setQuickAddOpen(open); }}
@@ -4869,50 +4791,38 @@ const visibleTabs = (isAdmin
   const renderDeductions = () => (
     <>
       <DeductionView
-        groups={deductionGroups}
-        loading={deductionGroupsLoading}
-        hasMore={deductionGroupsHasMore}
-        onLoadMore={() => void loadDeductionGroups({ cursor: deductionGroupsNextCursor, append: true })}
-        searchQuery={deductionSearchQuery}
-        setSearchQuery={setDeductionSearchQuery}
-        searchValue={deductionSearch}
-        onSearchSubmit={(value) => {
-          const next = value.trim();
-          setDeductionSearch(next);
-          void loadDeductionGroups({ search: next, type: deductionTypeFilter, status: deductionStatusFilter });
+        ledgerRows={deductionLedgerRows}
+        ledgerSummary={deductionLedgerSummary}
+        ledgerLoading={deductionLedgerLoading}
+        ledgerHasMore={deductionLedgerHasMore}
+        ledgerSearch={deductionLedgerSearch}
+        onLedgerSearchChange={(value) => {
+          setDeductionLedgerSearch(value);
+          void loadDeductionLedger(null, false, { search: value });
         }}
-        typeFilter={deductionTypeFilter}
-        onTypeFilterChange={(value) => {
-          setDeductionTypeFilter(value);
-          void loadDeductionGroups({ search: deductionSearch, type: value, status: deductionStatusFilter });
+        ledgerStatus={deductionLedgerStatus}
+        onLedgerStatusChange={(value) => {
+          setDeductionLedgerStatus(value);
+          void loadDeductionLedger(null, false, { status: value });
         }}
-        statusFilter={deductionStatusFilter}
-        onStatusFilterChange={(value) => {
-          setDeductionStatusFilter(value);
-          void loadDeductionGroups({ search: deductionSearch, type: deductionTypeFilter, status: value });
+        onLedgerConfigurationChange={(configurationId) => {
+          setDeductionLedgerConfigurationId(configurationId);
+          void loadDeductionLedger(null, false, { configurationId });
         }}
-        onResetFilters={() => {
-          setDeductionSearchQuery('');
-          setDeductionSearch('');
-          setDeductionTypeFilter('');
-          setDeductionStatusFilter('');
-          setDeductionSortBy('date');
-          setDeductionSortDirection('desc');
-          void loadDeductionGroups({ search: '', type: '', status: '', sortBy: 'date', sortDirection: 'desc' });
+        periodStart={deductionPeriod.startDate}
+        periodEnd={deductionPeriod.endDate}
+        onPeriodChange={(startDate, endDate) => {
+          setDeductionPeriod({ startDate, endDate });
+          setDeductionLedgerStatus('ALL');
+          void loadDeductionLedger(null, false, { periodStart: startDate, periodEnd: endDate, status: 'ALL' });
         }}
-        sortBy={deductionSortBy}
-        sortDirection={deductionSortDirection}
-        onSortChange={(field, direction) => {
-          setDeductionSortBy(field);
-          setDeductionSortDirection(direction);
-          void loadDeductionGroups({
-            search: deductionSearch,
-            type: deductionTypeFilter,
-            status: deductionStatusFilter,
-            sortBy: field,
-            sortDirection: direction,
-          });
-        }}
+        onLoadLedger={(cursor, append) => loadDeductionLedger(cursor ?? (append ? deductionLedgerNextCursor : null), Boolean(append))}
+        onLoadAllEligible={loadAllEligibleDeductionFarmers}
+        configurations={deductionConfigurations}
+        configurationsLoading={deductionConfigurationsLoading}
+        onLoadConfigurations={loadDeductionConfigurations}
+        onSaveConfiguration={saveDeductionConfiguration}
+        onApplyConfiguredBatch={applyConfiguredDeductionBatch}
         onInspectFarmer={(group) => { void openDeductionInspector(group); }}
         inspectorOpen={deductionInspectorOpen}
         inspectorFarmerName={deductionInspectorFarmer?.name ?? null}
@@ -4936,7 +4846,6 @@ const visibleTabs = (isAdmin
           setDeductionCreateOpen(true);
           void loadDeductionFarmers();
         }}
-        onOpenBatchCreate={openDeductionBatchCreate}
         onAddDeduction={async (input) => { await createDeductionFromView(input); }}
         createOpen={deductionCreateOpen}
         onCloseCreate={() => setDeductionCreateOpen(false)}
@@ -4949,33 +4858,6 @@ const visibleTabs = (isAdmin
         t={(key) => publicLanguage.t(key as any)}
       />
 
-      {deductionBatchOpen ? <Modal ariaLabel={publicLanguage.language === 'en' ? 'Add multiple deductions' : 'Ongera ibyakuweho byinshi'} onClose={() => setDeductionBatchOpen(false)} dismissible={!deductionBatchSubmitting}>
-        <div className="panel-heading"><div><span className="eyebrow">{publicLanguage.t('deductionsRecent')}</span><h2>{publicLanguage.language === 'en' ? 'Add multiple deductions' : 'Ongera ibyakuweho byinshi'}</h2></div><button type="button" className="icon-button" onClick={() => setDeductionBatchOpen(false)} disabled={deductionBatchSubmitting} aria-label={publicLanguage.t('cancel')}><X size={18} aria-hidden="true" /></button></div>
-        <form className="form-stack compact" onSubmit={submitDeductionBatch}>
-          <label>{publicLanguage.t('deductionSelectFarmer')}<select value={deductionBatchFarmerId} onChange={(event) => setDeductionBatchFarmerId(event.target.value)} required>
-            <option value="">{publicLanguage.t('deductionSelectFarmer')}</option>
-            {deductionFarmers.map((farmer) => <option key={farmer.id} value={String(farmer.id)}>{farmer.name}</option>)}
-          </select></label>
-          <div className="panel-heading-stacked-actions"><button type="button" className="button button-secondary small-button" onClick={addDeductionBatchRow}>{publicLanguage.language === 'en' ? 'Add row' : 'Ongera umurongo'}</button></div>
-          {deductionBatchRows.map((row, index) => (
-            <div key={`deduction-batch-row-${index}`} className="batch-entry-grid">
-              <label>{publicLanguage.language === 'en' ? 'Amount' : 'Amafaranga'}<input type="number" min="1" step="1" required value={row.amount} onChange={(event) => updateDeductionBatchRow(index, 'amount', event.target.value)} /></label>
-              <label>{publicLanguage.t('deductionsType')}<select value={row.type} onChange={(event) => updateDeductionBatchRow(index, 'type', event.target.value)}>
-                <option value="Advance">Advance</option>
-                <option value="Umwenda">Umwenda</option>
-                <option value="Other">Other</option>
-              </select></label>
-              <label>{publicLanguage.t('milkCollectionDate')}<input type="date" required value={row.date} onChange={(event) => updateDeductionBatchRow(index, 'date', event.target.value)} /></label>
-              <label>{publicLanguage.language === 'en' ? 'Reason' : 'Impamvu'}<input value={row.reason} onChange={(event) => updateDeductionBatchRow(index, 'reason', event.target.value)} /></label>
-              <label>{publicLanguage.language === 'en' ? 'Notes' : 'Ibisobanuro'}<input value={row.notes} onChange={(event) => updateDeductionBatchRow(index, 'notes', event.target.value)} /></label>
-              {deductionBatchRows.length > 1 ? <button type="button" className="button button-secondary small-button danger-text" onClick={() => removeDeductionBatchRow(index)}>{publicLanguage.t('delete')}</button> : null}
-            </div>
-          ))}
-          <p className="muted-note">{publicLanguage.language === 'en' ? `Total: ${validateDeductionBatchRows(deductionBatchRows).total.toLocaleString()} RWF` : `Igiteranyo: ${validateDeductionBatchRows(deductionBatchRows).total.toLocaleString()} RWF`}</p>
-          {deductionBatchError ? <p className="form-error" role="alert">{deductionBatchError}</p> : null}
-          <div className="form-actions"><button type="button" className="button button-secondary" onClick={() => setDeductionBatchOpen(false)} disabled={deductionBatchSubmitting}>{publicLanguage.t('cancel')}</button><button className="button button-primary" disabled={deductionBatchSubmitting}>{deductionBatchSubmitting ? publicLanguage.t('wait') : publicLanguage.language === 'en' ? 'Save deductions' : 'Bika ibyakuweho'}</button></div>
-        </form>
-      </Modal> : null}
     </>
   );
 
@@ -4988,15 +4870,17 @@ const visibleTabs = (isAdmin
     retainedNoAccountFarmerAmount?: number | null;
     nyirayoOperationalMargin?: number | null;
     nyirayoTotalAfterOperations?: number | null;
+    verificationDifference?: number | null;
   }) => {
     const hasValues = data.nyirayoMilkValue != null || data.farmersMilkValue != null || data.nyirayoBaseDifference != null;
     if (!hasValues) return null;
-    const baseDiff = data.nyirayoBaseDifference ?? (data.nyirayoMilkValue != null && data.farmersMilkValue != null ? data.nyirayoMilkValue - data.farmersMilkValue : 0);
-    const transport = data.transportAmount ?? 0;
-    const deductions = data.farmerDeductions ?? 0;
-    const noAccount = data.retainedNoAccountFarmerAmount ?? 0;
-    const opMargin = data.nyirayoOperationalMargin ?? (baseDiff + transport + deductions);
-    const total = data.nyirayoTotalAfterOperations ?? (opMargin + noAccount);
+    const baseDiff = data.nyirayoBaseDifference ?? (data.nyirayoMilkValue != null && data.farmersMilkValue != null ? data.nyirayoMilkValue - data.farmersMilkValue : null);
+    const transport = data.transportAmount ?? null;
+    const deductions = data.farmerDeductions ?? null;
+    const noAccount = data.retainedNoAccountFarmerAmount ?? null;
+    const opMargin = data.nyirayoOperationalMargin ?? (baseDiff !== null && transport !== null && deductions !== null ? baseDiff + transport + deductions : null);
+    const total = data.nyirayoTotalAfterOperations ?? (opMargin !== null && noAccount !== null ? opMargin + noAccount : null);
+    const formatAmount = (value: number | null, positive = false) => value === null ? '—' : `${positive ? '+' : ''}${money(value)} RWF`;
 
     return (
       <section className="nyirayo-audit-section panel" aria-labelledby="nyirayo-audit-heading">
@@ -5010,36 +4894,40 @@ const visibleTabs = (isAdmin
         <div className="metric-strip nyirayo-audit-metrics">
           <div>
             <span>{publicLanguage.t('nyirayoRecordedMilkValue')}</span>
-            <b>{data.nyirayoMilkValue != null ? `${money(data.nyirayoMilkValue)} RWF` : '—'}</b>
+            <b>{formatAmount(data.nyirayoMilkValue ?? null)}</b>
           </div>
           <div>
             <span>{publicLanguage.t('farmersRecordedMilkValue')}</span>
-            <b>{data.farmersMilkValue != null ? `${money(data.farmersMilkValue)} RWF` : '—'}</b>
+            <b>{formatAmount(data.farmersMilkValue ?? null)}</b>
           </div>
-          <div className={baseDiff < 0 ? 'metric-negative' : undefined}>
+          <div className={baseDiff !== null && baseDiff < 0 ? 'metric-negative' : undefined}>
             <span>{publicLanguage.t('nyirayoBaseDifference')}</span>
-            <b>{money(baseDiff)} RWF</b>
+            <b>{formatAmount(baseDiff)}</b>
           </div>
           <div>
             <span>{publicLanguage.t('transportShare')}</span>
-            <b>+{money(transport)} RWF</b>
+            <b>{formatAmount(transport, true)}</b>
           </div>
           <div>
             <span>{publicLanguage.t('farmerDeductionsShare')}</span>
-            <b>+{money(deductions)} RWF</b>
+            <b>{formatAmount(deductions, true)}</b>
           </div>
           <div className="metric-highlight">
             <span>{publicLanguage.t('nyirayoOperationalMargin')}</span>
-            <b>{money(opMargin)} RWF</b>
+            <b>{formatAmount(opMargin)}</b>
           </div>
           <div>
             <span>{publicLanguage.t('retainedNoAccountFarmerAmount')}</span>
-            <b>+{money(noAccount)} RWF</b>
+            <b>{formatAmount(noAccount, true)}</b>
           </div>
           <div className="metric-highlight">
             <span>{publicLanguage.t('nyirayoTotalAfterOperations')}</span>
-            <b>{money(total)} RWF</b>
+            <b>{formatAmount(total)}</b>
           </div>
+          {data.verificationDifference != null ? <div className={data.verificationDifference < 0 ? 'metric-negative' : undefined}>
+            <span>{publicLanguage.t('ukweziVerificationDifference')}</span>
+            <b>{money(data.verificationDifference)} RWF</b>
+          </div> : null}
         </div>
         <p className="muted-note">
           {publicLanguage.t('unaccountedFarmersNotice')}
@@ -5059,7 +4947,6 @@ const visibleTabs = (isAdmin
     const cashFarmers = farmerRows.filter((farmer) => Number(farmer.totalVolume || 0) > 0 && !farmer.settlement?.saccoEligible && matchesSearch(farmer));
     const remainingCashFarmers = cashFarmers.filter((farmer) => Number(farmer.settlement?.retainedUnpaidAmount || 0) > 0);
     const retainedRows = farmerRows.filter((farmer) => !farmer.settlement.saccoEligible && Number(farmer.settlement.retainedUnpaidAmount || 0) > 0);
-    const igipandeRows = farmerRows.filter((farmer) => Number(farmer.settlement?.igipandeCharge || 0) > 0 && matchesSearch(farmer));
     const settlementRecords = (settlementData?.data || []).filter(matchesSearch);
     const visibleDebts = settlementDebts.filter(matchesSearch);
     const settlementNumber = new Intl.NumberFormat(publicLanguage.language === 'rw' ? 'rw-RW' : 'en-GB', { maximumFractionDigits: 2 });
@@ -5081,11 +4968,6 @@ const visibleTabs = (isAdmin
       };
       return statusKeys[status] ? publicLanguage.t(statusKeys[status]) : status;
     };
-    const igipandeStatus = (status: string) => status === 'PAID'
-      ? publicLanguage.t('igipandeStatusPaid')
-      : status === 'PARTIALLY_PAID'
-        ? publicLanguage.t('igipandeStatusPartial')
-        : publicLanguage.t('igipandeStatusUnpaid');
     const requestKey = (scope: string) => {
       settlementRequestKeys.current[scope] ||= globalThis.crypto?.randomUUID?.() || `${user?.id}-${Date.now()}-${Math.random().toString(36).slice(2)}`;
       return settlementRequestKeys.current[scope];
@@ -5202,13 +5084,12 @@ const visibleTabs = (isAdmin
       reconciliation.saccoConfirmedAmount,
       reconciliation.cashConfirmedAmount,
       reconciliation.debtRepaymentAmount,
-      reconciliation.igipandeRecoveryAmount,
       reconciliation.saccoDistributionInstruction,
       reconciliation.retainedUnpaidAmount,
       reconciliation.unexplainedDiscrepancy,
       reconciliation.expectedFarmerPayable,
     ] : [];
-    const payableBreakdownAvailable = breakdownValues.length === 8
+    const payableBreakdownAvailable = breakdownValues.length === 7
       && breakdownValues.every((value) => value !== null && value !== undefined);
     const ownerGrossCheck = reconciliation?.ownerGrossReconciliation;
     const ownerGrossCheckAvailable = ownerGrossCheck
@@ -5237,7 +5118,7 @@ const visibleTabs = (isAdmin
       synchronizeCurrentAccountingHalf(month, settlementYear, setSettlementHalf);
     };
 
-    const totalSettledSoFar = (reconciliation?.saccoConfirmedAmount || 0) + (reconciliation?.cashConfirmedAmount || 0) + (reconciliation?.debtRepaymentAmount || 0) + (reconciliation?.igipandeRecoveryAmount || 0);
+    const totalSettledSoFar = (reconciliation?.saccoConfirmedAmount || 0) + (reconciliation?.cashConfirmedAmount || 0) + (reconciliation?.debtRepaymentAmount || 0);
 
     return <div className="ukwezi-view">
       <section className="panel">
@@ -5578,20 +5459,10 @@ const visibleTabs = (isAdmin
                 <div><span>{publicLanguage.t('settlementsCashReceived')}</span><b>{settlementMoney(reconciliation.cashConfirmedAmount)} RWF</b></div>
                 <div><span>{publicLanguage.t('settlementsDebtRepaid')}</span><b>{settlementMoney(reconciliation.debtRepaymentAmount)} RWF</b></div>
                 <div><span>{publicLanguage.t('settlementsDebtOutstanding')}</span><b>{reconciliation.debtBalancesComplete ? `${settlementMoney(reconciliation.outstandingDebt)} RWF` : publicLanguage.t('settlementsIncompleteAccounting')}</b></div>
-                <div><span>{publicLanguage.t('igipandeRecoveryThisPeriod')}</span><b>{settlementMoney(reconciliation.igipandeRecoveryAmount)} RWF</b></div>
-                <div><span>{publicLanguage.t('igipandeOutstandingTotal')}</span><b>{settlementMoney(reconciliation.igipandeOutstandingBalance)} RWF</b></div>
                 <div><span>{publicLanguage.t('settlementsUnexplainedDifference')}</span><b>{settlementMoney(reconciliation.unexplainedDiscrepancy)} RWF</b></div>
               </div>
 
-              {igipandeRows.length ? <section className="settlement-operations">
-                <div className="panel-heading"><div><span className="eyebrow">{publicLanguage.t('igipandePeriod')}: {settlementDate(settlementReport.rangeStart)} – {settlementDate(settlementReport.rangeEnd)}</span><h3>{publicLanguage.t('igipandeTitle')}</h3></div></div>
-                <div className="table-scroll settlements-desktop-table"><table><thead><tr><th>{publicLanguage.t('settlementsFarmer')}</th><th>{publicLanguage.t('igipandePeriod')}</th><th>{publicLanguage.t('igipandeCharge')}</th><th>{publicLanguage.t('igipandeRecovered')}</th><th>{publicLanguage.t('igipandeOutstanding')}</th><th>{publicLanguage.t('igipandeStatus')}</th></tr></thead><tbody>
-                  {igipandeRows.map((farmer) => <tr key={`igipande-${farmer.farmerId}`}><td>{farmer.farmerName}</td><td>{settlementDate(settlementReport.rangeStart)} – {settlementDate(settlementReport.rangeEnd)}</td><td>{settlementMoney(farmer.settlement.igipandeCharge)} RWF</td><td>{settlementMoney(farmer.settlement.igipandeContributionRecoveredAmount)} RWF</td><td>{settlementMoney(farmer.settlement.igipandeContributionOutstandingBalance)} RWF</td><td>{igipandeStatus(farmer.settlement.igipandeStatus)}</td></tr>)}
-                </tbody></table></div>
-                <div className="settlements-mobile-list">{igipandeRows.map((farmer) => <article className="settlement-mobile-card" key={`igipande-mobile-${farmer.farmerId}`}><header><b>{farmer.farmerName}</b><strong>{igipandeStatus(farmer.settlement.igipandeStatus)}</strong></header><dl><div><dt>{publicLanguage.t('igipandePeriod')}</dt><dd>{settlementDate(settlementReport.rangeStart)} – {settlementDate(settlementReport.rangeEnd)}</dd></div><div><dt>{publicLanguage.t('igipandeCharge')}</dt><dd>{settlementMoney(farmer.settlement.igipandeCharge)} RWF</dd></div><div><dt>{publicLanguage.t('igipandeRecovered')}</dt><dd>{settlementMoney(farmer.settlement.igipandeContributionRecoveredAmount)} RWF</dd></div><div><dt>{publicLanguage.t('igipandeOutstanding')}</dt><dd>{settlementMoney(farmer.settlement.igipandeContributionOutstandingBalance)} RWF</dd></div></dl></article>)}</div>
-              </section> : null}
-
-              {payableBreakdownAvailable ? <p className="muted-note">{publicLanguage.t('settlementsPayableBreakdown')}: {breakdownValues.slice(0, 6).map((value) => settlementMoney(value)).join(' + ')} + ({settlementMoney(breakdownValues[6])}) = {settlementMoney(breakdownValues[7])} RWF</p> : <p className="muted-note">{publicLanguage.t('ukweziBreakdownUnavailable')}</p>}
+              {payableBreakdownAvailable ? <p className="muted-note">{publicLanguage.t('settlementsPayableBreakdown')}: {settlementMoney(breakdownValues[0])} + {settlementMoney(breakdownValues[1])} + {settlementMoney(breakdownValues[2])} + {settlementMoney(breakdownValues[3])} + {settlementMoney(breakdownValues[4])} + ({settlementMoney(breakdownValues[5])}) = {settlementMoney(breakdownValues[6])} RWF</p> : <p className="muted-note">{publicLanguage.t('ukweziBreakdownUnavailable')}</p>}
 
               {renderNyirayoAuditCard({
                 nyirayoMilkValue: ownerGrossCheck?.ownerGross ?? settlementReport?.nyirayoMilkValue ?? settlementReport?.collectorGross,
@@ -5990,6 +5861,97 @@ const visibleTabs = (isAdmin
     const collectorReport = ukweziReport as (Report & CollectorSettlementFields) | null;
     const settlementRows = isDairy ? ukweziReport?.collectorSettlementRows || [] : ukweziReport?.farmerPayments || [];
     const ownerRow = ukweziReport?.ownerSettlementRow || null;
+    const hasPaymentAccount = (row: any) => {
+      const account = String(row.accountNumber || '').trim();
+      return account.length >= 4 && !['N/A', 'NA', '—', '-', 'NONE', 'NULL'].includes(account.toUpperCase());
+    };
+    const getCurrentFarmerPayable = (row: any) => {
+      const settlement = row.settlement;
+      const routedAmount = settlement
+        ? (hasPaymentAccount(row) ? settlement.saccoDistributionInstruction : settlement.retainedUnpaidAmount)
+        : null;
+      const hasRouteInstruction = settlement && (
+        hasPaymentAccount(row)
+          ? Object.prototype.hasOwnProperty.call(settlement, 'saccoDistributionInstruction')
+          : Object.prototype.hasOwnProperty.call(settlement, 'retainedUnpaidAmount')
+      );
+      const amountValue = hasRouteInstruction
+        ? routedAmount
+        : (row.netAmount != null
+          ? Number(row.netAmount) - Number(settlement?.debtRepaymentAmount || 0)
+            - Number(settlement?.cashConfirmedAmount || 0)
+            - Number(settlement?.saccoConfirmedAmount || 0)
+          : null);
+      if (amountValue === null || amountValue === undefined) return null;
+      const payable = Number(amountValue);
+      return Number.isFinite(payable) ? Math.max(0, payable) : null;
+    };
+    const eligibleCollectorFarmers = isCollector
+      ? (ukweziReport?.farmerPayments || []).filter((row: any) => Number(row.validVolumeLiters ?? row.totalVolume ?? 0) > 0)
+        .map((row: any) => ({ ...row, payable: getCurrentFarmerPayable(row) }))
+      : [];
+    const toPaymentRow = (row: any) => ({
+      farmerId: row.farmerId,
+      farmerName: row.farmerName || '—',
+      nationalId: row.nationalId || row.idNumber || null,
+      phone: row.phone || null,
+      accountNumber: row.accountNumber || null,
+      validLiters: Number(row.validVolumeLiters ?? row.totalVolume ?? 0),
+      pricePerLiter: row.pricePerLiter == null ? null : Number(row.pricePerLiter),
+      grossAmount: row.grossAmount == null ? null : Number(row.grossAmount),
+      transportAmount: row.totalTransport == null ? null : Number(row.totalTransport),
+      otherDeductions: row.totalDeductions == null
+        ? null
+        : Math.max(0, Number(row.totalDeductions) - Number(row.ejohezaDeductions || 0)),
+      ejohezaAmount: Number(row.ejohezaDeductions || 0),
+      totalDeductions: row.totalDeductions == null ? null : Number(row.totalDeductions),
+      signedNet: row.netAmount == null ? null : Number(row.netAmount),
+      payable: row.payable,
+    });
+    const accountPaymentRows = eligibleCollectorFarmers.filter((row: any) => hasPaymentAccount(row)).map(toPaymentRow);
+    const noAccountPaymentRows = eligibleCollectorFarmers.filter((row: any) => !hasPaymentAccount(row)).map(toPaymentRow);
+    const ukweziSettlementAccounting = ukweziReport?.settlementAccounting as (SettlementAccounting & {
+      signedFarmerNetBalance?: number | null;
+      negativeFarmerNetBalance?: number | null;
+      negativeFarmerCount?: number | null;
+    }) | null | undefined;
+    const farmerNetValuesComplete = eligibleCollectorFarmers.every((row: any) => row.netAmount !== null && row.netAmount !== undefined);
+    const signedFarmerNetBalance = ukweziSettlementAccounting?.signedFarmerNetBalance
+      ?? (farmerNetValuesComplete ? Number(eligibleCollectorFarmers.reduce((sum: number, row: any) => sum + Number(row.netAmount || 0), 0).toFixed(2)) : null);
+    const negativeFarmerNetBalance = ukweziSettlementAccounting?.negativeFarmerNetBalance
+      ?? (farmerNetValuesComplete ? Number(eligibleCollectorFarmers.reduce((sum: number, row: any) => sum + Math.max(0, -Number(row.netAmount || 0)), 0).toFixed(2)) : null);
+    const negativeFarmerCount = ukweziSettlementAccounting?.negativeFarmerCount
+      ?? (farmerNetValuesComplete ? eligibleCollectorFarmers.filter((row: any) => Number(row.netAmount) < 0).length : null);
+    const collectorCenters = [...new Set(eligibleCollectorFarmers.map((row: any) => String(row.collectionCenter || '').trim()).filter(Boolean))];
+    const ukweziCenterName = (ukweziReport as (Report & { collectionCenter?: string | null }) | null)?.collectionCenter || (collectorCenters.length === 1 ? collectorCenters[0] : collectorCenters.length > 1 ? publicLanguage.t('ukweziMultipleCenters') : null);
+    const ownerGrossForCheck = ukweziReport?.settlementAccounting?.ownerGrossReconciliation?.ownerGross
+      ?? ukweziReport?.nyirayoMilkValue ?? ukweziReport?.ownerGeneratedGross ?? ukweziReport?.collectorGross ?? null;
+    const ownerWorkIncome = ukweziReport?.nyirayoOperationalMargin
+      ?? ukweziReport?.settlementAccounting?.ownerGrossReconciliation?.operationalMargin ?? null;
+    const ownerNoAccountAmount = ukweziSettlementAccounting?.retainedUnpaidAmount
+      ?? ukweziReport?.retainedNoAccountFarmerAmount
+      ?? ukweziReport?.settlementAccounting?.ownerGrossReconciliation?.retainedNoAccountFarmerAmount ?? null;
+    const ownerPaymentTotal = ownerWorkIncome != null && ownerNoAccountAmount != null
+      ? Number((Number(ownerWorkIncome) + Number(ownerNoAccountAmount)).toFixed(2))
+      : null;
+    const accountRoutesComplete = accountPaymentRows.every((row: any) => row.payable !== null);
+    const accountPaymentTotal = accountRoutesComplete
+      ? Number(accountPaymentRows.reduce((sum: number, row: any) => sum + Number(row.payable || 0), 0).toFixed(2))
+      : null;
+    const noAccountRoutesComplete = noAccountPaymentRows.every((row: any) => row.payable !== null);
+    const noAccountPaymentTotal = noAccountRoutesComplete
+      ? Number(noAccountPaymentRows.reduce((sum: number, row: any) => sum + Number(row.payable || 0), 0).toFixed(2))
+      : null;
+    const positiveFarmerPaymentTotal = accountPaymentTotal !== null && noAccountPaymentTotal !== null
+      ? Number((accountPaymentTotal + noAccountPaymentTotal).toFixed(2))
+      : null;
+    const totalDistributed = ownerPaymentTotal != null && accountPaymentTotal != null
+      ? Number((ownerPaymentTotal + accountPaymentTotal).toFixed(2))
+      : null;
+    const confirmedPayments = Number(ukweziSettlementAccounting?.cashConfirmedAmount || 0) + Number(ukweziSettlementAccounting?.saccoConfirmedAmount || 0);
+    const verificationDifference = ownerGrossForCheck == null || totalDistributed == null
+      ? null
+      : Number((Number(ownerGrossForCheck) - totalDistributed).toFixed(2));
     const actualVolume = ukweziReport?.ownerGeneratedVolume ?? ukweziReport?.totalVolume ?? 0;
     const ownerGross = isCollector
       ? ukweziReport?.ownerGeneratedGross ?? null
@@ -6042,13 +6004,14 @@ const visibleTabs = (isAdmin
     const ukweziPdfParams = new URLSearchParams({ month: ukweziMonth, year: ukweziYear, periodType: ukweziPeriod });
     ukweziPdfParams.set('language', publicLanguage.language);
     const activeCenterName = centers.find((center) => String(center.id) === selectedCenter)?.name;
-    if (isDairy && activeCenterName) ukweziPdfParams.set('collectionCenter', activeCenterName);
+    const reportCenterName = isDairy ? activeCenterName : ukweziCenterName;
+    if (reportCenterName) ukweziPdfParams.set('collectionCenter', reportCenterName);
 
     return <div className="ukwezi-view">
       <section className="panel">
         <div className="panel-heading"><div><span className="eyebrow">{publicLanguage.t('navUkwezi')}</span><h2>{publicLanguage.t(user?.accountType === 'COLLECTION_CENTER' ? 'dairyUkweziHeading' : 'collectorUkweziHeading')}</h2></div><Wallet size={20} aria-hidden="true" /></div>
         <div className="toolbar ukwezi-period-controls">
-          {isDairy && centers.length ? <label>Active Ikigo<select value={selectedCenter} onChange={(event) => setSelectedCenter(event.target.value)}>{centers.map((center) => <option key={center.id} value={String(center.id)}>{center.name}</option>)}</select></label> : null}
+          {isDairy && centers.length ? <label className="ukwezi-center-filter">Active Ikigo<select value={selectedCenter} onChange={(event) => setSelectedCenter(event.target.value)}>{centers.map((center) => <option key={center.id} value={String(center.id)}>{center.name}</option>)}</select></label> : null}
           <label>{publicLanguage.t('ukweziMonth')}<select value={ukweziMonth} onChange={(event) => selectUkweziMonth(event.target.value)}>{bilingualMonths.map(({ value, label }) => <option key={value} value={value}>{label}</option>)}</select></label>
           <label>{publicLanguage.t('ukweziYear')}<select value={ukweziYear} onChange={(event) => selectUkweziYear(event.target.value)}>{years.map((year) => <option key={year} value={year}>{year}</option>)}</select></label>
           <div className="timeline-scrubber" role="radiogroup" aria-label={publicLanguage.t('ukweziPeriod')}>
@@ -6079,27 +6042,65 @@ const visibleTabs = (isAdmin
         {ukweziPdfError ? <p className="form-error" role="alert">{ukweziPdfError}</p> : null}
         {ukweziPdfStatus ? <p className="form-success" role="status">{ukweziPdfStatus}</p> : null}
         {ukweziReport ? <>
-          <p className="muted-note">{ukweziReport.rangeStart} – {ukweziReport.rangeEnd}</p>
-          <div className="metric-strip ukwezi-totals">
+          <p className="ukwezi-period-caption">{ukweziReport.rangeStart} – {ukweziReport.rangeEnd}{reportCenterName ? ` · ${publicLanguage.t('ukweziCenter')}: ${reportCenterName}` : ''}</p>
+          {isCollector ? <>
+            <section className="ukwezi-summary" aria-labelledby="ukwezi-summary-heading">
+              <h3 id="ukwezi-summary-heading">{publicLanguage.t('ukweziSummary')}</h3>
+              <div className="ukwezi-summary-grid">
+                <article className="ukwezi-summary-item ukwezi-summary-primary"><span>{publicLanguage.t('nyirayoRecordedMilkValue')}</span><b>{liters(actualVolume)} L</b><strong>{ownerGross == null ? '—' : `${money(ownerGross)} RWF`}</strong></article>
+                <article className="ukwezi-summary-item"><span>{publicLanguage.t('farmersRecordedMilkValue')}</span><b>{liters(assignedVolume)} L</b><strong>{collectorReport?.collectorFarmerMilkValue == null ? '—' : `${money(collectorReport.collectorFarmerMilkValue)} RWF`}</strong></article>
+                <article className="ukwezi-summary-item"><span>{publicLanguage.t('dashboardDeductions')}</span><b>{ukweziReport.totalDeductionsMonth == null ? '—' : `${money(ukweziReport.totalDeductionsMonth)} RWF`}</b></article>
+                <article className="ukwezi-summary-item"><span>{publicLanguage.t('reportsTransport')}</span><b>{ukweziReport.collectorFarmerTransport == null ? '—' : `${money(ukweziReport.collectorFarmerTransport)} RWF`}</b></article>
+                <article className="ukwezi-summary-item"><span>{publicLanguage.t('ukweziFarmerSignedNet')}</span><b>{signedFarmerNetBalance == null ? '—' : `${money(signedFarmerNetBalance)} RWF`}</b></article>
+                <article className="ukwezi-summary-item"><span>{publicLanguage.t('ukweziFarmerRouteTotal')}</span><b>{positiveFarmerPaymentTotal == null ? '—' : `${money(positiveFarmerPaymentTotal)} RWF`}</b></article>
+                <article className="ukwezi-summary-item"><span>{publicLanguage.t('ukweziNegativeNetTitle')} {negativeFarmerCount == null ? '' : `(${negativeFarmerCount})`}</span><b>{negativeFarmerNetBalance == null ? '—' : `${money(negativeFarmerNetBalance)} RWF`}</b></article>
+                <article className="ukwezi-summary-item ukwezi-summary-total"><span>{publicLanguage.t('ukweziTotalPayable')}</span><b>{totalDistributed == null ? '—' : `${money(totalDistributed)} RWF`}</b></article>
+              </div>
+            </section>
+            <section className="ukwezi-owner-accounting" aria-labelledby="ukwezi-owner-accounting-heading">
+              <div className="panel-heading"><div><span className="eyebrow">{publicLanguage.t('dashboardAccounting')}</span><h3 id="ukwezi-owner-accounting-heading">{publicLanguage.t('ukweziOwnerAccounting')}</h3></div></div>
+              <ol className="ukwezi-accounting-steps">
+                <li><span>{publicLanguage.t('nyirayoRecordedMilkValue')}</span><b>{ownerGrossForCheck == null ? '—' : `${money(ownerGrossForCheck)} RWF`}</b></li>
+                <li className="ukwezi-accounting-subtract"><span>{publicLanguage.t('farmersRecordedMilkValue')}</span><b>{(ukweziReport.farmersMilkValue ?? ukweziReport.collectorFarmerMilkValue) == null ? '—' : `${money(ukweziReport.farmersMilkValue ?? ukweziReport.collectorFarmerMilkValue)} RWF`}</b></li>
+                <li className="ukwezi-accounting-subtotal"><span>{publicLanguage.t('nyirayoBaseDifference')}</span><b>{ukweziReport.nyirayoBaseDifference == null ? '—' : `${money(ukweziReport.nyirayoBaseDifference)} RWF`}</b></li>
+                <li className="ukwezi-accounting-add"><span>{publicLanguage.t('transportShare')}</span><b>{ukweziReport.transportAmount == null ? '—' : `${money(ukweziReport.transportAmount)} RWF`}</b></li>
+                <li className="ukwezi-accounting-add"><span>{publicLanguage.t('farmerDeductionsShare')}</span><b>{ukweziReport.farmerDeductions == null ? '—' : `${money(ukweziReport.farmerDeductions)} RWF`}</b></li>
+                <li className="ukwezi-accounting-subtotal"><span>{publicLanguage.t('nyirayoOperationalMargin')}</span><b>{ownerWorkIncome == null ? '—' : `${money(ownerWorkIncome)} RWF`}</b></li>
+                <li><span>{publicLanguage.t('ukweziNegativeNetTitle')} ({negativeFarmerCount ?? '—'})</span><b>{negativeFarmerNetBalance == null ? '—' : `${money(negativeFarmerNetBalance)} RWF`}</b></li>
+                <li className="ukwezi-accounting-add"><span>{publicLanguage.t('retainedNoAccountFarmerAmount')}</span><b>{ownerNoAccountAmount == null ? '—' : `${money(ownerNoAccountAmount)} RWF`}</b></li>
+                <li><span>{publicLanguage.t('ukweziFarmerRouteTotal')}</span><b>{positiveFarmerPaymentTotal == null ? '—' : `${money(positiveFarmerPaymentTotal)} RWF`}</b></li>
+                <li className="ukwezi-accounting-final"><span>{publicLanguage.t('nyirayoTotalAfterOperations')}</span><b>{ownerPaymentTotal == null ? '—' : `${money(ownerPaymentTotal)} RWF`}</b></li>
+              </ol>
+            </section>
+            <section className={`ukwezi-reconciliation${verificationDifference != null && Math.abs(verificationDifference) > 0.005 ? ' is-unbalanced' : ''}`} aria-label={publicLanguage.t('ukweziVerificationDifference')}>
+              <div><span>{publicLanguage.t('ukweziVerificationDifference')}</span><strong>{verificationDifference == null ? '—' : `${money(verificationDifference)} RWF`}</strong></div>
+              <p className="ukwezi-reconciliation-equation">{ownerGrossForCheck == null || ownerPaymentTotal == null ? '—' : `${money(ownerGrossForCheck)} − (${money(ownerPaymentTotal)} + ${money(accountPaymentTotal)}) = ${money(verificationDifference)} RWF`}</p>
+              <small>{publicLanguage.t('ukweziDistributionFormula')}</small>
+              <small>{publicLanguage.t('ukweziDistributionDifferenceHelp')}</small>
+              <small>{publicLanguage.t('ukweziPaymentInstructionNote').replace('{amount}', `${money(confirmedPayments)} RWF`)}</small>
+            </section>
+          </> : <div className="metric-strip ukwezi-totals">
             <div><span>{publicLanguage.t('ukweziOwnerTotal')}</span><b><AnimatedCounter value={actualVolume} formatter={liters} suffix=" L" className="tabular-nums" /></b><small>{ownerGross === null ? '—' : <><AnimatedCounter value={ownerGross} formatter={money} className="tabular-nums" /> RWF</>}</small></div>
-            <div><span>{publicLanguage.t(user?.accountType === 'COLLECTION_CENTER' ? 'navAbacunda' : 'ukweziAllocated')}</span><b><AnimatedCounter value={assignedVolume} formatter={liters} suffix=" L" className="tabular-nums" /></b><small>{isCollector ? <><AnimatedCounter value={collectorReport?.collectorFarmerMilkValue} formatter={money} className="tabular-nums" /> RWF</> : <><AnimatedCounter value={ukweziReport.totalRevenueMonth} formatter={money} className="tabular-nums" /> RWF</>}</small></div>
+            <div><span>{publicLanguage.t('navAbacunda')}</span><b><AnimatedCounter value={assignedVolume} formatter={liters} suffix=" L" className="tabular-nums" /></b><small><AnimatedCounter value={ukweziReport.totalRevenueMonth} formatter={money} className="tabular-nums" /> RWF</small></div>
             <div><span>{publicLanguage.t('dashboardDeductions')}</span><b><AnimatedCounter value={ukweziReport.totalDeductionsMonth} formatter={money} suffix=" RWF" className="tabular-nums" /></b></div>
-            {isCollector ? <div><span>{publicLanguage.t('reportsTransport')}</span><b>{ukweziReport.collectorFarmerTransport == null ? '—' : <><AnimatedCounter value={ukweziReport.collectorFarmerTransport} formatter={money} suffix=" RWF" className="tabular-nums" /></>}</b></div> : null}
-            {isCollector ? <div><span>{publicLanguage.t('collectorFarmerPayable')}</span><b>{collectorReport?.collectorFarmerPayable == null ? '—' : <><AnimatedCounter value={collectorReport.collectorFarmerPayable} formatter={money} suffix=" RWF" className="tabular-nums" /></>}</b></div> : null}
             <div><span>{publicLanguage.t('ukweziPayable')}</span><b>{payable === null || payable === undefined ? '—' : <><AnimatedCounter value={payable} formatter={money} suffix=" RWF" className="tabular-nums" /></>}</b></div>
-          </div>
-          {isCollector && ukweziReport ? renderNyirayoAuditCard({
-            nyirayoMilkValue: ukweziReport.nyirayoMilkValue ?? ukweziReport.ownerGeneratedGross ?? ukweziReport.collectorGross,
-            farmersMilkValue: ukweziReport.farmersMilkValue ?? ukweziReport.collectorFarmerMilkValue,
-            nyirayoBaseDifference: ukweziReport.nyirayoBaseDifference,
-            transportAmount: ukweziReport.transportAmount ?? ukweziReport.collectorFarmerTransport,
-            farmerDeductions: ukweziReport.farmerDeductions ?? ukweziReport.collectorFarmerDeductions,
-            retainedNoAccountFarmerAmount: ukweziReport.retainedNoAccountFarmerAmount,
-            nyirayoOperationalMargin: ukweziReport.nyirayoOperationalMargin,
-            nyirayoTotalAfterOperations: ukweziReport.nyirayoTotalAfterOperations,
-          }) : null}
-          {isCollector && ukweziReport.settlementAccountingStatus === 'MIGRATION_REQUIRED' ? <section className="settlement-reconciliation" role="status"><b>{publicLanguage.t('ukweziReconciliationUnavailable')}</b><span>{publicLanguage.t('ukweziReconciliationUnavailableDetail')}</span></section> : null}
-          {settlementRows.length || ownerRow ? <><div className="table-scroll ukwezi-settlement-table"><table><thead><tr><th>No</th><th>{sortableUkweziHeader('name', publicLanguage.t(isDairy ? 'assignedCollectors' : 'milkFarmer'))}</th>{isDairy ? <th>{publicLanguage.t('navAbacunda')}</th> : <th>{publicLanguage.t('accountNationalId')}</th>}<th>{publicLanguage.t('accountPhone')} / {publicLanguage.t('accountNumber')}</th><th>{sortableUkweziHeader('volume', publicLanguage.t('reportsVolume'))}</th><th>{publicLanguage.t('milkPrice')} / L</th><th>{publicLanguage.t('reportsGross')}</th>{isCollector ? <th>{publicLanguage.t('reportsTransport')}</th> : null}<th>{publicLanguage.t('dashboardDeductions')}</th><th>{sortableUkweziHeader('payable', publicLanguage.t('reportsNet'))}</th>{isCollector ? <th>{publicLanguage.t('actions')}</th> : null}</tr></thead><tbody>
+          </div>}
+          {isCollector ? <CollectorUkweziPaymentRoster
+            accountRows={accountPaymentRows}
+            ownerRows={noAccountPaymentRows}
+            ownerName={ownerRow?.farmerName || ownerRow?.name || ukweziReport.collectorProfile?.name || publicLanguage.t('ukweziOwnerRow')}
+            ownerAccountNumber={ownerRow?.accountNumber || null}
+            ownerAmount={ownerPaymentTotal}
+            totalDistributed={totalDistributed}
+            signedFarmerNetBalance={signedFarmerNetBalance}
+            negativeFarmerNetBalance={negativeFarmerNetBalance}
+            negativeFarmerCount={negativeFarmerCount}
+            confirmedPayments={confirmedPayments}
+            centerName={ukweziCenterName}
+            language={publicLanguage.language}
+            t={(key) => publicLanguage.t(key as any)}
+          /> : null}
+          {!isCollector && (settlementRows.length || ownerRow) ? <><div className="table-scroll ukwezi-settlement-table"><table><thead><tr><th>No</th><th>{sortableUkweziHeader('name', publicLanguage.t(isDairy ? 'assignedCollectors' : 'milkFarmer'))}</th>{isDairy ? <th>{publicLanguage.t('navAbacunda')}</th> : <th>{publicLanguage.t('accountNationalId')}</th>}<th>{publicLanguage.t('accountPhone')} / {publicLanguage.t('accountNumber')}</th><th>{sortableUkweziHeader('volume', publicLanguage.t('reportsVolume'))}</th><th>{publicLanguage.t('milkPrice')} / L</th><th>{publicLanguage.t('reportsGross')}</th>{isCollector ? <th>{publicLanguage.t('reportsTransport')}</th> : null}<th>{publicLanguage.t('dashboardDeductions')}</th><th>{sortableUkweziHeader('payable', publicLanguage.t('reportsNet'))}</th>{isCollector ? <th>{publicLanguage.t('actions')}</th> : null}</tr></thead><tbody>
             {settlementRows.map((row: any, index: number) => <tr key={`${isDairy ? 'collector' : 'farmer'}-${isDairy ? row.collectorUserId : row.farmerId}`}><td>{index + 1}</td><td>{isDairy ? row.name : row.farmerName}</td>{isDairy ? <td>{row.assignedFarmerCount}</td> : <td>{row.nationalId || row.idNumber || '—'}</td>}<td>{[row.phone, row.accountNumber].filter(Boolean).join(' / ') || '—'}</td><td>{liters(row.totalVolume)} L</td><td>{row.totalVolume > 0 ? `${money(row.pricePerLiter || 0)} RWF` : '—'}</td><td>{row.grossAmount == null ? '—' : `${money(row.grossAmount)} RWF`}</td>{isCollector ? <td>{money(row.totalTransport)} RWF</td> : null}<td>{money(row.totalDeductions)} RWF</td><td>{row.netAmount == null ? '—' : `${money(row.netAmount)} RWF`}</td>{isCollector ? <td><button type="button" className="button button-secondary small-button" onClick={() => openFarmerDeduction(row.farmerId, row.farmerName, selectedUkweziRange.startDate, selectedUkweziRange.endDate, { totalVolume: Number(row.totalVolume || 0), pricePerLiter: row.pricePerLiter == null ? null : Number(row.pricePerLiter), grossAmount: row.grossAmount == null ? null : Number(row.grossAmount), totalDeductions: Number(row.totalDeductions || 0), totalTransport: row.totalTransport == null ? null : Number(row.totalTransport), netAmount: row.netAmount == null ? null : Number(row.netAmount) })}><Plus size={14} aria-hidden="true" />{publicLanguage.t('deductionsAdd')}</button></td> : null}</tr>)}
             {ownerRow ? <tr className="owner-settlement-row"><td>{settlementRows.length + 1}</td><td><b>{ownerRow.farmerName}</b><small className="block-muted">{publicLanguage.t('ukweziOwnerRow')}</small></td><td>{ownerRow.nationalId || ownerRow.idNumber || '—'}</td><td>{[ownerRow.phone, ownerRow.accountNumber].filter(Boolean).join(' / ') || '—'}</td><td>{liters(ownerRow.totalVolume)} L</td><td>{ownerRow.pricePerLiter == null ? '—' : `${money(ownerRow.pricePerLiter)} RWF`}</td><td>{ownerRow.grossAmount == null ? '—' : `${money(ownerRow.grossAmount)} RWF`}</td>{isCollector ? <td>{money(ownerRow.totalTransport)} RWF</td> : null}<td>{money(ownerRow.totalDeductions)} RWF</td><td>{ownerRow.netAmount == null ? '—' : `${money(ownerRow.netAmount)} RWF`}</td>{isCollector ? <td>—</td> : null}</tr> : null}
           </tbody></table></div><div className="ukwezi-mobile-list">{settlementRows.map((row: any) => <article className="ukwezi-mobile-card" key={`mobile-${isDairy ? row.collectorUserId : row.farmerId}`}><header><b>{isDairy ? row.name : row.farmerName}</b><strong>{liters(row.totalVolume)} L</strong></header><dl>{isDairy ? <div><dt>{publicLanguage.t('navAbacunda')}</dt><dd>{row.assignedFarmerCount}</dd></div> : <div><dt>{publicLanguage.t('accountNationalId')}</dt><dd>{row.nationalId || row.idNumber || '—'}</dd></div>}<div><dt>{publicLanguage.t('milkPrice')} / L</dt><dd>{row.totalVolume > 0 ? `${money(row.pricePerLiter || 0)} RWF` : '—'}</dd></div><div><dt>{publicLanguage.t('reportsGross')}</dt><dd>{row.grossAmount == null ? '—' : `${money(row.grossAmount)} RWF`}</dd></div>{isCollector ? <div><dt>{publicLanguage.t('reportsTransport')}</dt><dd>{money(row.totalTransport)} RWF</dd></div> : null}<div><dt>{publicLanguage.t('dashboardDeductions')}</dt><dd>{money(row.totalDeductions)} RWF</dd></div><div><dt>{publicLanguage.t('reportsNet')}</dt><dd>{row.netAmount == null ? '—' : `${money(row.netAmount)} RWF`}</dd></div></dl><p>{[row.phone, row.accountNumber].filter(Boolean).join(' / ') || '—'}</p>{isCollector ? <button type="button" className="button button-secondary button-block" onClick={() => openFarmerDeduction(row.farmerId, row.farmerName, selectedUkweziRange.startDate, selectedUkweziRange.endDate, { totalVolume: Number(row.totalVolume || 0), pricePerLiter: row.pricePerLiter == null ? null : Number(row.pricePerLiter), grossAmount: row.grossAmount == null ? null : Number(row.grossAmount), totalDeductions: Number(row.totalDeductions || 0), totalTransport: row.totalTransport == null ? null : Number(row.totalTransport), netAmount: row.netAmount == null ? null : Number(row.netAmount) })}><Plus size={14} aria-hidden="true" />{publicLanguage.t('deductionsAdd')}</button> : null}</article>)}{ownerRow ? <article className="ukwezi-mobile-card owner-settlement-row"><header><b>{ownerRow.farmerName} · {publicLanguage.t('ukweziOwnerRow')}</b><strong>{liters(ownerRow.totalVolume)} L</strong></header><dl><div><dt>{publicLanguage.t('reportsGross')}</dt><dd>{ownerRow.grossAmount == null ? '—' : `${money(ownerRow.grossAmount)} RWF`}</dd></div>{isCollector ? <div><dt>{publicLanguage.t('reportsTransport')}</dt><dd>{money(ownerRow.totalTransport)} RWF</dd></div> : null}<div><dt>{publicLanguage.t('dashboardDeductions')}</dt><dd>{money(ownerRow.totalDeductions)} RWF</dd></div><div><dt>{publicLanguage.t('reportsNet')}</dt><dd>{ownerRow.netAmount == null ? '—' : `${money(ownerRow.netAmount)} RWF`}</dd></div></dl></article> : null}</div></> : null}
@@ -7013,15 +7014,7 @@ const visibleTabs = (isAdmin
         </div>
         {error ? <div className="toast toast-error" role="alert"><span>{error}</span><button onClick={() => setError('')} aria-label="Dismiss"><X size={16} /></button></div> : null}
         {notice ? <div className="toast toast-success" role="status"><span>{notice}</span><button onClick={() => setNotice('')} aria-label="Dismiss"><X size={16} /></button></div> : null}
-        <AnimatePresence mode="wait">
-          <motion.div
-            key={tab}
-            className="workspace-tab-panel tab-pane-enter"
-            initial={{ opacity: 0, y: 8 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -8 }}
-            transition={{ duration: 0.22, ease: [0.2, 0, 0, 1] }}
-          >
+        <div className="workspace-tab-panel">
             {tab === 'dashboard' && isAdmin ? renderAdminDashboard() : null}
             {tab === 'dashboard' && !isAdmin ? renderDashboard() : null}
             {tab === 'farmers' && !isAdmin ? renderFarmers() : null}
@@ -7040,8 +7033,7 @@ const visibleTabs = (isAdmin
             {tab === 'audit' && isAdmin ? renderAdminAudit() : null}
             {tab === 'config' && isAdmin ? <div className="admin-pricing-layout">{renderAdminCollectorPricing()}{renderAdminConfig()}{renderAdminSubscriptionPolicy()}{renderAdminPaymentConfiguration()}{renderAdminPayments()}</div> : null}
             {tab === 'system-health' && isAdmin ? renderSystemHealth() : null}
-          </motion.div>
-        </AnimatePresence>
+        </div>
         {adminAccountDetailsOpen ? renderAdminAccountDetailsModal() : null}
         {grantDaysAccount ? renderGrantDaysModal() : null}
       </section></div>
@@ -7111,40 +7103,37 @@ const visibleTabs = (isAdmin
         }}
         onConfirm={() => { void confirmFarmerDeletion(); }}
       />
-      <FarmerMergeDialog
-        open={Boolean(farmerMergeSource)}
-        source={farmerMergeSource}
-        candidates={farmerMergeCandidates}
-        targetId={farmerMergeTargetId}
-        preview={farmerMergePreview}
-        loading={farmerMergeLoading}
-        saving={farmerMergeSaving}
-        error={farmerMergeError}
-        reason={farmerMergeReason}
-        confirmation={farmerMergeConfirmation}
-        resolutions={farmerMergeResolutions}
-        language={publicLanguage.language}
-        onTargetChange={(targetId) => { void selectFarmerMergeTarget(targetId); }}
-        onReasonChange={setFarmerMergeReason}
-        onConfirmationChange={setFarmerMergeConfirmation}
-        onResolutionChange={(key, action) => setFarmerMergeResolutions((current) => ({ ...current, [key]: action }))}
-        onClose={closeFarmerMerge}
-        onSubmit={() => { void confirmFarmerMerge(); }}
-      />
       {farmerHistoryOpen && farmerHistoryFarmer ? <Modal ariaLabel={publicLanguage.t('farmerHistoryTitle')} className="modal-panel-wide farmer-history-modal" onClose={() => setFarmerHistoryOpen(false)} dismissible={!farmerHistoryLoading}>{renderFarmerHistory()}</Modal> : null}
       {lossEventOpen && (
         <Modal ariaLabel={publicLanguage.t('recordLossEvent')} className="loss-event-modal" onClose={() => setLossEventOpen(false)} dismissible={!lossEventLoading}>
           <div className="panel-heading"><div><span className="eyebrow">{publicLanguage.t('recordLossEvent')}</span><h2>{publicLanguage.t('lossEventTitle')}</h2></div><button type="button" className="icon-button" onClick={() => setLossEventOpen(false)} disabled={lossEventLoading} aria-label={publicLanguage.t('cancel')}><X size={18} aria-hidden="true" /></button></div>
           <form className="form-stack compact" onSubmit={saveLossEvent}>
-            <label>{publicLanguage.t('activeCenter')}<select value={selectedCenter} onChange={(event) => setSelectedCenter(event.target.value)} required disabled={!centers.length}><option value="">{publicLanguage.t('selectCenter')}</option>{centers.map((center) => <option key={center.id} value={String(center.id)}>{center.name}</option>)}</select></label>
-            <label>{publicLanguage.t('milkCollectionDate')}<input type="date" max={today()} value={collectionDate} onChange={(event) => setCollectionDate(event.target.value)} required /></label>
-            <label>{publicLanguage.t('lossEventPeriod')}<select value={lossEventPeriod} onChange={(event) => setLossEventPeriod(event.target.value as typeof lossEventPeriod)} required><option value="all">{publicLanguage.t('lossEventPeriodAll')}</option><option value="morning">{publicLanguage.t('dashboardMorning')} (06:30–09:00)</option><option value="evening">{publicLanguage.t('dashboardEvening')} (17:30–19:00)</option></select></label>
-            <label>{publicLanguage.t('lossEventPercentage')}<input type="number" min="0" max="100" step="0.01" value={lossEventPercentage} onChange={(event) => setLossEventPercentage(event.target.value)} required /></label>
-            <label>{publicLanguage.t('lossEventReason')}<textarea required value={lossEventReason} onChange={(event) => setLossEventReason(event.target.value)} /></label>
+            <label>{publicLanguage.t('activeCenter')}<select value={selectedCenter} onChange={(event) => { setSelectedCenter(event.target.value); setLossEventConfirmed(false); }} required disabled={!centers.length}><option value="">{publicLanguage.t('selectCenter')}</option>{centers.map((center) => <option key={center.id} value={String(center.id)}>{center.name}</option>)}</select></label>
+            <label>{publicLanguage.t('milkCollectionDate')}<input type="date" max={today()} value={collectionDate} onChange={(event) => { setCollectionDate(event.target.value); setLossEventConfirmed(false); }} required /></label>
+            <label>{publicLanguage.t('lossEventPeriod')}<select value={lossEventPeriod} onChange={(event) => { setLossEventPeriod(event.target.value as typeof lossEventPeriod); setLossEventConfirmed(false); }} required><option value="all">{publicLanguage.t('lossEventPeriodAll')}</option><option value="morning">{publicLanguage.t('dashboardMorning')} (06:30–09:00)</option><option value="evening">{publicLanguage.t('dashboardEvening')} (17:30–19:00)</option></select></label>
+            <label>{publicLanguage.t('lossEventPercentage')}<input type="number" min="0" max="100" step="0.01" value={lossEventPercentage} onChange={(event) => { setLossEventPercentage(event.target.value); setLossEventConfirmed(false); }} required /></label>
+            <label>{publicLanguage.t('lossEventReason')}<select required value={lossEventReason} onChange={(event) => { setLossEventReason(event.target.value); setLossEventConfirmed(false); }}><option value="">{publicLanguage.t('lossReasonChoose')}</option><option value="accident">{publicLanguage.t('lossReasonAccident')}</option><option value="antibiotics">{publicLanguage.t('lossReasonAntibiotics')}</option><option value="contamination">{publicLanguage.t('lossReasonContamination')}</option><option value="other">{publicLanguage.t('lossReasonOther')}</option></select></label>
+            {lossEventReason === 'other' ? <label>{publicLanguage.t('lossReasonOther')}<input maxLength={500} required value={lossEventOtherReason} onChange={(event) => { setLossEventOtherReason(event.target.value); setLossEventConfirmed(false); }} /></label> : null}
+            <section aria-live="polite">
+              <p className="muted-note">{publicLanguage.t('lossPreviewContext')}: {collectionDate} · {lossEventPeriod === 'all' ? publicLanguage.t('lossEventPeriodAll') : lossEventPeriod === 'morning' ? publicLanguage.t('dashboardMorning') : publicLanguage.t('dashboardEvening')}</p>
+              <p className="muted-note">{publicLanguage.t('lossOwnerExcluded')}</p>
+              {lossPreviewLoading ? <p className="muted-note">{publicLanguage.t('lossPreviewLoading')}</p> : null}
+              {lossPreview && lossPreview.affectedRecords > 0 ? <>
+                <p className="muted-note">{publicLanguage.t('lossAccountingPeriod')}: {lossPreview.affectedAccountingPeriods[0]?.startDate} – {lossPreview.affectedAccountingPeriods[0]?.endDate}</p>
+                <div className="table-scroll"><table className="data-table">
+                  <thead><tr><th>{publicLanguage.t('lossPreviewFarmer')}</th><th>{publicLanguage.t('lossOriginalLitres')}</th><th>{publicLanguage.t('lossCalculatedLitres')}</th><th>{publicLanguage.t('lossAppliedLitres')}</th><th>{publicLanguage.t('lossRemainingLitres')}</th></tr></thead>
+                  <tbody>{lossPreview.farmers.map((farmer) => <tr key={farmer.farmerId}><td>{farmer.farmerName}</td><td>{liters(farmer.originalLitres)} L</td><td>{liters(farmer.calculatedLossLitres)} L</td><td>{liters(farmer.appliedLossLitres)} L</td><td>{liters(farmer.remainingValidLitres)} L</td></tr>)}</tbody>
+                  <tfoot><tr><th>{publicLanguage.t('lossPreviewTotal')}</th><th>{liters(lossPreview.originalLitres)} L</th><th>{liters(lossPreview.calculatedLossLitres)} L</th><th>{liters(lossPreview.appliedLossLitres)} L</th><th>{liters(lossPreview.remainingValidLitres)} L</th></tr></tfoot>
+                </table></div>
+                <p className="muted-note">{publicLanguage.t('lossEstimatedImpact')}: {lossPreview.estimatedFarmerMilkValueChange > 0 ? '+' : ''}{money(lossPreview.estimatedFarmerMilkValueChange)} RWF. {publicLanguage.t('lossOwnerDifferenceImpact')}: {lossPreview.estimatedOwnerMilkDifferenceChange > 0 ? '+' : ''}{money(lossPreview.estimatedOwnerMilkDifferenceChange)} RWF. {publicLanguage.t('lossOwnerAccountingNote')}</p>
+              </> : null}
+              {lossPreview && lossPreview.affectedRecords === 0 ? <p className="muted-note">{publicLanguage.t('lossPreviewNoFarmers')}</p> : null}
+            </section>
             <p className="muted-note">{publicLanguage.t('lossEventNote')}</p>
             {lossEventError ? <p className="form-error" role="alert">{lossEventError}</p> : null}
             {lossEventStatus ? <p className="form-success" role="status">{lossEventStatus}</p> : null}
-            <div className="form-actions"><button type="button" className="button button-secondary" onClick={() => setLossEventOpen(false)} disabled={lossEventLoading}>{publicLanguage.t('cancel')}</button><button className="button button-primary" disabled={lossEventLoading || !centers.length || !lossEventPercentage || !lossEventReason}>{lossEventLoading ? publicLanguage.t('wait') : publicLanguage.t('saveLossEvent')}</button></div>
+            <label><input type="checkbox" checked={lossEventConfirmed} onChange={(event) => setLossEventConfirmed(event.target.checked)} required /> {publicLanguage.t('lossConfirmation')}</label>
+            <div className="form-actions"><button type="button" className="button button-secondary" onClick={() => setLossEventOpen(false)} disabled={lossEventLoading}>{publicLanguage.t('cancel')}</button><button className="button button-primary" disabled={lossEventLoading || lossPreviewLoading || !lossPreview?.affectedRecords || !centers.length || !lossEventPercentage || !lossEventReason || (lossEventReason === 'other' && !lossEventOtherReason.trim()) || !lossEventConfirmed}>{lossEventLoading ? publicLanguage.t('wait') : publicLanguage.t('saveLossEvent')}</button></div>
           </form>
         </Modal>
       )}

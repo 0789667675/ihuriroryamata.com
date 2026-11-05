@@ -42,6 +42,16 @@ export async function GET(request) {
     if (!user) return NextResponse.json({ message: 'Not authenticated.' }, { status: 401 });
     requireAccountType(user, ['COLLECTOR', 'COLLECTION_CENTER']);
     const params = new URL(request.url).searchParams;
+    if (params.has('lossPercentage')) {
+      const preview = await MilkLoss.getLossPreview({
+        ownerUserId: user.id,
+        collectionCenterId: params.get('collectionCenterId') || '',
+        date: params.get('date') || '',
+        period: params.get('period') || 'all',
+        lossPercentage: params.get('lossPercentage'),
+      });
+      return NextResponse.json(preview);
+    }
     const result = await MilkLoss.getLossEvent({
       ownerUserId: user.id,
       collectionCenterId: params.get('collectionCenterId') || '',

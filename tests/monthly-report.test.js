@@ -229,8 +229,7 @@ test('Ukwezi half-month reconciliation separates retained, cash, SACCO, and carr
   assert.equal(accounting.unexplainedDiscrepancy, 0);
   assert.equal(accounting.debtRepaymentAmount + accounting.cashConfirmedAmount + accounting.retainedUnpaidAmount + accounting.saccoDistributionInstruction, 6000);
   assert.equal(accounting.ownerGrossReconciliation.discrepancy, 0);
-  assert.equal(accounting.farmers.some((farmer) => farmer.farmerId === 3), true);
-  assert.equal(accounting.farmers.find((farmer) => farmer.farmerId === 3).netAmount, 0);
+  assert.equal(accounting.farmers.some((farmer) => farmer.farmerId === 3), false);
 
   const overpayment = await Reports.getSummary({
     ownerUserId: 77,
@@ -290,50 +289,22 @@ test('manual cash paid to a SACCO-eligible farmer reduces SACCO instruction with
   assert.equal(summary.farmerPayments[0].netAmount, 2000);
 });
 
-test('Ukwezi separately recovers Igipande per half-month and includes inactive farmers', async () => {
-  const farmers = [
-    { farmerId: 1, farmerName: 'Delivering farmer', accountNumber: 'RW-12345', totalVolume: 2, grossAmount: 160, totalTransport: 0, totalDeductions: 0, milkValueComplete: true, transportIsComplete: true },
-    { farmerId: 2, farmerName: 'Inactive farmer', accountNumber: null, totalVolume: 0, grossAmount: 0, totalTransport: 0, totalDeductions: 0, milkValueComplete: true, transportIsComplete: true },
-  ];
-  const repository = {
-    ...reportRepository({ accountType: 'COLLECTION_CENTER' }),
-    getTotalFarmers: async () => farmers.length,
-    getPeriodTotals: async () => ({ totalVolume: 2, totalAmount: 160 }),
-    getFarmerTotals: async () => farmers,
-    getMilkLossRecords: async () => [],
-  };
-  let processedFarmers;
+test('Ukwezi reports do not trigger automatic Igipande deductions or expose Igipande accounting', async () => {
+  let generationAttempts = 0;
   const settlementRepository = {
-    getPeriodFinancials: async () => ({
-      settlements: [{ farmer_id: 1, payment_type: 'CASH', amount: 20, settled_amount: 20, status: 'CONFIRMED' }],
-      repayments: [{ farmer_id: 1, amount: 10 }],
-      debts: [],
-    }),
-    ensureIgipandePeriod: async ({ rangeStart, rangeEnd, farmers: eligible }) => {
-      assert.equal(rangeStart, '2026-11-16');
-      assert.equal(rangeEnd, '2026-11-30');
-      processedFarmers = eligible;
-      return new Map([
-        [1, { chargeAmount: 100, contributionRecoveredAmount: 50, contributionOutstandingBalance: 50, periodRecoveredAmount: 50, outstandingBalance: 50, status: 'PARTIALLY_PAID' }],
-        [2, { chargeAmount: 100, contributionRecoveredAmount: 0, contributionOutstandingBalance: 100, periodRecoveredAmount: 0, outstandingBalance: 100, status: 'UNPAID' }],
-      ]);
-    },
+    getPeriodFinancials: async () => ({ settlements: [], repayments: [], debts: [] }),
+    ensureIgipandePeriod: async () => { generationAttempts += 1; throw new Error('Retired automatic deduction path was called.'); },
   };
   const summary = await Reports.getSummary({
     ownerUserId: 77,
     query: { periodType: 'second-half', month: 11, year: 2026 },
-    repository,
+    repository: reportRepository({ accountType: 'COLLECTION_CENTER' }),
     settlementRepository,
   });
 
-  assert.deepEqual(processedFarmers.map((farmer) => farmer.availableEarnings), [130, 0]);
-  assert.equal(summary.farmerPayments.length, 1);
-  assert.equal(summary.settlementAccounting.igipandeChargeAmount, 200);
-  assert.equal(summary.settlementAccounting.igipandeRecoveryAmount, 50);
-  assert.equal(summary.settlementAccounting.igipandeOutstandingBalance, 150);
-  assert.equal(summary.settlementAccounting.debtRepaymentAmount, 10);
-  assert.equal(summary.settlementAccounting.saccoDistributionInstruction, 80);
-  assert.equal(summary.settlementAccounting.farmers.find((farmer) => farmer.farmerId === 2).settlement.igipandeStatus, 'UNPAID');
+  assert.equal(generationAttempts, 0);
+  assert.equal(summary.settlementAccounting.igipandeChargeAmount, undefined);
+  assert.equal(summary.settlementAccounting.igipandeRecoveryAmount, undefined);
 });
 
 test('missing settlement tables preserve core Ukwezi and explicitly mark settlement accounting unavailable', async () => {
@@ -943,7 +914,7 @@ test('active deduction queries whitelist supported farmer deduction types', () =
   for (const query of [farmerQuery, deductionQuery]) {
     assert.doesNotMatch(query.text, /ejoheza/i);
   }
-  assert.match(deductionQuery.text, /LOWER\(BTRIM\(d\.type\)\) IN \('other', 'advance', 'umwenda'\)/);
+  assert.match(deductionQuery.text, /LOWER\(BTRIM\(d\.type\)\) IN \('other', 'advance', 'umwenda', 'igipande'\)/);
 });
 
 test('active farmer totals omit unsupported deduction categories', () => {
@@ -956,16 +927,18 @@ test('active farmer totals omit unsupported deduction categories', () => {
     grossAmount: 8000,
     pricedVolumeAmount: 8000,
     totalTransport: 500,
-    totalDeductions: 1000,
+    totalDeductions: 1300,
     totalOther: 1000,
     totalAdvance: 0,
     totalUmwenda: 0,
+    totalIgipande: 300,
   });
-  assert.equal(farmer.totalDeductions, 1000);
+  assert.equal(farmer.totalDeductions, 1300);
+  assert.equal(farmer.igipandeDeductions, 300);
   assert.equal(Object.hasOwn(farmer, 'ejohezaDeductions'), false);
-  assert.equal(farmer.ifishiTotalDeductions, 1000);
-  assert.equal(farmer.netAmount, 6500);
-  assert.equal(farmer.ifishiNetAmount, 6500);
+  assert.equal(farmer.ifishiTotalDeductions, 1300);
+  assert.equal(farmer.netAmount, 6200);
+  assert.equal(farmer.ifishiNetAmount, 6200);
   assert.equal(farmer.originalVolume, 22);
   assert.equal(farmer.lostVolume, 2);
 });
@@ -1082,6 +1055,44 @@ test('Collector payable reconciles surplus, farmer deductions, and configured tr
   assert.equal(sheet.collectorPayable, 6000);
   assert.equal(sheet.collectorPayableFromBreakdown, 6000);
   assert.equal(sheet.isReconciled, true);
+});
+
+test('Collector settlement routes expose the negative farmer-net shortfall separately from positive payment instructions', async () => {
+  const rows = [
+    { farmerId: 1, farmerName: 'Bank positive', accountNumber: '12345678', totalVolume: 1502.275, grossAmount: 600910, totalDeductions: 0, totalTransport: 0 },
+    { farmerId: 2, farmerName: 'Bank shortfall', accountNumber: '87654321', totalVolume: 1206.225, grossAmount: 482490, totalDeductions: 686140, totalTransport: 81255 },
+    { farmerId: 3, farmerName: 'Owner route positive', accountNumber: null, totalVolume: 1081.595, grossAmount: 432638, totalDeductions: 0, totalTransport: 0 },
+    { farmerId: 4, farmerName: 'Owner route shortfall', accountNumber: null, totalVolume: 1956.905, grossAmount: 782762, totalDeductions: 1116962, totalTransport: 91155 },
+  ];
+  const summary = await Reports.getSummary({
+    ownerUserId: 42,
+    query: { month: 10, year: 2026, periodType: 'second-half' },
+    repository: reportRepository({
+      getFarmerTotals: async () => rows,
+      getCollectorEntries: async () => [{ date: '2026-10-16', volumeLiters: 5305, effectiveVolumeLiters: 5305, pricePerLiter: 400, status: 'valid' }],
+      getFarmerValidLitersByDate: async () => new Map([['2026-10-16', 5747]]),
+    }),
+    settlementRepository: { getPeriodFinancials: async () => ({ settlements: [], repayments: [], debts: [] }) },
+  });
+  const accounting = summary.settlementAccounting;
+  assert.equal(summary.ownerGeneratedVolume, 5305);
+  assert.equal(summary.ownerGeneratedGross, 2122000);
+  assert.equal(summary.collectorFarmersValidLiters, 5747);
+  assert.equal(summary.collectorFarmerMilkValue, 2298800);
+  assert.equal(summary.collectorFarmerTransport, 172410);
+  assert.equal(summary.collectorFarmerDeductions, 1803102);
+  assert.equal(accounting.signedFarmerNetBalance, 323288);
+  assert.equal(accounting.expectedFarmerPayable, 1033548);
+  assert.equal(accounting.negativeFarmerNetBalance, 710260);
+  assert.equal(accounting.negativeFarmerCount, 2);
+  assert.equal(accounting.accountRoutedPayable, 600910);
+  assert.equal(accounting.ownerListRoutedPayable, 432638);
+  assert.equal(summary.nyirayoOperationalMargin, 1798712);
+  assert.equal(summary.nyirayoTotalAfterOperations, 2231350);
+  assert.equal(accounting.accountRoutedPayable + accounting.ownerListRoutedPayable, accounting.expectedFarmerPayable);
+  assert.equal(accounting.expectedFarmerPayable - accounting.negativeFarmerNetBalance, accounting.signedFarmerNetBalance);
+  assert.equal(accounting.accountRoutedPayable + accounting.ownerListRoutedPayable - accounting.signedFarmerNetBalance, 710260);
+  assert.equal(summary.ownerGeneratedGross - summary.nyirayoTotalAfterOperations - accounting.accountRoutedPayable, -710260);
 });
 
 test('Collector owner total never substitutes assigned farmer milk when no owner entry exists', async () => {
@@ -1242,7 +1253,7 @@ test('active report response and deduction SQL do not expose retired deduction c
   assert.equal(Object.hasOwn(summary.farmerPayments[0], 'ejohezaDeductions'), false);
   assert.doesNotMatch(farmerQuery.text, /ejoheza/i);
   assert.doesNotMatch(deductionsQuery.text, /ejoheza/i);
-  assert.match(deductionsQuery.text, /LOWER\(BTRIM\(d\.type\)\) IN \('other', 'advance', 'umwenda'\)/);
+  assert.match(deductionsQuery.text, /LOWER\(BTRIM\(d\.type\)\) IN \('other', 'advance', 'umwenda', 'igipande'\)/);
 });
 
 test('Dairy collector SQL is owner-, assignment-history-, eligibility-, period-, and selected-center-scoped with no Collector-only charges', () => {

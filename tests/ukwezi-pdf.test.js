@@ -2,7 +2,16 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
-const { renderUkweziPdf, buildUkweziFilename, buildUkweziResponseHeaders, getAccountingRows, getOutstandingSettlementRows } = require('../lib/services/ukwezi-pdf-service.js');
+const {
+  renderUkweziPdf,
+  buildUkweziFilename,
+  buildUkweziResponseHeaders,
+  getAccountingRows,
+  getOutstandingSettlementRows,
+  getEligibleFarmerPaymentGroups,
+  getOwnerAccountingSummary,
+  getCollectorFarmerGroups,
+} = require('../lib/services/ukwezi-pdf-service.js');
 
 const report = {
   rangeStart: '2026-10-01',
@@ -119,12 +128,19 @@ test('Collection Center Ukwezi PDF labels its center separately from the account
   assert.match(source, /if \(isDairy && centerName\) doc\.text\(`\$\{text\.collectionCenter\}: \$\{centerName\}`\)/);
 });
 
-test('Ukwezi collector summary notes start at the page content margin', () => {
+test('Ukwezi collector PDF includes the owner formula and explicit reconciliation difference', () => {
   const source = fs.readFileSync(path.join(__dirname, '..', 'lib', 'services', 'ukwezi-pdf-service.js'), 'utf8');
-  const start = source.indexOf('text.reconciliation}:');
-  const end = source.indexOf('doc.moveDown(0.6);', start);
+  const start = source.indexOf('const accountingRows = [');
+  const end = source.indexOf('const summaryY = doc.y;', start);
   assert.ok(start >= 0 && end > start);
-  assert.match(source.slice(start, end), /leftMargin, doc\.y, \{ width: contentWidth \}/);
+  const summary = source.slice(start, end);
+  assert.match(summary, /text\.nyirayoRecordedMilkValue/);
+  assert.match(summary, /text\.farmersRecordedMilkValue/);
+  assert.match(summary, /text\.nyirayoBaseDifference/);
+  assert.match(summary, /text\.nyirayoOperationalMargin/);
+  assert.match(summary, /text\.ownerPaymentLine/);
+  assert.match(summary, /text\.noAccountAggregate/);
+  assert.match(summary, /text\.verificationDifference/);
 });
 
 test('Ukwezi PDF renderer rejects missing accounting scope with a client error', async () => {
@@ -134,7 +150,7 @@ test('Ukwezi PDF renderer rejects missing accounting scope with a client error',
   );
 });
 
-test('Ukwezi PDF signals settlement accounting migration gaps without dropping core report output', async () => {
+test('Ukwezi PDF omits technical settlement details when settlement accounting is unavailable', async () => {
   const pdf = await renderUkweziPdf({
     report: { ...report, farmerPayments: [], ownerSettlementRow: null, settlementAccountingStatus: 'MIGRATION_REQUIRED' },
     user: { id: 73, name: 'Latina', accountType: 'COLLECTION_CENTER' },
@@ -142,6 +158,9 @@ test('Ukwezi PDF signals settlement accounting migration gaps without dropping c
   });
   assert.equal(pdf.subarray(0, 5).toString('ascii'), '%PDF-');
   assert.ok(pdf.length > 1000);
+  const source = fs.readFileSync(path.join(__dirname, '..', 'lib', 'services', 'ukwezi-pdf-service.js'), 'utf8');
+  const renderer = source.slice(source.indexOf('const renderUkweziPdf ='), source.indexOf('const buildUkweziFilename ='));
+  assert.doesNotMatch(renderer, /getOutstandingSettlementRows\(report\)|text\.settlementUnavailable/);
 });
 
 test('Ukwezi PDF renderer keeps producing a valid PDF when the brand logo asset is missing', async () => {
@@ -217,6 +236,198 @@ test('Ukwezi outstanding-payment list omits paid farmers without removing them f
   assert.equal(periodReport.farmerPayments[0].netAmount, 4000);
 });
 
+test('Ukwezi payment groups use outstanding route instructions and retain zero/negative farmers', () => {
+  const groups = getEligibleFarmerPaymentGroups({
+    farmerPayments: [
+      { farmerId: 1, farmerName: 'Account paid', accountNumber: 'RW-12345', totalVolume: 5, netAmount: 500, settlement: { saccoDistributionInstruction: 320 } },
+      { farmerId: 2, farmerName: 'No account', accountNumber: null, totalVolume: 4, netAmount: 400, settlement: { retainedUnpaidAmount: 250, outstandingDebt: 900 } },
+      { farmerId: 3, farmerName: 'Zero after debt recovery', accountNumber: 'RW-56789', totalVolume: 3, netAmount: 300, settlement: { saccoDistributionInstruction: 0, availableAfterDebtRecovery: 0, outstandingDebt: 800 } },
+      { farmerId: 8, farmerName: 'Debt recovery consumes payable', accountNumber: 'RW-98765', totalVolume: 2, netAmount: 200, settlement: { debtRepaymentAmount: 200, outstandingDebt: 0 } },
+      { farmerId: 7, farmerName: 'Debt only, no remaining payable', accountNumber: null, totalVolume: 2, netAmount: 200, settlement: { retainedUnpaidAmount: 0, availableAfterDebtRecovery: 0, outstandingDebt: 200 } },
+      { farmerId: 4, farmerName: 'Negative payable', accountNumber: null, totalVolume: 2, netAmount: -50 },
+      { farmerId: 5, farmerName: 'No valid milk', accountNumber: 'RW-88888', totalVolume: 0, netAmount: 700 },
+      { farmerId: 6, farmerName: 'No account value', accountNumber: 'N/A', totalVolume: 1, netAmount: 75 },
+      { farmerId: 9, farmerName: 'Legacy confirmed account payment', accountNumber: 'RW-11111', totalVolume: 2, netAmount: 500, settlement: { cashConfirmedAmount: 50, saccoConfirmedAmount: 50 } },
+      { farmerId: 10, farmerName: 'Legacy confirmed owner payment', accountNumber: null, totalVolume: 2, netAmount: 500, settlement: { cashConfirmedAmount: 100 } },
+      { farmerId: 11, farmerName: 'Unknown route amount', accountNumber: 'RW-22222', totalVolume: 2, netAmount: 500, settlement: { saccoDistributionInstruction: null } },
+    ],
+  });
+
+  assert.deepEqual(groups.withAccount.map(({ farmerId, paymentAmount }) => [farmerId, paymentAmount]), [[1, 320], [3, 0], [8, 0], [9, 400], [11, null]]);
+  assert.deepEqual(groups.withoutAccount.map(({ farmerId, paymentAmount }) => [farmerId, paymentAmount]), [[2, 250], [7, 0], [4, 0], [6, 75], [10, 400]]);
+});
+
+test('Collector PDF shows only account farmers, keeps the owner aggregate, and repeats all 13 headers', async () => {
+  const bankFarmers = Array.from({ length: 64 }, (_, index) => ({
+    farmerId: index + 1,
+    farmerName: `BANK-FARMER-${String(index + 1).padStart(3, '0')}`,
+    nationalId: `ID-${String(index + 1).padStart(6, '0')}`,
+    phone: `078800${String(index + 1).padStart(4, '0')}`,
+    accountNumber: `RW-ACCOUNT-${String(index + 1).padStart(4, '0')}`,
+    validVolumeLiters: 10,
+    totalVolume: 10,
+    pricePerLiter: 400,
+    grossAmount: 4000,
+    totalTransport: 100,
+    totalDeductions: 200,
+    ejohezaDeductions: 0,
+    netAmount: 3700,
+  }));
+  const ownerRoutedFarmers = Array.from({ length: 24 }, (_, index) => ({
+    farmerId: index + 1001,
+    farmerName: `OWNER-FARMER-${String(index + 1).padStart(3, '0')}`,
+    nationalId: `NO-ID-${String(index + 1).padStart(4, '0')}`,
+    phone: `078811${String(index + 1).padStart(4, '0')}`,
+    accountNumber: null,
+    validVolumeLiters: 8,
+    totalVolume: 8,
+    pricePerLiter: 400,
+    grossAmount: 3200,
+    totalTransport: 80,
+    totalDeductions: 120,
+    ejohezaDeductions: 0,
+    netAmount: 3000,
+  }));
+  const generated = await renderUkweziPdf({
+    report: {
+      ...report,
+      farmerPayments: [...bankFarmers, ...ownerRoutedFarmers],
+      ownerGeneratedGross: 300000,
+      ownerGeneratedVolume: 750,
+      collectorFarmersValidLiters: 832,
+      nyirayoMilkValue: 300000,
+      collectorFarmerMilkValue: 332800,
+      nyirayoBaseDifference: -32800,
+      transportAmount: 8320,
+      farmerDeductions: 15680,
+      nyirayoOperationalMargin: -8800,
+      retainedNoAccountFarmerAmount: 72000,
+      nyirayoTotalAfterOperations: 63200,
+      ownerSettlementRow: { name: 'Owner bank route', accountNumber: 'RW-OWNER-001' },
+      settlementAccounting: {
+        signedFarmerNetBalance: 308800,
+        negativeFarmerNetBalance: 0,
+        negativeFarmerCount: 0,
+        ownerGrossReconciliation: {
+          ownerGross: 300000,
+          farmerGross: 332800,
+          baseDifference: -32800,
+          transportAmount: 8320,
+          farmerDeductions: 15680,
+          retainedNoAccountFarmerAmount: 72000,
+          operationalMargin: -8800,
+          totalAfterOperations: 63200,
+        },
+      },
+    },
+    user: { id: 73, name: 'Collector', accountType: 'COLLECTOR' },
+    query: { month: '10', year: '2026', periodType: 'second-half', language: 'en' },
+  });
+  const pdfjs = await import('pdfjs-dist/legacy/build/pdf.mjs');
+  const parsed = await pdfjs.getDocument({ data: new Uint8Array(generated) }).promise;
+  const firstPageViewport = (await parsed.getPage(1)).getViewport({ scale: 1 });
+  const pageTexts = [];
+  for (let pageNumber = 1; pageNumber <= parsed.numPages; pageNumber += 1) {
+    const page = await parsed.getPage(pageNumber);
+    const content = await page.getTextContent();
+    pageTexts.push(content.items.map((item) => item.str).join(' ').replace(/\s+/g, ' '));
+  }
+  const pdfText = pageTexts.join(' ');
+
+  assert.ok(parsed.numPages > 2);
+  assert.ok(firstPageViewport.width > firstPageViewport.height);
+  assert.ok(firstPageViewport.width > 1100, 'collector statement uses a wide landscape page for legible 13-column tables');
+  for (const header of [
+    'Farmer full name', 'National ID number', 'Telephone', 'Account number',
+    'Milk quantity (L)', 'Price per liter', 'Gross value', 'TRANSPORT',
+    'Igipande and other deductions', 'Ejoheza (RWF)', 'Total deductions', 'Farmer paid',
+  ]) {
+    assert.ok(pdfText.includes(header), `missing PDF column: ${header}`);
+  }
+  assert.ok(pageTexts.filter((pageText) => pageText.includes('Farmer full name')).length >= 2, 'table header must repeat on later pages');
+  for (const farmer of [...bankFarmers, ...ownerRoutedFarmers]) {
+    if (farmer.accountNumber) {
+      assert.equal(pdfText.split(farmer.farmerName).length - 1, 1, `expected exactly one bank farmer row for ${farmer.farmerName}`);
+    } else {
+      assert.equal(pdfText.includes(farmer.farmerName), false, `no-account farmer name leaked into PDF: ${farmer.farmerName}`);
+      assert.equal(pdfText.includes(farmer.nationalId), false, `no-account farmer ID leaked into PDF: ${farmer.nationalId}`);
+      assert.equal(pdfText.includes(farmer.phone), false, `no-account farmer phone leaked into PDF: ${farmer.phone}`);
+    }
+  }
+  assert.equal(pdfText.includes('OWNER-FARMER-001'), false);
+  assert.equal(pdfText.includes('NO-ID-0001'), false);
+  assert.ok(pdfText.includes('RW-OWNER-001'));
+  assert.ok(pdfText.includes('Aggregate payable for farmers without accounts'));
+  assert.ok(pdfText.includes('72,000.00 RWF'));
+  assert.ok(pdfText.includes("Owner's payment line, including the total routed for farmers without accounts"));
+  assert.ok(pdfText.includes('63,200.00 RWF'));
+  assert.ok(pdfText.includes('Total payment distribution'));
+  assert.ok(pdfText.includes('300,000.00 RWF'));
+  assert.ok(pdfText.includes('236,800.00 RWF'));
+  assert.ok(pdfText.includes('72,000.00 RWF'));
+  assert.ok(pdfText.includes('300,000.00 RWF'));
+  assert.ok(pdfText.includes('No Ejoheza amount is recorded in this report'));
+  assert.ok(pdfText.includes('750.00 L'));
+  assert.ok(pdfText.includes('832.00 L'));
+  const rosterSource = fs.readFileSync(path.join(__dirname, '..', 'components', 'views', 'collector-ukwezi-payment-roster.tsx'), 'utf8');
+  const workspaceSource = fs.readFileSync(path.join(__dirname, '..', 'app', 'workspace.tsx'), 'utf8');
+  assert.match(rosterSource, /renderTable\(ownerRows,\s*false/);
+  assert.match(workspaceSource, /ownerRows=\{noAccountPaymentRows\}/);
+  await parsed.destroy();
+});
+
+test('Collection Center detail lists exclude zero and negative farmer payable rows', () => {
+  const groups = getCollectorFarmerGroups({
+    collectorSettlementRows: [{
+      name: 'Collector A',
+      farmers: [
+        { farmerId: 1, farmerName: 'Positive', totalVolume: 2, netAmount: 100 },
+        { farmerId: 2, farmerName: 'Zero', totalVolume: 2, netAmount: 0 },
+        { farmerId: 3, farmerName: 'Negative', totalVolume: 2, netAmount: -10 },
+        { farmerId: 4, farmerName: 'No valid volume', totalVolume: 0, netAmount: 100 },
+      ],
+    }],
+  });
+  assert.deepEqual(groups[0].farmers.map((farmer) => farmer.farmerId), [1]);
+});
+
+test('Ukwezi owner summary preserves the established formula and exposes a distribution difference', () => {
+  const summary = getOwnerAccountingSummary({
+    ownerGeneratedGross: 5000,
+    collectorFarmerMilkValue: 4000,
+    transportAmount: 200,
+    farmerDeductions: 300,
+    retainedNoAccountFarmerAmount: 400,
+    settlementAccounting: {
+      ownerGrossReconciliation: {
+        ownerGross: 5000,
+        farmerGross: 4000,
+        baseDifference: 1000,
+        transportAmount: 200,
+        farmerDeductions: 300,
+        retainedNoAccountFarmerAmount: 400,
+        operationalMargin: 1500,
+        totalAfterOperations: 1900,
+      },
+    },
+  });
+  const difference = Number((summary.ownerMilkValue - summary.finalOwnerTotal - 3100).toFixed(2));
+
+  assert.deepEqual(summary, {
+    ownerMilkValue: 5000,
+    farmersMilkValue: 4000,
+    initialDifference: 1000,
+    transport: 200,
+    deductions: 300,
+    noAccountAmount: 400,
+    workIncome: 1500,
+    finalOwnerTotal: 1900,
+  });
+  assert.equal(difference, 0);
+  assert.equal(summary.workIncome, summary.initialDifference + summary.transport + summary.deductions);
+  assert.equal(summary.finalOwnerTotal, summary.workIncome + summary.noAccountAmount);
+});
+
 test('Ukwezi PDF route uses the authenticated owner and selected period context', () => {
   const route = fs.readFileSync(path.join(__dirname, '..', 'app', 'api', 'ukwezi', 'pdf', 'route.js'), 'utf8');
   const nextConfig = fs.readFileSync(path.join(__dirname, '..', 'next.config.mjs'), 'utf8');
@@ -238,21 +449,8 @@ test('Ukwezi PDF route uses the authenticated owner and selected period context'
 });
 
 test('Ukwezi PDF renderer includes Igenzura rya Nyirayo line items in settlement reconciliation', async () => {
-  const igipandeFarmers = report.farmerPayments.slice(0, 2).map((farmer, index) => ({
-    ...farmer,
-    settlement: {
-      saccoDistributionInstruction: 0,
-      retainedUnpaidAmount: 0,
-      igipandeCharge: 100,
-      igipandeContributionRecoveredAmount: index === 0 ? 60 : 0,
-      igipandeContributionOutstandingBalance: index === 0 ? 40 : 100,
-      igipandeStatus: index === 0 ? 'PARTIALLY_PAID' : 'UNPAID',
-    },
-  }));
   const auditReport = {
     ...report,
-    rangeStart: '2026-11-16',
-    rangeEnd: '2026-11-30',
     nyirayoMilkValue: 208400,
     farmersMilkValue: 707400,
     nyirayoBaseDifference: -499000,
@@ -267,9 +465,6 @@ test('Ukwezi PDF renderer includes Igenzura rya Nyirayo line items in settlement
       cashApprovedAmount: 0,
       cashConfirmedAmount: 0,
       debtRepaymentAmount: 0,
-      igipandeChargeAmount: 200,
-      igipandeRecoveryAmount: 60,
-      igipandeOutstandingBalance: 140,
       outstandingDebt: 0,
       debtBalancesComplete: true,
       retainedUnpaidAmount: 288000,
@@ -284,7 +479,7 @@ test('Ukwezi PDF renderer includes Igenzura rya Nyirayo line items in settlement
         operationalMargin: -472000,
         totalAfterOperations: -184000,
       },
-      farmers: igipandeFarmers,
+      farmers: report.farmerPayments.slice(0, 2),
     },
   };
 
@@ -472,8 +667,9 @@ test('Paper-Efficient Bank-Ready PDF includes bank endorsement blocks, only veri
   assert.match(source, /text\.reviewedBy/);
   assert.match(source, /text\.approvedBy/);
   assert.match(source, /text\.grandTotal/);
-  assert.match(source, /hasVerifiedAccount/);
-  assert.match(source, /ownerRemainderRow/);
+  assert.match(source, /collectorPaymentGroups\.withAccount/);
+  assert.match(source, /collectorPaymentGroups\.withoutAccount/);
+  assert.match(source, /getOwnerAccountingSummary/);
 
   // No SACCO / Ejo Heza in source or output
   const text = pdf.toString('latin1');
