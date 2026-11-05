@@ -108,7 +108,8 @@ test('Settlements and shared navigation use paired locale copy and accessible la
   assert.match(settlementView, /new Intl\.NumberFormat\(publicLanguage\.language/);
   assert.match(workspace, /ukweziReconciliationUnavailableDetail/);
   assert.match(settlementView, /publicLanguage\.t\('ukweziReconciliationUnavailableDetail'\)/);
-  assert.equal((ukweziView.match(/publicLanguage\.t\('ukweziReconciliationUnavailableDetail'\)/g) || []).length, 0);
+  assert.match(ukweziView, /settlementAccountingStatus === 'MIGRATION_REQUIRED'/);
+  assert.equal((ukweziView.match(/publicLanguage\.t\('ukweziReconciliationUnavailableDetail'\)/g) || []).length, 1);
   assert.match(workspace, /publicLanguage\.t\(settlementError\)/);
   assert.match(workspace, /settlementsRetry/);
   assert.doesNotMatch(publicCopy, /settlementsLoadError: '[^']*Ongera ugerageze/);

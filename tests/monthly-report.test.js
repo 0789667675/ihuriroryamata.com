@@ -332,6 +332,20 @@ test('missing settlement tables preserve core Ukwezi and explicitly mark settlem
   assert.equal(summary.settlementAccounting, null);
   assert.equal(summary.settlementAccountingStatus, 'MIGRATION_REQUIRED');
 
+  const missingPeriodColumns = await Reports.getSummary({
+    ownerUserId: 77,
+    query: { periodType: 'first-half', month: 10, year: 2026 },
+    repository: reportRepository({ accountType: 'COLLECTION_CENTER' }),
+    settlementRepository: {
+      getPeriodFinancials: async () => {
+        throw Object.assign(new Error('column r.period_start does not exist'), { code: '42703' });
+      },
+    },
+  });
+  assert.equal(missingPeriodColumns.totalRevenueMonth, 34000);
+  assert.equal(missingPeriodColumns.settlementAccounting, null);
+  assert.equal(missingPeriodColumns.settlementAccountingStatus, 'MIGRATION_REQUIRED');
+
   await assert.rejects(() => Reports.getSummary({
     ownerUserId: 77,
     query: { periodType: 'first-half', month: 10, year: 2026 },
@@ -340,6 +354,17 @@ test('missing settlement tables preserve core Ukwezi and explicitly mark settlem
       getPeriodFinancials: async () => { throw Object.assign(new Error('connection lost'), { code: '08006' }); },
     },
   }), { code: '08006' });
+
+  await assert.rejects(() => Reports.getSummary({
+    ownerUserId: 77,
+    query: { periodType: 'first-half', month: 10, year: 2026 },
+    repository: reportRepository({ accountType: 'COLLECTION_CENTER' }),
+    settlementRepository: {
+      getPeriodFinancials: async () => {
+        throw Object.assign(new Error('column f.phone does not exist'), { code: '42703' });
+      },
+    },
+  }), { code: '42703' });
 });
 
 test('settlement reconciliation exposes a mismatch between Owner Ifishi gross and collector-sheet allocation', async () => {

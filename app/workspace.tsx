@@ -6075,6 +6075,7 @@ const visibleTabs = (isAdmin
         {ukweziPdfStatus ? <p className="form-success" role="status">{ukweziPdfStatus}</p> : null}
         {ukweziReport ? <>
           <p className="ukwezi-period-caption">{ukweziReport.rangeStart} – {ukweziReport.rangeEnd}{reportCenterName ? ` · ${publicLanguage.t('ukweziCenter')}: ${reportCenterName}` : ''}</p>
+          {ukweziReport.settlementAccountingStatus === 'MIGRATION_REQUIRED' ? <div className="workspace-empty" role="status"><b>{publicLanguage.t('ukweziReconciliationUnavailable')}</b><p>{publicLanguage.t('ukweziReconciliationUnavailableDetail')}</p></div> : null}
           {isCollector ? <>
             <section className="ukwezi-summary" aria-labelledby="ukwezi-summary-heading">
               <h3 id="ukwezi-summary-heading">{publicLanguage.t('ukweziSummary')}</h3>

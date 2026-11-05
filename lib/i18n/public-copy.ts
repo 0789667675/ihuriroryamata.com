@@ -207,7 +207,7 @@ export const publicCopy = {
     ukweziReconciliationMismatch: 'Ibaruramari ntirihuye',
     ukweziReconciliationPending: 'Ibaruramari riracyasuzumwa',
     ukweziReconciliationUnavailable: 'Ibaruramari ry’ubwishyu ntiriboneka',
-    ukweziReconciliationUnavailableDetail: 'Ihuza ry’ubwishyu ntiriboneka kubera migrations 015, 016 cyangwa 030 zidakorewe. Ibaruramari ry’amata n’agaciro ka nyirayo ntibyahinduwe.',
+    ukweziReconciliationUnavailableDetail: 'Ihuza ry’ubwishyu n’imyenda ntiriboneka kuko migrations 015, 016 cyangwa 032 zishobora kuba zitarashyizweho neza. Migration 030 yarahagaritswe kandi ntigomba gushyirwaho. Ibaruramari ry’amata riracyaboneka, ariko ihuza ry’ubwishyu ntirihari.',
     ukweziBreakdown: 'Ibisobanuro by’amafaranga',
     ukweziBreakdownUnavailable: 'Ibisobanuro by’amafaranga: ntibiboneka kugeza ibaruramari ry’ubwishyu rihuye.',
 
@@ -1390,7 +1390,7 @@ export const publicCopy = {
     ukweziReconciliationMismatch: 'Settlement does not reconcile',
     ukweziReconciliationPending: 'Settlement not reconciled',
     ukweziReconciliationUnavailable: 'Settlement reconciliation unavailable',
-    ukweziReconciliationUnavailableDetail: 'Settlement reconciliation is unavailable because migration 015, 016, or 030 has not been applied. Existing milk and owner-gross calculations remain unchanged.',
+    ukweziReconciliationUnavailableDetail: 'Payment and debt reconciliation is unavailable because required settlement migrations 015, 016, or 032 may be missing or incomplete. Migration 030 is retired and must not be applied. Milk accounting remains available, but payment reconciliation is unavailable.',
     ukweziBreakdown: 'Payable breakdown',
     ukweziBreakdownUnavailable: 'Settlement breakdown unavailable until reconciliation is verified.',
 
