@@ -262,9 +262,33 @@ test('Collector Ukwezi separates summary, owner accounting, and positive-payable
   assert.match(roster, /t\('ukweziPaymentAmount'\)/);
   assert.match(roster, /t\('ukweziColAccountNumber'\)/);
   assert.match(roster, /t\('ukweziOwnerAccount'\)/);
+  assert.match(roster, /ukwezi-debt-recovery/);
+  assert.match(roster, /openingDebt/);
+  assert.match(roster, /debtRecovered/);
+  assert.match(roster, /closingDebt/);
+  assert.match(workspace, /action: 'close-period'/);
+  assert.match(workspace, /ukweziCloseConfirm/);
+  assert.match(monthlyReport, /openingDebt: details\.debtBalanceComplete/);
+  assert.match(monthlyReport, /closingDebt: details\.debtBalanceComplete/);
   assert.match(publicCopy, /ukweziDistributionFormula:/);
+  assert.match(styles, /\.ukwezi-debt-mobile \{ display: none; \}/);
+  assert.match(styles, /\.ukwezi-debt-mobile \{ display: grid; gap: 8px; \}/);
   assert.match(styles, /\.ukwezi-payment-desktop \{ display: none; \}/);
   assert.match(styles, /\.ukwezi-summary-grid \{ grid-template-columns: repeat\(2, minmax\(0, 1fr\)\); \}/);
+});
+
+test('Collector Ukwezi farmer search filters both payment lists and debt rows without changing reconciliation inputs', () => {
+  const roster = fs.readFileSync(path.join(__dirname, '..', 'components', 'views', 'collector-ukwezi-payment-roster.tsx'), 'utf8');
+  const search = fs.readFileSync(path.join(__dirname, '..', 'lib', 'utils', 'ukwezi-payment-search.js'), 'utf8');
+
+  assert.match(roster, /filterUkweziPaymentRows\(accountRows, searchQuery\)/);
+  assert.match(roster, /filterUkweziPaymentRows\(ownerRows, searchQuery\)/);
+  assert.match(roster, /rows: filteredAccountRows[\s\S]*rows: filteredOwnerRows/);
+  assert.match(roster, /total\(accountRows, 'payable'\)/);
+  assert.match(roster, /ukweziSearchResults/);
+  assert.match(search, /row\.accountNumber/);
+  assert.match(search, /row\.nationalId/);
+  assert.match(search, /row\.phone/);
 });
 
 test('Active Ikigo selection stays valid and falls back to the first center when needed', () => {

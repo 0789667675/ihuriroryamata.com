@@ -2,11 +2,12 @@ import { NextResponse } from 'next/server';
 
 const { getAuthenticatedUser } = require('@/lib/security/authenticate.js');
 const { query } = require('@/lib/postgres.js');
-const { getFarmerTotals } = require('@/lib/repositories/reportRepository.js');
+const { getFarmerTotals, getCollectorDairyOwnerId } = require('@/lib/repositories/reportRepository.js');
 const settlementRepository = require('@/lib/repositories/farmerSettlementRepository.js');
 const { createSettlementRecord, confirmSettlement, hasValidSaccoAccount } = require('@/lib/services/farmer-settlement-service.js');
 const { requireCollector, assertAssignedCollector, parsePositiveId, parsePositiveAmount, parsePeriod } = require('@/lib/services/farmer-settlement-access.js');
-const { getCurrentAccountingPeriod } = require('@/lib/utils/accounting-period.js');
+const { getCurrentAccountingPeriod, getAccountingDate, getHalfMonthDateRange } = require('@/lib/utils/accounting-period.js');
+const { getUkweziPeriodKind } = require('@/lib/utils/deduction-period.js');
 const Notifications = require('@/lib/services/notification-service.js');
 const Subscriptions = require('@/lib/services/subscription-service.js');
 
@@ -108,6 +109,43 @@ export async function POST(request) {
     const body = await request.json();
     if (!body || typeof body !== 'object' || Array.isArray(body)) return NextResponse.json({ ok: false, message: 'A JSON object is required.' }, { status: 400 });
     const action = String(body.action || '').toLowerCase();
+
+    if (action === 'close-period') {
+      const { periodStart, periodEnd } = parsePeriod(body.periodStart, body.periodEnd);
+      const periodKind = periodStart.slice(-2) === '01' ? 'first-half'
+        : periodStart.slice(-2) === '16' ? 'second-half'
+          : null;
+      const expectedRange = periodKind
+        ? getHalfMonthDateRange(Number(periodStart.slice(0, 4)), Number(periodStart.slice(5, 7)), periodKind)
+        : null;
+      if (getUkweziPeriodKind(periodStart, periodEnd) === null
+        || !expectedRange || expectedRange.startDate !== periodStart || expectedRange.endDate !== periodEnd) {
+        throw Object.assign(new Error('Choose a valid Ukwezi half-month period.'), { statusCode: 400 });
+      }
+      if (periodEnd >= getAccountingDate()) {
+        throw Object.assign(new Error('Only a completed Ukwezi period can be closed.'), { statusCode: 400 });
+      }
+      const ownerUserId = await getCollectorDairyOwnerId(Number(user.id)) || Number(user.id);
+      const farmers = await getFarmerTotals({
+        ownerUserId,
+        collectorUserId: Number(user.id),
+        assignedCollectorOnly: true,
+        rangeStart: periodStart,
+        rangeEnd: periodEnd,
+      });
+      if (farmers.some((farmer) => farmer.netAmount === null || farmer.netAmount === undefined || !Number.isFinite(Number(farmer.netAmount)))) {
+        throw Object.assign(new Error('The period contains incomplete farmer earnings; resolve the missing values before closing it.'), { statusCode: 409 });
+      }
+      const result = await settlementRepository.closeUkweziPeriod({
+        ownerUserId,
+        collectorUserId: Number(user.id),
+        actorId: Number(user.id),
+        periodStart,
+        periodEnd,
+        farmers,
+      });
+      return NextResponse.json({ ok: true, ...result });
+    }
 
     if (action === 'confirm') {
       const settlementId = parsePositiveId(body.settlementId, 'settlementId');

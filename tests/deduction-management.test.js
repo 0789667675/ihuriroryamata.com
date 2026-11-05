@@ -2,6 +2,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const { calculateDeductionRecovery, getUkweziPeriodKind, validateDeductionPeriod } = require('../lib/utils/deduction-period.js');
 const Deductions = require('../lib/services/deduction-service.js');
+const { SETUP_MESSAGE, isMissingDeductionSetup } = require('../lib/utils/deduction-schema-error.js');
 const DeductionRepository = require('../lib/repositories/deductionRepository.js');
 const fs = require('node:fs');
 const path = require('node:path');
@@ -162,7 +163,16 @@ test('Igipande is available as a manual deduction type', () => {
 
 test('deduction configuration route explains when migration 031 is missing', () => {
   const route = fs.readFileSync(path.join(__dirname, '../app/api/deductions/configurations/route.js'), 'utf8');
-  assert.match(route, /error\.code === '42P01'/);
-  assert.match(route, /deduction_configurations/);
-  assert.match(route, /migration 031_deduction_period_batch_management\.sql/);
+  const ledgerRoute = fs.readFileSync(path.join(__dirname, '../app/api/deductions/route.js'), 'utf8');
+  assert.match(route, /isMissingDeductionSetup/);
+  assert.match(ledgerRoute, /isMissingDeductionSetup/);
+  assert.match(SETUP_MESSAGE, /migration 031_deduction_period_batch_management\.sql/);
+});
+
+test('deduction endpoints explain missing or partially applied migration 031 schema', () => {
+  assert.equal(isMissingDeductionSetup({ code: '42P01', message: 'relation "public.deduction_batch_items" does not exist' }), true);
+  assert.equal(isMissingDeductionSetup({ code: '42703', message: 'column i.configuration_id does not exist' }), true);
+  assert.equal(isMissingDeductionSetup({ code: '42P01', message: 'relation "farmers" does not exist' }), false);
+  assert.equal(isMissingDeductionSetup({ code: '42703', message: 'column farmers.phone does not exist' }), false);
+  assert.equal(isMissingDeductionSetup({ code: '23505', message: 'duplicate key' }), false);
 });

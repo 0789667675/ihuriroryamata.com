@@ -141,6 +141,42 @@ test('Ukwezi collector PDF includes the owner formula and explicit reconciliatio
   assert.match(summary, /text\.ownerPaymentLine/);
   assert.match(summary, /text\.noAccountAggregate/);
   assert.match(summary, /text\.verificationDifference/);
+  assert.match(summary, /text\.debtOpening/);
+  assert.match(summary, /text\.debtRepaid/);
+  assert.match(summary, /text\.debtOutstanding/);
+});
+
+test('Ukwezi PDF debt summary uses the same opening, recovered, and closing totals as the web report', async () => {
+  const generated = await renderUkweziPdf({
+    report: {
+      ...report,
+      settlementAccounting: {
+        openingDebt: 50000,
+        debtRepaymentAmount: 5000,
+        outstandingDebt: 45000,
+        debtBalancesComplete: true,
+        farmers: [],
+        ownerGrossReconciliation: {},
+      },
+    },
+    user: { id: 73, name: 'Collector', accountType: 'COLLECTOR' },
+    query: { month: '10', year: '2026', periodType: 'second-half', language: 'en' },
+  });
+  const pdfjs = await import('pdfjs-dist/legacy/build/pdf.mjs');
+  const parsed = await pdfjs.getDocument({ data: new Uint8Array(generated) }).promise;
+  const textPages = [];
+  for (let pageNumber = 1; pageNumber <= parsed.numPages; pageNumber += 1) {
+    const page = await parsed.getPage(pageNumber);
+    const content = await page.getTextContent();
+    textPages.push(content.items.map((item) => item.str).join(' '));
+  }
+  const pdfText = textPages.join(' ');
+  assert.ok(pdfText.includes('Opening debt'));
+  assert.ok(pdfText.includes('Debt repaid'));
+  assert.ok(pdfText.includes('Debt outstanding'));
+  assert.ok(pdfText.includes('50,000.00 RWF'));
+  assert.ok(pdfText.includes('5,000.00 RWF'));
+  assert.ok(pdfText.includes('45,000.00 RWF'));
 });
 
 test('Ukwezi PDF renderer rejects missing accounting scope with a client error', async () => {
@@ -371,7 +407,7 @@ test('Collector PDF shows only account farmers, keeps the owner aggregate, and r
   assert.ok(pdfText.includes('832.00 L'));
   const rosterSource = fs.readFileSync(path.join(__dirname, '..', 'components', 'views', 'collector-ukwezi-payment-roster.tsx'), 'utf8');
   const workspaceSource = fs.readFileSync(path.join(__dirname, '..', 'app', 'workspace.tsx'), 'utf8');
-  assert.match(rosterSource, /renderTable\(ownerRows,\s*false/);
+  assert.match(rosterSource, /renderTable\(filteredOwnerRows,\s*false/);
   assert.match(workspaceSource, /ownerRows=\{noAccountPaymentRows\}/);
   await parsed.destroy();
 });

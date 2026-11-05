@@ -9,6 +9,7 @@ const {
   confirmSettlement,
   createDebtLedgerEntry,
   applyDebtRepayment,
+  planPeriodDebtRecovery,
 } = require('../lib/services/farmer-settlement-service.js');
 
 test('SACCO eligibility includes only valid account holders', () => {
@@ -165,4 +166,38 @@ test('debt can be partially repaid and carried forward', () => {
   assert.equal(repayment.status, 'PARTIALLY_SETTLED');
   assert.equal(repayment.transactionType, 'DEBT_REPAYMENT');
   assert.equal(repayment.ledger.remainingBalance, 20000);
+});
+
+test('period debt recovery applies available earnings once across carried balances', () => {
+  const first = planPeriodDebtRecovery({
+    debts: [{ id: 1, farmerId: 11, source: 'DEDUCTION', periodEnd: '2026-10-15', remaining_balance: 15000 }],
+    availableEarnings: 10000,
+  });
+  assert.deepEqual(first.allocations, [{ debtId: 1, farmerId: 11, recoveredAmount: 10000, remainingDebt: 5000 }]);
+  assert.equal(first.totalRecovered, 10000);
+  assert.equal(first.remainingEarnings, 0);
+
+  const second = planPeriodDebtRecovery({
+    debts: [{ id: 1, farmerId: 11, source: 'DEDUCTION', periodEnd: '2026-10-15', remaining_balance: first.allocations[0].remainingDebt }],
+    availableEarnings: 20000,
+  });
+  assert.deepEqual(second.allocations, [{ debtId: 1, farmerId: 11, recoveredAmount: 5000, remainingDebt: 0 }]);
+  assert.equal(second.remainingEarnings, 15000);
+});
+
+test('period debt recovery is FIFO, partial, source-backed, and never derives debt from negative earnings', () => {
+  const partial = planPeriodDebtRecovery({
+    debts: [
+      { id: 2, farmer_id: 7, source: 'DEDUCTION', period_end: '2026-10-31', remaining_balance: 4000 },
+      { id: 1, farmer_id: 7, source: 'DEBT', period_end: '2026-10-15', remaining_balance: 3000 },
+      { id: 3, farmer_id: 7, source: 'UNSUPPORTED', period_end: '2026-10-01', remaining_balance: 9000 },
+    ],
+    availableEarnings: 5000,
+  });
+
+  assert.deepEqual(partial.allocations, [
+    { debtId: 1, farmerId: 7, recoveredAmount: 3000, remainingDebt: 0 },
+    { debtId: 2, farmerId: 7, recoveredAmount: 2000, remainingDebt: 2000 },
+  ]);
+  assert.equal(planPeriodDebtRecovery({ debts: partial.allocations, availableEarnings: -710260 }).totalRecovered, 0);
 });

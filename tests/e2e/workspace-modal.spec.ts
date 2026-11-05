@@ -35,6 +35,7 @@ const settlementReport = {
   cashApprovedAmount: 1500,
   cashConfirmedAmount: 500,
   debtRepaymentAmount: 300,
+  openingDebt: 500,
   outstandingDebt: 200,
   legacyUnallocatedDebtRepayments: 0,
   debtBalancesComplete: true,
@@ -57,6 +58,8 @@ const settlementReport = {
       cashApprovedAmount: 1500,
       cashConfirmedAmount: 500,
       debtRepaymentAmount: 300,
+      openingDebt: 500,
+      closingDebt: 200,
       outstandingDebt: 200,
       retainedUnpaidAmount: 3500,
       unexplainedDiscrepancy: 200,
@@ -777,6 +780,13 @@ test('Collector settlements uses report accounting, while Ukwezi shows eligible 
   await expect(paymentRoster).toContainText(/Milk volume \(L\)|Ingano y’amata \(L\)/i);
   await expect(paymentRoster).toContainText(/National ID number|Nomero y'indangamuntu/i);
   await expect(paymentRoster).toContainText(/Ejoheza \(RWF\)|FRW ya Ejoheza/i);
+  const debtRecovery = paymentRoster.locator('.ukwezi-debt-recovery');
+  await expect(debtRecovery).toContainText(/Opening debt|Umwenda watangiye iki gihe/i);
+  await expect(debtRecovery).toContainText(/Debt recovered this period|Umwenda wishyuwe muri iki gihe/i);
+  await expect(debtRecovery).toContainText(/Debt outstanding after period|Umwenda usigaye nyuma y’iki gihe/i);
+  await expect(debtRecovery).toContainText('500.00 RWF');
+  await expect(debtRecovery).toContainText('300.00 RWF');
+  await expect(debtRecovery).toContainText('200.00 RWF');
   for (const viewport of [
     { width: 375, height: 812 },
     { width: 844, height: 390 },
@@ -790,6 +800,7 @@ test('Collector settlements uses report accounting, while Ukwezi shows eligible 
       await expect(paymentRoster.locator('.ukwezi-payment-mobile').first()).toBeVisible();
       await expect(paymentRoster.locator('.ukwezi-mobile-card').first()).toBeVisible();
       await expect(paymentRoster.locator('.ukwezi-mobile-card').first()).toContainText(/Account number|Nimero ya konti/i);
+      await expect(debtRecovery.locator('.ukwezi-debt-mobile')).toBeVisible();
     } else {
       await expect(paymentRoster.locator('.ukwezi-payment-desktop').first()).toBeVisible();
       const scroller = paymentRoster.locator('.ukwezi-payment-desktop').first();
@@ -799,6 +810,7 @@ test('Collector settlements uses report accounting, while Ukwezi shows eligible 
       }));
       expect(metrics.overflows).toBe(true);
       expect(metrics.overflowX).toBe('auto');
+      await expect(debtRecovery.locator('.ukwezi-debt-desktop')).toBeVisible();
     }
   }
 });

@@ -188,9 +188,9 @@ test('period financial debt queries use only typed parameters for owner, date, a
     rangeEnd: '2026-10-31',
     runQuery,
   });
-  assert.deepEqual(calls[2].values, [7, '2026-10-31']);
+  assert.deepEqual(calls[2].values, [7, '2026-10-31', '2026-10-01']);
   assert.match(calls[2].sql, /created_at AT TIME ZONE 'Africa\/Kigali'\)::date <= \$2::date/);
-  assert.doesNotMatch(calls[2].sql, /\$3/);
+  assert.match(calls[2].sql, /repaid_before_start/);
 
   calls.length = 0;
   await farmerSettlementRepository.getPeriodFinancials({
@@ -200,8 +200,8 @@ test('period financial debt queries use only typed parameters for owner, date, a
     collectorUserId: 18,
     runQuery,
   });
-  assert.deepEqual(calls[2].values, [7, '2026-10-31', 18]);
-  assert.match(calls[2].sql, /created_at AT TIME ZONE 'Africa\/Kigali'\)::date <= \$2::date AND f\.collector_user_id = \$3/);
+  assert.deepEqual(calls[2].values, [7, '2026-10-31', '2026-10-01', 18]);
+  assert.match(calls[2].sql, /created_at AT TIME ZONE 'Africa\/Kigali'\)::date <= \$2::date AND f\.collector_user_id = \$4/);
 });
 
 test.after(() => {

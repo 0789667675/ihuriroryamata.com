@@ -25,6 +25,7 @@ supabase/.temp/
 # Local verification/cache
 .next-ui-verify/
 .next-ui-verify
+.next-deduction-dev/
 
 # Local safety backups
 *.BEFORE-AUTH-MOCK-FIX-*

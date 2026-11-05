@@ -140,7 +140,7 @@ type Notice = {
 type ReportFarmerRow = { farmerId: number; farmerName: string; nationalId?: string | null; idNumber?: string | null; phone?: string | null; accountNumber?: string | null; totalVolume: number; originalVolume?: number; lostVolume?: number; pricePerLiter?: number; grossAmount: number; totalTransport: number | null; transportIsComplete?: boolean; totalDeductions: number; ifishiTotalDeductions?: number; ifishiNetAmount?: number | null; netAmount: number | null };
 type ReportOwnerRow = { farmerId: null; farmerName: string; name: string; isOwner: true; nationalId?: string | null; idNumber?: string | null; phone?: string | null; accountNumber?: string | null; totalVolume: number; pricePerLiter: number | null; grossAmount: number | null; totalTransport: number | null; totalDeductions: number; farmerPayable?: number; netAmount: number | null; nyirayoMilkValue?: number | null; farmersMilkValue?: number | null; nyirayoBaseDifference?: number | null; transportAmount?: number | null; farmerDeductions?: number | null; retainedNoAccountFarmerAmount?: number | null; unaccountedFarmersPool?: number | null; nyirayoOperationalMargin?: number | null; nyirayoTotalAfterOperations?: number | null };
 type CollectorSettlementFields = { collectorFarmerMilkValue?: number | null; collectorFarmerPayable?: number | null; collectorAccountingComplete?: boolean | null; collectorAccountingMissingInputs?: string[]; nyirayoTotalWithOwnerList?: number | null };
-type SettlementAccounting = { farmerGross: number | null; expectedFarmerPayable: number | null; farmersMilkValue?: number | null; farmerTransportTotal?: number | null; farmerDeductionsTotal?: number | null; farmerPayableTotal?: number | null; accountRoutedPayable?: number | null; ownerListRoutedPayable?: number | null; saccoEligiblePayable: number | null; saccoDistributionInstruction: number | null; saccoConfirmedAmount: number; retainedUnpaidAmount: number | null; cashApprovedAmount: number; cashConfirmedAmount: number; debtRepaymentAmount: number; outstandingDebt: number | null; legacyUnallocatedDebtRepayments: number; debtBalancesComplete: boolean; unexplainedDiscrepancy: number | null; ownerGrossReconciliation: { ownerGross: number | null; farmerGross: number | null; surplus: number | null; discrepancy: number | null; baseDifference?: number | null; transportAmount?: number | null; farmerDeductions?: number | null; retainedNoAccountFarmerAmount?: number | null; operationalMargin?: number | null; totalAfterOperations?: number | null; nyirayoRecordedMilkValue?: number | null; farmersComparisonMilkValue?: number | null; nyirayoMilkDifference?: number | null; nyirayoTransportAmount?: number | null; nyirayoDeductionsAmount?: number | null; nyirayoOwnAccountingBalance?: number | null; ownerNameListFarmerSettlementAmount?: number | null; nyirayoTotalWithOwnerList?: number | null }; farmers: Array<ReportFarmerRow & { settlement: { saccoEligible: boolean; saccoDistributionInstruction: number | null; cashApprovedAmount: number; cashConfirmedAmount: number; debtRepaymentAmount: number; outstandingDebt: number | null; retainedUnpaidAmount: number | null; unexplainedDiscrepancy: number | null } }> };
+type SettlementAccounting = { farmerGross: number | null; expectedFarmerPayable: number | null; farmersMilkValue?: number | null; farmerTransportTotal?: number | null; farmerDeductionsTotal?: number | null; farmerPayableTotal?: number | null; accountRoutedPayable?: number | null; ownerListRoutedPayable?: number | null; saccoEligiblePayable: number | null; saccoDistributionInstruction: number | null; saccoConfirmedAmount: number; retainedUnpaidAmount: number | null; cashApprovedAmount: number; cashConfirmedAmount: number; debtRepaymentAmount: number; openingDebt?: number | null; outstandingDebt: number | null; debtBalancesComplete: boolean; legacyUnallocatedDebtRepayments: number; unexplainedDiscrepancy: number | null; ownerGrossReconciliation: { ownerGross: number | null; farmerGross: number | null; surplus: number | null; discrepancy: number | null; baseDifference?: number | null; transportAmount?: number | null; farmerDeductions?: number | null; retainedNoAccountFarmerAmount?: number | null; operationalMargin?: number | null; totalAfterOperations?: number | null; nyirayoRecordedMilkValue?: number | null; farmersComparisonMilkValue?: number | null; nyirayoMilkDifference?: number | null; nyirayoTransportAmount?: number | null; nyirayoDeductionsAmount?: number | null; nyirayoOwnAccountingBalance?: number | null; ownerNameListFarmerSettlementAmount?: number | null; nyirayoTotalWithOwnerList?: number | null }; farmers: Array<ReportFarmerRow & { settlement: { saccoEligible: boolean; saccoDistributionInstruction: number | null; cashApprovedAmount: number; cashConfirmedAmount: number; debtRepaymentAmount: number; openingDebt: number | null; closingDebt: number | null; outstandingDebt: number | null; retainedUnpaidAmount: number | null; unexplainedDiscrepancy: number | null } }> };
 type Report = { totalFarmers: number; totalVolume: number; totalMorning: number; totalEvening: number; totalRevenueMonth: number; ownerGeneratedGross?: number | null; ownerGeneratedVolume?: number; totalDeductionsMonth: number; totalTransportFeesMonth: number; netRevenueMonth: number; pricePerLiter?: number | null; collectorAccountingComplete?: boolean | null; collectorAccountingMissingInputs?: string[]; todayTotal: number; todayMorning: number; todayEvening: number; rangeStart: string; rangeEnd: string; collectorPayable: number | null; collectorGross?: number | null; collectorActualVolume?: number; collectorOriginalVolume?: number; collectorLostVolume?: number; collectorFarmersValidLiters?: number; collectorTotalFarmersPayable?: number; collectorFarmerMilkValue?: number | null; collectorFarmerDeductions?: number; collectorFarmerTransport?: number; collectorSurplusAmount?: number | null; collectorPayableFromBreakdown?: number | null; collectorIsReconciled?: boolean | null; collectorProfile?: { name: string } | null; collectorEntries?: Array<{ id: number; date: string; status: string; volumeLiters: number; effectiveVolumeLiters: number; farmerLostLiters: number; voidReason?: string | null; voidedBy?: number | null; voidedAt?: string | null }>; milkLossRecords?: Array<{ id: number; farmerId: number; farmerName: string; date: string; status: string; originalVolume: number; validVolume: number; lostVolume: number; reason: string | null; adjustedBy: number | null; adjustedAt: string | null }>; collectorSettlementRows?: any[]; ownerSettlementRow?: ReportOwnerRow | null; farmerPayments: ReportFarmerRow[]; settlementAccounting?: SettlementAccounting | null; settlementAccountingStatus?: 'AVAILABLE' | 'MIGRATION_REQUIRED' | null; nyirayoMilkValue?: number | null; farmersMilkValue?: number | null; nyirayoBaseDifference?: number | null; transportAmount?: number | null; farmerDeductions?: number | null; retainedNoAccountFarmerAmount?: number | null; unaccountedFarmersPool?: number | null; nyirayoOperationalMargin?: number | null; nyirayoTotalAfterOperations?: number | null };
 type Account = { user_id: number; account_name: string; account_email: string; account_type: string; account_status: string; effective_status: string; email_verified: boolean; farmer_count: number; center_count: number; phone?: string | null; subscription_status?: string | null; payment_due_at?: string | null; billing_exempt?: boolean; plan_code?: string | null; days_remaining?: number | null };
 type AdminAccountDetails = { account: { id: number; name: string; email: string; account_type: string; account_status: string; email_verified: boolean; phone: string | null; created_at: string }; subscription: { status: string; effective_status?: string; billing_exempt?: boolean; exemption_reason?: string | null; exemption_granted_at?: string | null; exemption_revoked_at?: string | null; plan_id: number | null; current_price: number | string | null; currency: string | null; tier_code: string | null; access_started_at: string | null; payment_due_at: string | null; subscription_started_at: string | null; subscription_ends_at: string | null } | null; counts: { centers: number; farmers: number; milk_records: number; deductions: number; payments: number; notifications: number } };
@@ -992,6 +992,9 @@ const [report, setReport] = useState<Report | null>(null);
   const [ukweziSortBy, setUkweziSortBy] = useState<'name' | 'volume' | 'payable'>('name');
   const [ukweziSortDirection, setUkweziSortDirection] = useState<'asc' | 'desc'>('asc');
   const [ukweziReport, setUkweziReport] = useState<Report | null>(null);
+  const [ukweziCloseLoading, setUkweziCloseLoading] = useState(false);
+  const [ukweziCloseError, setUkweziCloseError] = useState('');
+  const [ukweziCloseStatus, setUkweziCloseStatus] = useState('');
   const [ukweziPdfLoading, setUkweziPdfLoading] = useState(false);
   const [ukweziPdfError, setUkweziPdfError] = useState('');
   const [ukweziPdfStatus, setUkweziPdfStatus] = useState('');
@@ -1982,6 +1985,29 @@ const visibleTabs = (isAdmin
     params.set('sortDirection', sortOverrides.sortDirection || ukweziSortDirection);
     if (isDairy && selectedCenter) params.set('collectionCenter', centers.find((center) => String(center.id) === selectedCenter)?.name || '');
     setUkweziReport(await api<Report>(`/api/reports/summary?${params}`, { cache: 'no-store' }));
+  };
+
+  const closeUkweziPeriod = async () => {
+    if (!ukweziReport || ukweziCloseLoading) return;
+    const confirmed = window.confirm(publicLanguage.t('ukweziCloseConfirm'));
+    if (!confirmed) return;
+    setUkweziCloseLoading(true);
+    setUkweziCloseError('');
+    setUkweziCloseStatus('');
+    try {
+      const result = await api<{ totalRecovered: number; duplicate?: boolean }>('/api/farmer-settlements', json('POST', {
+        action: 'close-period',
+        periodStart: ukweziReport.rangeStart,
+        periodEnd: ukweziReport.rangeEnd,
+      }));
+      setUkweziCloseStatus(publicLanguage.t(result.duplicate ? 'ukweziPeriodAlreadyClosed' : 'ukweziPeriodClosed')
+        .replace('{amount}', `${money(result.totalRecovered)} RWF`));
+      await loadUkwezi();
+    } catch (error) {
+      setUkweziCloseError(error instanceof Error ? error.message : publicLanguage.t('ukweziCloseFailed'));
+    } finally {
+      setUkweziCloseLoading(false);
+    }
   };
 
   const loadSettlementData = async () => {
@@ -5905,6 +5931,9 @@ const visibleTabs = (isAdmin
         : Math.max(0, Number(row.totalDeductions) - Number(row.ejohezaDeductions || 0)),
       ejohezaAmount: Number(row.ejohezaDeductions || 0),
       totalDeductions: row.totalDeductions == null ? null : Number(row.totalDeductions),
+      openingDebt: row.settlement?.openingDebt == null ? null : Number(row.settlement.openingDebt),
+      debtRecovered: row.settlement?.debtRepaymentAmount == null ? null : Number(row.settlement.debtRepaymentAmount),
+      closingDebt: row.settlement?.closingDebt == null ? null : Number(row.settlement.closingDebt),
       signedNet: row.netAmount == null ? null : Number(row.netAmount),
       payable: row.payable,
     });
@@ -6037,8 +6066,11 @@ const visibleTabs = (isAdmin
             <option value="payable:asc">{publicLanguage.t('reportsNet')} ↑</option><option value="payable:desc">{publicLanguage.t('reportsNet')} ↓</option>
           </select></label>
           <button type="button" className="button button-secondary" onClick={() => run(loadUkwezi)}>{publicLanguage.t('reportsRefresh')}</button>
+          {isCollector && ukweziReport && ukweziReport.rangeEnd < today() ? <button type="button" className="button button-primary" onClick={() => { void closeUkweziPeriod(); }} disabled={ukweziCloseLoading} aria-busy={ukweziCloseLoading}>{publicLanguage.t(ukweziCloseLoading ? 'ukweziPeriodClosing' : 'ukweziClosePeriod')}</button> : null}
           <button type="button" className="button button-secondary" onClick={() => { void downloadUkweziPdf(ukweziPdfParams); }} disabled={ukweziPdfLoading} aria-busy={ukweziPdfLoading} aria-label={publicLanguage.t('ukweziDownloadPdf')}><FileBarChart2 size={16} aria-hidden="true" />{publicLanguage.t(ukweziPdfLoading ? 'ukweziPdfPreparing' : 'ukweziDownloadPdf')}</button>
         </div>
+        {ukweziCloseError ? <p className="form-error" role="alert">{ukweziCloseError}</p> : null}
+        {ukweziCloseStatus ? <p className="form-success" role="status">{ukweziCloseStatus}</p> : null}
         {ukweziPdfError ? <p className="form-error" role="alert">{ukweziPdfError}</p> : null}
         {ukweziPdfStatus ? <p className="form-success" role="status">{ukweziPdfStatus}</p> : null}
         {ukweziReport ? <>

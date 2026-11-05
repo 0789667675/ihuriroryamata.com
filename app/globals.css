@@ -812,6 +812,26 @@ button:active, .btn-primary:active, .filter-chip:active {
 .ukwezi-settlement-table th:first-child, .ukwezi-settlement-table td:first-child { width: 46px; min-width: 46px; }
 .ukwezi-settlement-table th:first-child { z-index: 4; }
 .ukwezi-payment-roster { display: grid; gap: 18px; margin-top: 16px; }
+.ukwezi-payment-search { display: block; width: min(100%, 520px); }
+.ukwezi-payment-search input { width: 100%; min-width: 0; min-height: 44px; padding: 0 12px; border: 1px solid var(--field-line); border-radius: var(--radius-md); background: var(--surface); color: var(--ink); }
+.ukwezi-payment-search input:focus { border-color: var(--blue); outline: 0; box-shadow: 0 0 0 3px var(--blue-focus); }
+.ukwezi-payment-search-count { margin: -12px 0 0; color: var(--muted); font-size: var(--text-xs); }
+.ukwezi-debt-recovery { display: grid; gap: 10px; padding: 14px; border: 1px solid var(--blue-line); border-radius: var(--radius-md); background: var(--blue-pale); }
+.ukwezi-debt-recovery h3, .ukwezi-debt-group h4 { margin: 0; color: var(--blue-pressed); }
+.ukwezi-debt-recovery > p { margin: 0; color: var(--muted-strong); font-size: var(--text-xs); line-height: 1.5; }
+.ukwezi-debt-group { min-width: 0; display: grid; gap: 8px; }
+.ukwezi-debt-group h4 { font-size: var(--text-sm); }
+.ukwezi-debt-desktop { overflow-x: auto; }
+.ukwezi-debt-desktop table { width: 100%; min-width: 600px; border-collapse: collapse; }
+.ukwezi-debt-desktop th, .ukwezi-debt-desktop td { padding: 9px 10px; border-bottom: 1px solid var(--blue-line); text-align: right; overflow-wrap: anywhere; font-variant-numeric: tabular-nums; }
+.ukwezi-debt-desktop th:first-child { width: 40%; text-align: left; }
+.ukwezi-debt-mobile { display: none; }
+.ukwezi-debt-mobile article { padding: 12px; border: 1px solid var(--blue-line); border-radius: var(--radius-md); background: var(--surface); }
+.ukwezi-debt-mobile article > b { overflow-wrap: anywhere; }
+.ukwezi-debt-mobile dl { display: grid; gap: 6px; margin: 8px 0 0; }
+.ukwezi-debt-mobile dl > div { display: flex; justify-content: space-between; gap: 12px; }
+.ukwezi-debt-mobile dt, .ukwezi-debt-mobile dd { min-width: 0; margin: 0; overflow-wrap: anywhere; }
+.ukwezi-debt-mobile dd { text-align: right; font-variant-numeric: tabular-nums; }
 .ukwezi-payment-group h3, .ukwezi-owner-payment h3 { margin: 0 0 9px; color: var(--ink); font-size: 0.95rem; }
 .ukwezi-owner-payment-row { display: grid; grid-template-columns: minmax(180px, 1fr) minmax(150px, 1fr) minmax(180px, auto); gap: 12px; align-items: center; padding: 12px; border: 1px solid var(--blue-line); border-radius: var(--radius-md); background: var(--blue-pale); }
 .ukwezi-owner-payment-row strong { color: var(--blue-pressed); font-variant-numeric: tabular-nums; text-align: right; }
@@ -5693,6 +5713,8 @@ input[type="submit"] {
   .ukwezi-payment-desktop { display: none; }
   .ukwezi-payment-mobile { display: grid; }
   .ukwezi-payment-scroll-note { display: none; }
+  .ukwezi-debt-desktop { display: none; }
+  .ukwezi-debt-mobile { display: grid; gap: 8px; }
 }
 
 @media (max-width: 680px) {

@@ -1,3 +1,6 @@
+import { useState } from 'react';
+import { filterUkweziPaymentRows } from '@/lib/utils/ukwezi-payment-search.js';
+
 type PaymentRow = {
   farmerId: number;
   farmerName: string;
@@ -11,6 +14,9 @@ type PaymentRow = {
   otherDeductions: number | null;
   ejohezaAmount: number | null;
   totalDeductions: number | null;
+  openingDebt: number | null;
+  debtRecovered: number | null;
+  closingDebt: number | null;
   signedNet: number | null;
   payable: number | null;
 };
@@ -51,6 +57,11 @@ export function CollectorUkweziPaymentRoster({
   language,
   t,
 }: Props) {
+  const [searchQuery, setSearchQuery] = useState('');
+  const filteredAccountRows = filterUkweziPaymentRows(accountRows, searchQuery);
+  const filteredOwnerRows = filterUkweziPaymentRows(ownerRows, searchQuery);
+  const matchingFarmerCount = filteredAccountRows.length + filteredOwnerRows.length;
+  const totalFarmerCount = accountRows.length + ownerRows.length;
   const columns = [
     { key: 'number', label: t('ukweziColNumber'), width: 40 },
     { key: 'name', label: t('ukweziColFarmerName'), width: 210 },
@@ -124,7 +135,9 @@ export function CollectorUkweziPaymentRoster({
             </dl>
           </section>
         </div>
-      </> : <p className="muted-note">—</p>}
+      </> : <p className="muted-note" role={searchQuery.trim() ? 'status' : undefined}>
+        {searchQuery.trim() ? t('ukweziSearchNoResults') : '—'}
+      </p>}
     </section>
   );
 
@@ -133,14 +146,60 @@ export function CollectorUkweziPaymentRoster({
       <h2>{t('ukweziFarmersToPay')}</h2>
       {centerName ? <p className="ukwezi-payment-center">{t('ukweziCenter')}: {centerName}</p> : null}
       <p className="ukwezi-payment-instruction-note">{t('ukweziPaymentInstructionNote').replace('{amount}', `${formatMoney(confirmedPayments, language)} RWF`)}</p>
-      {renderTable(accountRows, true, t('accountRoutedLabel'))}
-      {renderTable(ownerRows, false, t('ownerListRoutedLabel'))}
+      <label className="ukwezi-payment-search">
+        <input
+          type="search"
+          value={searchQuery}
+          onChange={(event) => setSearchQuery(event.target.value)}
+          placeholder={t('ukweziSearchPlaceholder')}
+          aria-label={t('ukweziSearchPlaceholder')}
+        />
+      </label>
+      <p className="ukwezi-payment-search-count" aria-live="polite">
+        {t('ukweziSearchResults').replace('{matching}', String(matchingFarmerCount)).replace('{total}', String(totalFarmerCount))}
+      </p>
+      {renderTable(filteredAccountRows, true, t('accountRoutedLabel'))}
+      {renderTable(filteredOwnerRows, false, t('ownerListRoutedLabel'))}
       <section className="ukwezi-payment-reconciliation" aria-label={t('ukweziVerificationDifference')}>
         <div><span>{t('accountRoutedLabel')}</span><strong>{formatMoney(total(accountRows, 'payable'), language)} RWF</strong></div>
         <div><span>{t('ukweziOwnerAccount')}</span><strong>{formatMoney(ownerAmount, language)} RWF</strong></div>
         <div className="ukwezi-payment-distributed"><span>{t('ukweziTotalDistributed')}</span><strong>{formatMoney(totalDistributed, language)} RWF</strong></div>
         <div><span>{t('ukweziFarmerSignedNet')}</span><strong>{formatMoney(signedFarmerNetBalance, language)} RWF</strong></div>
       </section>
+      {accountRows.some((row) => row.openingDebt !== null || row.debtRecovered !== null || row.closingDebt !== null)
+        || ownerRows.some((row) => row.openingDebt !== null || row.debtRecovered !== null || row.closingDebt !== null) ? (
+        <section className="ukwezi-debt-recovery" aria-label={t('ukweziDebtRecoveryTitle')}>
+          <h3>{t('ukweziDebtRecoveryTitle')}</h3>
+          <p>{t('ukweziDebtRecoveryNote')}</p>
+          {[{ rows: filteredAccountRows, label: t('accountRoutedLabel') }, { rows: filteredOwnerRows, label: t('ownerListRoutedLabel') }].map(({ rows, label }) => {
+            const debtRows = rows.filter((row) => row.openingDebt !== null || row.debtRecovered !== null || row.closingDebt !== null);
+            return debtRows.length ? <div className="ukwezi-debt-group" key={label}>
+              <h4>{label}</h4>
+              <div className="ukwezi-debt-desktop table-scroll">
+                <table><thead><tr>
+                  <th>{t('ukweziColFarmerName')}</th>
+                  <th>{t('ukweziDebtOpening')}</th>
+                  <th>{t('ukweziDebtRecovered')}</th>
+                  <th>{t('ukweziDebtClosing')}</th>
+                </tr></thead><tbody>{debtRows.map((row) => <tr key={row.farmerId}>
+                  <th scope="row">{row.farmerName}</th>
+                  <td>{formatMoney(row.openingDebt, language)} RWF</td>
+                  <td>{formatMoney(row.debtRecovered, language)} RWF</td>
+                  <td>{formatMoney(row.closingDebt, language)} RWF</td>
+                </tr>)}</tbody></table>
+              </div>
+              <div className="ukwezi-debt-mobile">{debtRows.map((row) => <article key={row.farmerId}>
+                <b>{row.farmerName}</b>
+                <dl>
+                  <div><dt>{t('ukweziDebtOpening')}</dt><dd>{formatMoney(row.openingDebt, language)} RWF</dd></div>
+                  <div><dt>{t('ukweziDebtRecovered')}</dt><dd>{formatMoney(row.debtRecovered, language)} RWF</dd></div>
+                  <div><dt>{t('ukweziDebtClosing')}</dt><dd>{formatMoney(row.closingDebt, language)} RWF</dd></div>
+                </dl>
+              </article>)}</div>
+            </div> : null;
+          })}
+        </section>
+      ) : null}
       {negativeFarmerCount ? <section className="ukwezi-negative-farmer-balance" role="note">
         <b>{t('ukweziNegativeNetTitle')}</b>
         <p>{t('ukweziNegativeNetNotice').replace('{count}', String(negativeFarmerCount)).replace('{amount}', `${formatMoney(negativeFarmerNetBalance, language)} RWF`)}</p>

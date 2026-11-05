@@ -202,7 +202,15 @@ test('Ukwezi half-month reconciliation separates retained, cash, SACCO, and carr
         { farmer_id: 1, payment_type: 'CASH', amount: 500, settled_amount: 500, status: 'CONFIRMED' },
       ] : [],
       repayments: rangeStart === '2026-10-01' ? [{ farmer_id: 1, amount: 200 }] : [{ farmer_id: 1, amount: 100 }],
-      debts: [{ farmer_id: 1, opening_balance: 1000, total_repaid: 300, legacy_unallocated_repayments: 0, repaid_through_end: rangeEnd === '2026-10-15' ? 200 : 300 }],
+      debts: [{
+        farmer_id: 1,
+        opening_balance: 1000,
+        period_start: '2026-09-16',
+        total_repaid: 300,
+        legacy_unallocated_repayments: 0,
+        repaid_before_start: rangeEnd === '2026-10-15' ? 0 : 200,
+        repaid_through_end: rangeEnd === '2026-10-15' ? 200 : 300,
+      }],
     }),
   };
 
@@ -225,7 +233,10 @@ test('Ukwezi half-month reconciliation separates retained, cash, SACCO, and carr
   assert.equal(accounting.cashApprovedAmount, 1500);
   assert.equal(accounting.cashConfirmedAmount, 500);
   assert.equal(accounting.debtRepaymentAmount, 200);
+  assert.equal(accounting.openingDebt, 1000);
   assert.equal(accounting.outstandingDebt, 800);
+  assert.equal(accounting.farmers.find((farmer) => farmer.farmerId === 1).settlement.openingDebt, 1000);
+  assert.equal(accounting.farmers.find((farmer) => farmer.farmerId === 1).settlement.closingDebt, 800);
   assert.equal(accounting.unexplainedDiscrepancy, 0);
   assert.equal(accounting.debtRepaymentAmount + accounting.cashConfirmedAmount + accounting.retainedUnpaidAmount + accounting.saccoDistributionInstruction, 6000);
   assert.equal(accounting.ownerGrossReconciliation.discrepancy, 0);
@@ -254,6 +265,7 @@ test('Ukwezi half-month reconciliation separates retained, cash, SACCO, and carr
   assert.equal(secondHalf.rangeStart, '2026-10-16');
   assert.equal(secondHalf.rangeEnd, '2026-10-31');
   assert.equal(secondHalf.settlementAccounting.debtRepaymentAmount, 100);
+  assert.equal(secondHalf.settlementAccounting.openingDebt, 800);
   assert.equal(secondHalf.settlementAccounting.outstandingDebt, 700);
   assert.equal(secondHalf.settlementAccounting.saccoDistributionInstruction, 2000);
 });
