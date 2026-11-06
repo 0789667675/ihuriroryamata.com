@@ -5845,12 +5845,6 @@ input[type="submit"] {
   .ukwezi-payment-reconciliation { grid-template-columns: minmax(0, 1fr); }
 }
 
-@container (max-width: 1841px) {
-  .ukwezi-payment-desktop { display: none; }
-  .ukwezi-payment-mobile { display: grid; gap: 8px; }
-  .ukwezi-payment-scroll-note { display: none; }
-}
-
 @media (orientation: landscape) and (max-height: 500px) and (max-width: 980px) {
   .workspace-shell { min-height: 100vh; min-height: 100dvh; }
   .workspace-body { display: block; min-height: calc(100vh - 56px); min-height: calc(100dvh - 56px); }

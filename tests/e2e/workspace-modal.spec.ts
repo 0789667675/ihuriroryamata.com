@@ -888,94 +888,23 @@ test('Collector settlements uses report accounting, while Ukwezi shows eligible 
   ]) {
     await page.setViewportSize(viewport);
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1)).toBe(true);
-    const tableContainer = paymentRoster.locator('.ukwezi-payment-group').first();
-    const availableTableWidth = await tableContainer.evaluate((element) => element.clientWidth);
-    if (availableTableWidth < 1842) {
+    if (viewport.width <= 980) {
       await expect(paymentRoster.locator('.ukwezi-payment-desktop')).toBeHidden();
       await expect(paymentRoster.locator('.ukwezi-payment-mobile').first()).toBeVisible();
       await expect(paymentRoster.locator('.ukwezi-mobile-card').first()).toBeVisible();
       await expect(paymentRoster.locator('.ukwezi-mobile-card').first()).toContainText(/Account number|Nimero ya konti/i);
-    } else {
-      await expect(paymentRoster.locator('.ukwezi-payment-desktop').first()).toBeVisible();
-      await expect(paymentRoster.locator('.ukwezi-payment-mobile').first()).toBeHidden();
-      expect(await paymentRoster.locator('.ukwezi-payment-desktop').first().evaluate((element) => getComputedStyle(element).overflowX)).toBe('auto');
-    }
-    if (viewport.width <= 980) {
       await expect(debtRecovery.locator('.ukwezi-debt-mobile')).toBeVisible();
     } else {
+      await expect(paymentRoster.locator('.ukwezi-payment-desktop').first()).toBeVisible();
+      const scroller = paymentRoster.locator('.ukwezi-payment-desktop').first();
+      const metrics = await scroller.evaluate((element) => ({
+        overflows: element.scrollWidth > element.clientWidth,
+        overflowX: getComputedStyle(element).overflowX,
+      }));
+      expect(metrics.overflows).toBe(true);
+      expect(metrics.overflowX).toBe('auto');
       await expect(debtRecovery.locator('.ukwezi-debt-desktop')).toBeVisible();
     }
-  }
-});
-
-test('Ukwezi payment roster switches to complete cards when its table cannot fit', async ({ page }, testInfo) => {
-  const farmerPayments = Array.from({ length: 4 }, (_, index) => ({
-    farmerId: 996001 + index,
-    farmerName: `Layout Test Farmer ${index + 1}`,
-    nationalId: `119000000000${String(index + 1).padStart(4, '0')}`,
-    phone: `078800000${index + 1}`,
-    accountNumber: `ACCT-000${index + 1}`,
-    validVolumeLiters: 12.5 + index,
-    totalVolume: 12.5 + index,
-    pricePerLiter: 400,
-    grossAmount: 5000 + index * 400,
-    totalTransport: 100,
-    totalDeductions: 500,
-    ejohezaDeductions: 100,
-    netAmount: 4500 + index * 300,
-    collectionCenter: 'North Site',
-    settlement: { saccoEligible: true, saccoDistributionInstruction: 4200 + index * 300, debtRepaymentAmount: 0, openingDebt: 0, closingDebt: 0 },
-  }));
-  const report: Record<string, unknown> = {
-    totalFarmers: farmerPayments.length,
-    totalVolume: 55,
-    totalMorning: 30,
-    totalEvening: 25,
-    totalRevenueMonth: 22000,
-    totalDeductionsMonth: 2000,
-    totalTransportFeesMonth: 400,
-    netRevenueMonth: 19600,
-    todayTotal: 0,
-    todayMorning: 0,
-    todayEvening: 0,
-    rangeStart: '2026-10-01',
-    rangeEnd: '2026-10-15',
-    collectorPayable: 18000,
-    ownerGeneratedVolume: 15,
-    ownerGeneratedGross: 7000,
-    collectorFarmerMilkValue: 22000,
-    collectorFarmerPayable: 18000,
-    collectorFarmerTransport: 400,
-    farmerPayments,
-    settlementAccounting: { ...settlementReport, farmers: farmerPayments },
-    settlementAccountingStatus: 'AVAILABLE',
-  };
-
-  await openWorkspace(page, collector, 'tab=ukwezi&flow=synthetic', {}, report);
-  await page.setViewportSize({ width: 1563, height: 768 });
-  const paymentRoster = page.locator('.ukwezi-payment-roster');
-  const group = paymentRoster.locator('.ukwezi-payment-group').first();
-  await expect(paymentRoster).toBeVisible();
-  await expect(group.locator('.ukwezi-payment-desktop')).toBeHidden();
-  await expect(group.locator('.ukwezi-payment-mobile')).toBeVisible();
-  const cards = group.locator('.ukwezi-mobile-card');
-  await expect(cards).toHaveCount(4);
-  await expect(cards.first()).toContainText('Layout Test Farmer 1');
-  await expect(cards.first()).toContainText('ACCT-0001');
-  await expect(cards.first()).toContainText('Ejoheza');
-  await expect(cards.first()).toContainText('Amount paid to farmer');
-  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1)).toBe(true);
-  await cards.first().scrollIntoViewIfNeeded();
-  await page.screenshot({ path: testInfo.outputPath('ukwezi-payment-roster-1563px.png') });
-
-  await page.setViewportSize({ width: 2200, height: 900 });
-  const availableTableWidth = await group.evaluate((element) => element.clientWidth);
-  if (availableTableWidth >= 1842) {
-    await expect(group.locator('.ukwezi-payment-desktop')).toBeVisible();
-    await expect(group.locator('.ukwezi-payment-mobile')).toBeHidden();
-  } else {
-    await expect(group.locator('.ukwezi-payment-desktop')).toBeHidden();
-    await expect(group.locator('.ukwezi-payment-mobile')).toBeVisible();
   }
 });
 
