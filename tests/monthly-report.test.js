@@ -111,6 +111,50 @@ const reportRepository = ({ accountType = 'COLLECTOR', links = [], allowed = [],
   ...overrides,
 });
 
+test('Collector Ukwezi routes net amounts under 3,000 RWF to Owner and keeps 3,000 eligible', async () => {
+  const farmers = [
+    { farmerId: 1, farmerName: 'Below threshold', accountNumber: 'RW-0001', totalVolume: 10, grossAmount: 3999, totalDeductions: 1000, totalTransport: 0, netAmount: 2999 },
+    { farmerId: 2, farmerName: 'At threshold', accountNumber: 'RW-0002', totalVolume: 10, grossAmount: 4000, totalDeductions: 1000, totalTransport: 0, netAmount: 3000 },
+    { farmerId: 3, farmerName: 'No account', accountNumber: null, totalVolume: 10, grossAmount: 2500, totalDeductions: 1000, totalTransport: 0, netAmount: 1500 },
+  ];
+  const balance = await Reports.calculateCollectorBalanceSheet({
+    collectorUserId: 42,
+    farmerTotals: farmers,
+    rangeStart: '2026-10-01',
+    rangeEnd: '2026-10-15',
+    repository: {
+      getCollectorEntries: async () => [{ date: '2026-10-01', volumeLiters: 30, effectiveVolumeLiters: 30, pricePerLiter: 400, status: 'valid' }],
+      getCollectorPriceAtDate: async () => null,
+      getFarmerValidLitersByDate: async () => new Map([['2026-10-01', 30]]),
+    },
+  });
+
+  assert.equal(balance.accountRoutedPayable, 3000);
+  assert.equal(balance.ownerListRoutedPayable, 4499);
+  assert.equal(balance.retainedNoAccountFarmerAmount, 4499);
+  assert.equal(balance.farmerPayableTotal, 7499);
+
+  const summary = await Reports.getSummary({
+    ownerUserId: 42,
+    query: { periodType: 'first-half', month: 10, year: 2026 },
+    repository: reportRepository({
+      entries: [{ date: '2026-10-01', volumeLiters: 30, effectiveVolumeLiters: 30, pricePerLiter: 400, status: 'valid' }],
+      getFarmerTotals: async () => farmers,
+      getFarmerValidLitersByDate: async () => new Map([['2026-10-01', 30]]),
+      getFarmerValidTotalsByDate: async () => new Map([['2026-10-01', { validLiters: 30, originalLiters: 30, lostLiters: 0 }]]),
+      getOwnerIfishiHistory: async () => [{ validVolumeLiters: 30, pricePerLiter: 400, grossAmount: 12000 }],
+    }),
+    settlementRepository: { getPeriodFinancials: async () => ({ settlements: [], repayments: [], debts: [] }) },
+  });
+
+  assert.equal(summary.settlementAccounting.expectedFarmerPayable, 7499);
+  assert.equal(summary.settlementAccounting.accountRoutedPayable, 3000);
+  assert.equal(summary.settlementAccounting.ownerListRoutedPayable, 4499);
+  assert.equal(summary.farmerPayments[0].settlement.saccoEligible, false);
+  assert.equal(summary.farmerPayments[0].settlement.saccoDistributionInstruction, 0);
+  assert.equal(summary.farmerPayments[0].settlement.retainedUnpaidAmount, 2999);
+});
+
 test('period resolution preserves monthly, daily, and half-month report ranges', () => {
   const now = new Date(2026, 5, 20);
   assert.deepEqual(Reports.getPeriodRange({ periodType: 'monthly', month: 6, year: 2026, now }), ['2026-06-01', '2026-06-30']);
@@ -185,13 +229,13 @@ test('monthly summary applies owner totals, deductions, center pricing, and farm
 test('Ukwezi half-month reconciliation separates retained, cash, SACCO, and carried debt', async () => {
   const activeFarmers = [
     { farmerId: 1, farmerName: 'No SACCO details', accountNumber: null, totalVolume: 10, grossAmount: 4000, totalTransport: 0, totalDeductions: 0, milkValueComplete: true, transportIsComplete: true },
-    { farmerId: 2, farmerName: 'SACCO farmer', accountNumber: 'RW-12345', totalVolume: 5, grossAmount: 2000, totalTransport: 0, totalDeductions: 0, milkValueComplete: true, transportIsComplete: true },
+    { farmerId: 2, farmerName: 'SACCO farmer', accountNumber: 'RW-12345', totalVolume: 5, grossAmount: 4000, totalTransport: 0, totalDeductions: 0, milkValueComplete: true, transportIsComplete: true },
     { farmerId: 3, farmerName: 'No activity', accountNumber: null, totalVolume: 0, grossAmount: 0, totalTransport: 0, totalDeductions: 0, milkValueComplete: true, transportIsComplete: true },
   ];
   const dairyRepository = {
     ...reportRepository({ accountType: 'COLLECTION_CENTER' }),
     getTotalFarmers: async () => 3,
-    getPeriodTotals: async () => ({ totalVolume: 15, totalAmount: 6000 }),
+    getPeriodTotals: async () => ({ totalVolume: 15, totalAmount: 8000 }),
     getFarmerTotals: async () => activeFarmers,
     getMilkLossRecords: async () => [],
   };
@@ -223,12 +267,12 @@ test('Ukwezi half-month reconciliation separates retained, cash, SACCO, and carr
   const accounting = firstHalf.settlementAccounting;
   assert.equal(firstHalf.rangeStart, '2026-10-01');
   assert.equal(firstHalf.rangeEnd, '2026-10-15');
-  assert.equal(firstHalf.totalRevenueMonth, 6000);
+  assert.equal(firstHalf.totalRevenueMonth, 8000);
   assert.equal(firstHalf.farmerPayments.length, 2);
   assert.equal(firstHalf.farmerPayments[0].netAmount, 4000);
-  assert.equal(accounting.farmerGross, 6000);
-  assert.equal(accounting.saccoEligiblePayable, 2000);
-  assert.equal(accounting.saccoDistributionInstruction, 2000);
+  assert.equal(accounting.farmerGross, 8000);
+  assert.equal(accounting.saccoEligiblePayable, 4000);
+  assert.equal(accounting.saccoDistributionInstruction, 4000);
   assert.equal(accounting.retainedUnpaidAmount, 3300);
   assert.equal(accounting.cashApprovedAmount, 1500);
   assert.equal(accounting.cashConfirmedAmount, 500);
@@ -238,7 +282,7 @@ test('Ukwezi half-month reconciliation separates retained, cash, SACCO, and carr
   assert.equal(accounting.farmers.find((farmer) => farmer.farmerId === 1).settlement.openingDebt, 1000);
   assert.equal(accounting.farmers.find((farmer) => farmer.farmerId === 1).settlement.closingDebt, 800);
   assert.equal(accounting.unexplainedDiscrepancy, 0);
-  assert.equal(accounting.debtRepaymentAmount + accounting.cashConfirmedAmount + accounting.retainedUnpaidAmount + accounting.saccoDistributionInstruction, 6000);
+  assert.equal(accounting.debtRepaymentAmount + accounting.cashConfirmedAmount + accounting.retainedUnpaidAmount + accounting.saccoDistributionInstruction, 8000);
   assert.equal(accounting.ownerGrossReconciliation.discrepancy, 0);
   assert.equal(accounting.farmers.some((farmer) => farmer.farmerId === 3), false);
 
@@ -267,17 +311,17 @@ test('Ukwezi half-month reconciliation separates retained, cash, SACCO, and carr
   assert.equal(secondHalf.settlementAccounting.debtRepaymentAmount, 100);
   assert.equal(secondHalf.settlementAccounting.openingDebt, 800);
   assert.equal(secondHalf.settlementAccounting.outstandingDebt, 700);
-  assert.equal(secondHalf.settlementAccounting.saccoDistributionInstruction, 2000);
+  assert.equal(secondHalf.settlementAccounting.saccoDistributionInstruction, 4000);
 });
 
 test('manual cash paid to a SACCO-eligible farmer reduces SACCO instruction without changing historical payable', async () => {
   const activeFarmers = [
-    { farmerId: 2, farmerName: 'SACCO farmer', accountNumber: 'RW-12345', totalVolume: 5, grossAmount: 2000, totalTransport: 0, totalDeductions: 0, milkValueComplete: true, transportIsComplete: true },
+    { farmerId: 2, farmerName: 'SACCO farmer', accountNumber: 'RW-12345', totalVolume: 5, grossAmount: 4000, totalTransport: 0, totalDeductions: 0, milkValueComplete: true, transportIsComplete: true },
   ];
   const dairyRepository = {
     ...reportRepository({ accountType: 'COLLECTION_CENTER' }),
     getTotalFarmers: async () => 1,
-    getPeriodTotals: async () => ({ totalVolume: 5, totalAmount: 2000 }),
+    getPeriodTotals: async () => ({ totalVolume: 5, totalAmount: 4000 }),
     getFarmerTotals: async () => activeFarmers,
     getMilkLossRecords: async () => [],
   };
@@ -294,11 +338,11 @@ test('manual cash paid to a SACCO-eligible farmer reduces SACCO instruction with
     },
   });
 
-  assert.equal(summary.settlementAccounting.expectedFarmerPayable, 2000);
+  assert.equal(summary.settlementAccounting.expectedFarmerPayable, 4000);
   assert.equal(summary.settlementAccounting.cashConfirmedAmount, 500);
-  assert.equal(summary.settlementAccounting.saccoDistributionInstruction, 1500);
+  assert.equal(summary.settlementAccounting.saccoDistributionInstruction, 3500);
   assert.equal(summary.settlementAccounting.unexplainedDiscrepancy, 0);
-  assert.equal(summary.farmerPayments[0].netAmount, 2000);
+  assert.equal(summary.farmerPayments[0].netAmount, 4000);
 });
 
 test('Ukwezi reports do not trigger automatic Igipande deductions or expose Igipande accounting', async () => {

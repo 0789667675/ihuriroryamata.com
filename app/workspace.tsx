@@ -22,6 +22,7 @@ import { flushOfflineWrites, getOfflineWrites, queueOfflineWrite } from '@/lib/o
 import { buildFarmerListQuery } from '@/lib/farmer-list-query';
 import { formatFarmerNumber } from '@/lib/farmer-delivery';
 import { formatMilkVolume } from '@/lib/utils/milk-volume-format.js';
+import { isUkweziPaymentEligible } from '@/lib/utils/ukwezi-payment-eligibility.js';
 import { BrandLockup } from '@/components/brand-lockup';
 import { Modal } from '@/components/ui/modal';
 import { FarmerBulkImportModal } from '@/components/imports/farmer-bulk-import';
@@ -5893,13 +5894,16 @@ const visibleTabs = (isAdmin
       const account = String(row.accountNumber || '').trim();
       return account.length >= 4 && !['N/A', 'NA', '—', '-', 'NONE', 'NULL'].includes(account.toUpperCase());
     };
+    const hasEligibleAccountPayment = (row: any) => hasPaymentAccount(row)
+      && (row.settlement?.saccoEligible ?? (row.netAmount == null || isUkweziPaymentEligible(row.netAmount)));
     const getCurrentFarmerPayable = (row: any) => {
       const settlement = row.settlement;
+      const saccoEligible = hasEligibleAccountPayment(row);
       const routedAmount = settlement
-        ? (hasPaymentAccount(row) ? settlement.saccoDistributionInstruction : settlement.retainedUnpaidAmount)
+        ? (saccoEligible ? settlement.saccoDistributionInstruction : settlement.retainedUnpaidAmount)
         : null;
       const hasRouteInstruction = settlement && (
-        hasPaymentAccount(row)
+        saccoEligible
           ? Object.prototype.hasOwnProperty.call(settlement, 'saccoDistributionInstruction')
           : Object.prototype.hasOwnProperty.call(settlement, 'retainedUnpaidAmount')
       );
@@ -5939,8 +5943,9 @@ const visibleTabs = (isAdmin
       signedNet: row.netAmount == null ? null : Number(row.netAmount),
       payable: row.payable,
     });
-    const accountPaymentRows = eligibleCollectorFarmers.filter((row: any) => hasPaymentAccount(row)).map(toPaymentRow);
-    const noAccountPaymentRows = eligibleCollectorFarmers.filter((row: any) => !hasPaymentAccount(row)).map(toPaymentRow);
+    const accountPaymentRows = eligibleCollectorFarmers.filter(hasEligibleAccountPayment).map(toPaymentRow);
+    const noAccountPaymentRows = eligibleCollectorFarmers.filter((row: any) => !hasPaymentAccount(row)
+      && (row.netAmount == null || isUkweziPaymentEligible(row.netAmount))).map(toPaymentRow);
     const ukweziSettlementAccounting = ukweziReport?.settlementAccounting as (SettlementAccounting & {
       signedFarmerNetBalance?: number | null;
       negativeFarmerNetBalance?: number | null;
@@ -5969,12 +5974,9 @@ const visibleTabs = (isAdmin
     const accountPaymentTotal = accountRoutesComplete
       ? Number(accountPaymentRows.reduce((sum: number, row: any) => sum + Number(row.payable || 0), 0).toFixed(2))
       : null;
-    const noAccountRoutesComplete = noAccountPaymentRows.every((row: any) => row.payable !== null);
-    const noAccountPaymentTotal = noAccountRoutesComplete
-      ? Number(noAccountPaymentRows.reduce((sum: number, row: any) => sum + Number(row.payable || 0), 0).toFixed(2))
-      : null;
-    const positiveFarmerPaymentTotal = accountPaymentTotal !== null && noAccountPaymentTotal !== null
-      ? Number((accountPaymentTotal + noAccountPaymentTotal).toFixed(2))
+    const farmerRoutesComplete = eligibleCollectorFarmers.every((row: any) => row.payable !== null);
+    const positiveFarmerPaymentTotal = farmerRoutesComplete
+      ? Number(eligibleCollectorFarmers.reduce((sum: number, row: any) => sum + Number(row.payable || 0), 0).toFixed(2))
       : null;
     const totalDistributed = ownerPaymentTotal != null && accountPaymentTotal != null
       ? Number((ownerPaymentTotal + accountPaymentTotal).toFixed(2))

@@ -35,10 +35,10 @@ const report = {
     accountNumber: `ACCOUNT-${index + 1}`,
     totalVolume: 7.2,
     pricePerLiter: 400,
-    grossAmount: 2880,
+    grossAmount: 3880,
     totalTransport: 120,
     totalDeductions: 240,
-    netAmount: 2520,
+    netAmount: 3520,
   })),
   ownerSettlementRow: {
     isOwner: true,
@@ -279,25 +279,28 @@ test('Ukwezi outstanding-payment list omits paid farmers without removing them f
   assert.equal(periodReport.farmerPayments[0].netAmount, 4000);
 });
 
-test('Ukwezi payment groups use outstanding route instructions and retain zero/negative farmers', () => {
+test('Ukwezi payment groups omit farmers with net amounts under 3,000 RWF', () => {
   const groups = getEligibleFarmerPaymentGroups({
     farmerPayments: [
-      { farmerId: 1, farmerName: 'Account paid', accountNumber: 'RW-12345', totalVolume: 5, netAmount: 500, settlement: { saccoDistributionInstruction: 320 } },
-      { farmerId: 2, farmerName: 'No account', accountNumber: null, totalVolume: 4, netAmount: 400, settlement: { retainedUnpaidAmount: 250, outstandingDebt: 900 } },
-      { farmerId: 3, farmerName: 'Zero after debt recovery', accountNumber: 'RW-56789', totalVolume: 3, netAmount: 300, settlement: { saccoDistributionInstruction: 0, availableAfterDebtRecovery: 0, outstandingDebt: 800 } },
-      { farmerId: 8, farmerName: 'Debt recovery consumes payable', accountNumber: 'RW-98765', totalVolume: 2, netAmount: 200, settlement: { debtRepaymentAmount: 200, outstandingDebt: 0 } },
-      { farmerId: 7, farmerName: 'Debt only, no remaining payable', accountNumber: null, totalVolume: 2, netAmount: 200, settlement: { retainedUnpaidAmount: 0, availableAfterDebtRecovery: 0, outstandingDebt: 200 } },
+      { farmerId: 1, farmerName: 'Account paid', accountNumber: 'RW-12345', totalVolume: 5, netAmount: 3500, settlement: { saccoDistributionInstruction: 3200 } },
+      { farmerId: 2, farmerName: 'No account', accountNumber: null, totalVolume: 4, netAmount: 4000, settlement: { retainedUnpaidAmount: 250, outstandingDebt: 900 } },
+      { farmerId: 3, farmerName: 'Zero after debt recovery', accountNumber: 'RW-56789', totalVolume: 3, netAmount: 3500, settlement: { saccoDistributionInstruction: 0, availableAfterDebtRecovery: 0, outstandingDebt: 800 } },
+      { farmerId: 8, farmerName: 'Debt recovery consumes payable', accountNumber: 'RW-98765', totalVolume: 2, netAmount: 3200, settlement: { debtRepaymentAmount: 3200, outstandingDebt: 0 } },
+      { farmerId: 7, farmerName: 'Debt only, no remaining payable', accountNumber: null, totalVolume: 2, netAmount: 3200, settlement: { retainedUnpaidAmount: 0, availableAfterDebtRecovery: 0, outstandingDebt: 200 } },
       { farmerId: 4, farmerName: 'Negative payable', accountNumber: null, totalVolume: 2, netAmount: -50 },
       { farmerId: 5, farmerName: 'No valid milk', accountNumber: 'RW-88888', totalVolume: 0, netAmount: 700 },
-      { farmerId: 6, farmerName: 'No account value', accountNumber: 'N/A', totalVolume: 1, netAmount: 75 },
-      { farmerId: 9, farmerName: 'Legacy confirmed account payment', accountNumber: 'RW-11111', totalVolume: 2, netAmount: 500, settlement: { cashConfirmedAmount: 50, saccoConfirmedAmount: 50 } },
-      { farmerId: 10, farmerName: 'Legacy confirmed owner payment', accountNumber: null, totalVolume: 2, netAmount: 500, settlement: { cashConfirmedAmount: 100 } },
-      { farmerId: 11, farmerName: 'Unknown route amount', accountNumber: 'RW-22222', totalVolume: 2, netAmount: 500, settlement: { saccoDistributionInstruction: null } },
+      { farmerId: 6, farmerName: 'No account value', accountNumber: 'N/A', totalVolume: 1, netAmount: 3500 },
+      { farmerId: 9, farmerName: 'Legacy confirmed account payment', accountNumber: 'RW-11111', totalVolume: 2, netAmount: 4000, settlement: { cashConfirmedAmount: 50, saccoConfirmedAmount: 50 } },
+      { farmerId: 10, farmerName: 'Legacy confirmed owner payment', accountNumber: null, totalVolume: 2, netAmount: 4000, settlement: { cashConfirmedAmount: 100 } },
+      { farmerId: 11, farmerName: 'Unknown route amount', accountNumber: 'RW-22222', totalVolume: 2, netAmount: 4000, settlement: { saccoDistributionInstruction: null } },
+      { farmerId: 12, farmerName: 'Below minimum', accountNumber: 'RW-33333', totalVolume: 2, netAmount: 2999, settlement: { saccoEligible: false, saccoDistributionInstruction: 0, retainedUnpaidAmount: 2999 } },
     ],
   });
 
-  assert.deepEqual(groups.withAccount.map(({ farmerId, paymentAmount }) => [farmerId, paymentAmount]), [[1, 320], [8, 0], [9, 400], [11, null], [3, 0]]);
-  assert.deepEqual(groups.withoutAccount.map(({ farmerId, paymentAmount }) => [farmerId, paymentAmount]), [[7, 0], [10, 400], [4, 0], [2, 250], [6, 75]]);
+  assert.deepEqual(groups.withAccount.map(({ farmerId, paymentAmount }) => [farmerId, paymentAmount]), [[1, 3200], [8, 0], [9, 3900], [11, null], [3, 0]]);
+  assert.deepEqual(groups.withoutAccount.map(({ farmerId, paymentAmount }) => [farmerId, paymentAmount]), [[7, 0], [10, 3900], [2, 250], [6, 3500]]);
+  assert.equal(groups.withAccount.some(({ farmerId }) => farmerId === 12), false);
+  assert.equal(groups.withoutAccount.some(({ farmerId }) => farmerId === 12), false);
 });
 
 test('Ukwezi payment groups sort each account route by case-insensitive farmer name', () => {

@@ -254,7 +254,9 @@ test('farmer loss recalculates owner accounting without changing owner milk valu
   assert.equal(after.farmersMilkValue, 200);
   assert.equal(after.nyirayoMilkDifference, 400);
   assert.equal(after.nyirayoOwnAccountingBalance, 400);
-  assert.equal(after.nyirayoTotalWithOwnerList, 400);
+  assert.equal(after.accountRoutedPayable, 0);
+  assert.equal(after.ownerListRoutedPayable, 200);
+  assert.equal(after.nyirayoTotalWithOwnerList, 600);
 });
 
 test('loss-adjusted milk value flows into farmer net pay with existing transport and Umwenda deductions', () => {

@@ -4,6 +4,7 @@ const XLSX = require('xlsx');
 
 const { getAuthenticatedUser } = require('@/lib/security/authenticate.js');
 const Reports = require('@/lib/services/monthly-report-service.js');
+const { isUkweziPaymentEligible } = require('@/lib/utils/ukwezi-payment-eligibility.js');
 const settlementRepository = require('@/lib/repositories/farmerSettlementRepository.js');
 
 export const runtime = 'nodejs';
@@ -35,10 +36,17 @@ export async function GET(request) {
         ? (report.collectorSettlementRows || [])
         : [];
 
-    // Filter only farmers with verified bank account numbers
+    // Export only farmers eligible for an individual bank payment.
     const verifiedFarmers = rawRows.filter((r) => {
-      const acct = r.accountNumber || r.phone;
-      return acct && String(acct).trim().length > 3 && (Number(r.netAmount || 0) > 0);
+      const acct = String(r.accountNumber || '').trim();
+      if (!isCollector) {
+        const accountOrPhone = r.accountNumber || r.phone;
+        return accountOrPhone && String(accountOrPhone).trim().length > 3 && Number(r.netAmount || 0) > 0;
+      }
+      const normalizedAccount = acct.toUpperCase();
+      const settlementEligible = r.settlement?.saccoEligible ?? isUkweziPaymentEligible(r.netAmount);
+      return acct.length >= 4 && !['N/A', 'NA', '—', '-', 'NONE', 'NULL'].includes(normalizedAccount)
+        && settlementEligible && isUkweziPaymentEligible(r.netAmount);
     });
 
     const periodLabel = query.periodType === 'first-half' ? 'H1' : 'H2';
