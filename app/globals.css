@@ -832,7 +832,8 @@ button:active, .btn-primary:active, .filter-chip:active {
 .ukwezi-debt-mobile dl > div { display: flex; justify-content: space-between; gap: 12px; }
 .ukwezi-debt-mobile dt, .ukwezi-debt-mobile dd { min-width: 0; margin: 0; overflow-wrap: anywhere; }
 .ukwezi-debt-mobile dd { text-align: right; font-variant-numeric: tabular-nums; }
-.ukwezi-payment-group h3, .ukwezi-owner-payment h3 { margin: 0 0 9px; color: var(--ink); font-size: 0.95rem; }
+.ukwezi-payment-group { padding-top: 16px; border-top: 1px solid var(--line); }
+.ukwezi-payment-group h3, .ukwezi-owner-payment h3 { margin: 0 0 10px; color: var(--ink); font-size: 1rem; }
 .ukwezi-owner-payment-row { display: grid; grid-template-columns: minmax(180px, 1fr) minmax(150px, 1fr) minmax(180px, auto); gap: 12px; align-items: center; padding: 12px; border: 1px solid var(--blue-line); border-radius: var(--radius-md); background: var(--blue-pale); }
 .ukwezi-owner-payment-row strong { color: var(--blue-pressed); font-variant-numeric: tabular-nums; text-align: right; }
 .ukwezi-payment-desktop { width: 100%; max-width: 100%; overflow-x: auto; overscroll-behavior-x: contain; }
@@ -850,7 +851,7 @@ button:active, .btn-primary:active, .filter-chip:active {
 .ukwezi-payment-mobile-total dl > div { display: flex; justify-content: space-between; gap: 12px; }
 .ukwezi-payment-mobile-total dt, .ukwezi-payment-mobile-total dd { min-width: 0; margin: 0; overflow-wrap: anywhere; }
 .ukwezi-payment-mobile-total dd { font-variant-numeric: tabular-nums; text-align: right; }
-.ukwezi-payment-reconciliation { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; padding: 12px; border: 1px solid var(--line); border-radius: var(--radius-md); background: var(--canvas-quiet); }
+.ukwezi-payment-reconciliation { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; padding: 12px; border: 1px solid var(--line); border-radius: var(--radius-md); background: var(--canvas-quiet); }
 .ukwezi-payment-reconciliation > div { display: grid; min-width: 0; gap: 5px; }
 .ukwezi-payment-reconciliation span { color: var(--muted-strong); font-size: var(--text-xs); }
 .ukwezi-payment-reconciliation strong { overflow-wrap: anywhere; font-variant-numeric: tabular-nums; }
@@ -861,13 +862,16 @@ button:active, .btn-primary:active, .filter-chip:active {
 .ukwezi-period-caption { margin: 12px 0 0; color: var(--muted); font-size: var(--text-sm); font-variant-numeric: tabular-nums; }
 .ukwezi-summary, .ukwezi-owner-accounting { margin-top: 24px; }
 .ukwezi-summary h3, .ukwezi-owner-accounting h3 { margin: 0; color: var(--ink); font-size: 1.05rem; }
-.ukwezi-summary-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); margin-top: 12px; border-top: 1px solid var(--line); border-left: 1px solid var(--line); }
-.ukwezi-summary-item { display: grid; min-width: 0; min-height: 112px; align-content: space-between; gap: 8px; padding: 14px 16px; border-right: 1px solid var(--line); border-bottom: 1px solid var(--line); background: var(--surface); }
+.ukwezi-summary-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; margin-top: 12px; }
+.ukwezi-summary-item { display: grid; min-width: 0; min-height: 112px; align-content: space-between; gap: 8px; padding: 14px 16px; border: 1px solid var(--line); border-radius: var(--radius-md); background: var(--surface); box-shadow: var(--shadow-panel); }
 .ukwezi-summary-item > span { color: var(--muted-strong); font-size: var(--text-xs); font-weight: 650; }
 .ukwezi-summary-item b { color: var(--ink); font-size: var(--text-base); font-variant-numeric: tabular-nums; }
 .ukwezi-summary-item strong { color: var(--ink); font-size: 1.05rem; font-variant-numeric: tabular-nums; }
-.ukwezi-summary-primary { border-top: 3px solid #1681ab; }
-.ukwezi-summary-total { border-top: 3px solid var(--sage-ink); }
+.ukwezi-summary-primary { border-top: 3px solid var(--blue); background: var(--blue-pale); }
+.ukwezi-summary-total { border-color: var(--success-soft-border); border-top: 3px solid var(--sage-ink); background: var(--sage-soft); }
+.ukwezi-summary-total > span { color: var(--success-deep); }
+.ukwezi-summary-total > b { color: var(--sage-ink); font-size: var(--text-lg); }
+.ukwezi-summary-total > strong { color: var(--success-deep); font-size: 1.15rem; font-weight: 750; }
 .ukwezi-owner-accounting { max-width: 900px; }
 .ukwezi-accounting-steps { margin: 12px 0 0; padding: 0; list-style: none; border-top: 1px solid var(--line); }
 .ukwezi-accounting-steps li { display: flex; justify-content: space-between; align-items: baseline; gap: 16px; padding: 10px 12px; border-bottom: 1px solid var(--line-soft); }
@@ -5710,6 +5714,7 @@ input[type="submit"] {
 
 @media (max-width: 980px) {
   .ukwezi-summary-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .ukwezi-payment-reconciliation { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .ukwezi-payment-desktop { display: none; }
   .ukwezi-payment-mobile { display: grid; }
   .ukwezi-payment-scroll-note { display: none; }
@@ -5734,4 +5739,5 @@ input[type="submit"] {
 
 @media (max-width: 380px) {
   .ukwezi-summary-grid { grid-template-columns: minmax(0, 1fr); }
+  .ukwezi-payment-reconciliation { grid-template-columns: minmax(0, 1fr); }
 }
