@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { filterUkweziPaymentRows } from '@/lib/utils/ukwezi-payment-search.js';
+import { formatMilkVolume } from '@/lib/utils/milk-volume-format.js';
 
 type PaymentRow = {
   farmerId: number;
@@ -40,7 +41,9 @@ type Props = {
 const formatMoney = (value: number | null, language: string) => value === null
   ? '—'
   : new Intl.NumberFormat(language === 'rw' ? 'rw-RW' : 'en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(value);
-const formatVolume = (value: number, language: string) => new Intl.NumberFormat(language === 'rw' ? 'rw-RW' : 'en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(value);
+const formatVolume = formatMilkVolume;
+const compareFarmerNames = (left: PaymentRow, right: PaymentRow) => left.farmerName.trim()
+  .localeCompare(right.farmerName.trim(), 'en', { sensitivity: 'base' });
 
 export function CollectorUkweziPaymentRoster({
   accountRows,
@@ -58,8 +61,8 @@ export function CollectorUkweziPaymentRoster({
   t,
 }: Props) {
   const [searchQuery, setSearchQuery] = useState('');
-  const filteredAccountRows = filterUkweziPaymentRows(accountRows, searchQuery);
-  const filteredOwnerRows = filterUkweziPaymentRows(ownerRows, searchQuery);
+  const filteredAccountRows = filterUkweziPaymentRows([...accountRows].sort(compareFarmerNames), searchQuery);
+  const filteredOwnerRows = filterUkweziPaymentRows([...ownerRows].sort(compareFarmerNames), searchQuery);
   const matchingFarmerCount = filteredAccountRows.length + filteredOwnerRows.length;
   const totalFarmerCount = accountRows.length + ownerRows.length;
   const columns = [
@@ -79,7 +82,7 @@ export function CollectorUkweziPaymentRoster({
   ];
   const cellValues = (row: PaymentRow, index: number) => [
     String(index + 1), row.farmerName, row.nationalId || '—', row.phone || '—', row.accountNumber || '—',
-    `${formatVolume(row.validLiters, language)} L`,
+    formatVolume(row.validLiters),
     row.pricePerLiter === null ? '—' : `${formatMoney(row.pricePerLiter, language)} RWF/L`,
     row.grossAmount === null ? '—' : `${formatMoney(row.grossAmount, language)} RWF`,
     row.transportAmount === null ? '—' : `${formatMoney(row.transportAmount, language)} RWF`,
@@ -104,7 +107,7 @@ export function CollectorUkweziPaymentRoster({
             <tbody>{rows.map((row, rowIndex) => <tr key={row.farmerId}>{cellValues(row, rowIndex).map((value, index) => <td key={columns[index].key} className={index === 0 ? 'ukwezi-payment-index' : index === 1 ? 'ukwezi-payment-name' : undefined}>{value}</td>)}</tr>)}</tbody>
             <tfoot><tr>
               <th colSpan={5}>{t('grandTotal')}</th>
-              <td>{formatVolume(total(rows, 'validLiters') || 0, language)} L</td>
+              <td>{formatVolume(total(rows, 'validLiters') || 0)}</td>
               <td>{total(rows, 'grossAmount') === null || !(total(rows, 'validLiters') || 0) ? '—' : `${formatMoney(Number(total(rows, 'grossAmount')) / Number(total(rows, 'validLiters')), language)} RWF/L`}</td>
               <td>{formatMoney(total(rows, 'grossAmount'), language)} RWF</td>
               <td>{formatMoney(total(rows, 'transportAmount'), language)} RWF</td>
@@ -125,7 +128,7 @@ export function CollectorUkweziPaymentRoster({
           <section className="ukwezi-payment-mobile-total" aria-label={`${label} ${t('grandTotal')}`}>
             <b>{t('grandTotal')}</b>
             <dl>
-              <div><dt>{t('ukweziColMilkLiters')}</dt><dd>{formatVolume(total(rows, 'validLiters') || 0, language)} L</dd></div>
+              <div><dt>{t('ukweziColMilkLiters')}</dt><dd>{formatVolume(total(rows, 'validLiters') || 0)}</dd></div>
               <div><dt>{t('ukweziColGrossAmount')}</dt><dd>{formatMoney(total(rows, 'grossAmount'), language)} RWF</dd></div>
               <div><dt>{t('ukweziColTransport')}</dt><dd>{formatMoney(total(rows, 'transportAmount'), language)} RWF</dd></div>
               <div><dt>{t('ukweziColIgipandeOther')}</dt><dd>{formatMoney(total(rows, 'otherDeductions'), language)} RWF</dd></div>

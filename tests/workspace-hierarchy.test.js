@@ -282,8 +282,8 @@ test('Collector Ukwezi farmer search filters both payment lists and debt rows wi
   const roster = fs.readFileSync(path.join(__dirname, '..', 'components', 'views', 'collector-ukwezi-payment-roster.tsx'), 'utf8');
   const search = fs.readFileSync(path.join(__dirname, '..', 'lib', 'utils', 'ukwezi-payment-search.js'), 'utf8');
 
-  assert.match(roster, /filterUkweziPaymentRows\(accountRows, searchQuery\)/);
-  assert.match(roster, /filterUkweziPaymentRows\(ownerRows, searchQuery\)/);
+  assert.match(roster, /filterUkweziPaymentRows\(\[\.\.\.accountRows\]\.sort\(compareFarmerNames\), searchQuery\)/);
+  assert.match(roster, /filterUkweziPaymentRows\(\[\.\.\.ownerRows\]\.sort\(compareFarmerNames\), searchQuery\)/);
   assert.match(roster, /rows: filteredAccountRows[\s\S]*rows: filteredOwnerRows/);
   assert.match(roster, /total\(accountRows, 'payable'\)/);
   assert.match(roster, /ukweziSearchResults/);

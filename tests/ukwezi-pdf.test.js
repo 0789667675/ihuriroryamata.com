@@ -2,6 +2,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
+const { formatMilkVolume } = require('../lib/utils/milk-volume-format.js');
 const {
   renderUkweziPdf,
   buildUkweziFilename,
@@ -51,6 +52,12 @@ const report = {
     totalTransport: 12000,
   },
 };
+
+test('Ukwezi milk-volume formatting trims zeros and preserves decimal and grouping precision', () => {
+  assert.deepEqual([93, 93.5, 93.75, 139.5, 100, 5305, 1e-7].map(formatMilkVolume), [
+    '93', '93.5', '93.75', '139.5', '100', '5,305', '0.0000001',
+  ]);
+});
 
 test('Ukwezi PDF renderer creates a valid multipage accounting document from the report result', async () => {
   const pdf = await renderUkweziPdf({
@@ -289,19 +296,35 @@ test('Ukwezi payment groups use outstanding route instructions and retain zero/n
     ],
   });
 
-  assert.deepEqual(groups.withAccount.map(({ farmerId, paymentAmount }) => [farmerId, paymentAmount]), [[1, 320], [3, 0], [8, 0], [9, 400], [11, null]]);
-  assert.deepEqual(groups.withoutAccount.map(({ farmerId, paymentAmount }) => [farmerId, paymentAmount]), [[2, 250], [7, 0], [4, 0], [6, 75], [10, 400]]);
+  assert.deepEqual(groups.withAccount.map(({ farmerId, paymentAmount }) => [farmerId, paymentAmount]), [[1, 320], [8, 0], [9, 400], [11, null], [3, 0]]);
+  assert.deepEqual(groups.withoutAccount.map(({ farmerId, paymentAmount }) => [farmerId, paymentAmount]), [[7, 0], [10, 400], [4, 0], [2, 250], [6, 75]]);
 });
 
-test('Collector PDF shows only account farmers, keeps the owner aggregate, and repeats all 13 headers', async () => {
+test('Ukwezi payment groups sort each account route by case-insensitive farmer name', () => {
+  const groups = getEligibleFarmerPaymentGroups({
+    farmerPayments: [
+      { farmerId: 1, farmerName: 'zulu', accountNumber: 'RW-0001', totalVolume: 1 },
+      { farmerId: 2, farmerName: 'ALPHA', accountNumber: 'RW-0002', totalVolume: 1 },
+      { farmerId: 3, farmerName: 'bravo', accountNumber: 'RW-0003', totalVolume: 1 },
+      { farmerId: 4, farmerName: 'Charlie', accountNumber: null, totalVolume: 1 },
+      { farmerId: 5, farmerName: 'beta', accountNumber: null, totalVolume: 1 },
+      { farmerId: 6, farmerName: 'DELTA', accountNumber: null, totalVolume: 1 },
+    ],
+  });
+
+  assert.deepEqual(groups.withAccount.map(({ farmerName }) => farmerName), ['ALPHA', 'bravo', 'zulu']);
+  assert.deepEqual(groups.withoutAccount.map(({ farmerName }) => farmerName), ['beta', 'Charlie', 'DELTA']);
+});
+
+test('Collector PDF sorts both farmer sections alphabetically, keeps the owner aggregate, and repeats all 13 headers', async () => {
   const bankFarmers = Array.from({ length: 64 }, (_, index) => ({
     farmerId: index + 1,
     farmerName: `BANK-FARMER-${String(index + 1).padStart(3, '0')}`,
     nationalId: `ID-${String(index + 1).padStart(6, '0')}`,
     phone: `078800${String(index + 1).padStart(4, '0')}`,
     accountNumber: `RW-ACCOUNT-${String(index + 1).padStart(4, '0')}`,
-    validVolumeLiters: 10,
-    totalVolume: 10,
+    validVolumeLiters: index === 0 ? 93.5 : index === 1 ? 93.75 : 10,
+    totalVolume: index === 0 ? 93.5 : index === 1 ? 93.75 : 10,
     pricePerLiter: 400,
     grossAmount: 4000,
     totalTransport: 100,
@@ -315,8 +338,8 @@ test('Collector PDF shows only account farmers, keeps the owner aggregate, and r
     nationalId: `NO-ID-${String(index + 1).padStart(4, '0')}`,
     phone: `078811${String(index + 1).padStart(4, '0')}`,
     accountNumber: null,
-    validVolumeLiters: 8,
-    totalVolume: 8,
+    validVolumeLiters: index === 0 ? 139.5 : index === 1 ? 5305 : 8,
+    totalVolume: index === 0 ? 139.5 : index === 1 ? 5305 : 8,
     pricePerLiter: 400,
     grossAmount: 3200,
     totalTransport: 80,
@@ -327,7 +350,7 @@ test('Collector PDF shows only account farmers, keeps the owner aggregate, and r
   const generated = await renderUkweziPdf({
     report: {
       ...report,
-      farmerPayments: [...bankFarmers, ...ownerRoutedFarmers],
+      farmerPayments: [...bankFarmers.slice().reverse(), ...ownerRoutedFarmers.slice().reverse()],
       ownerGeneratedGross: 300000,
       ownerGeneratedVolume: 750,
       collectorFarmersValidLiters: 832,
@@ -381,17 +404,28 @@ test('Collector PDF shows only account farmers, keeps the owner aggregate, and r
     assert.ok(pdfText.includes(header), `missing PDF column: ${header}`);
   }
   assert.ok(pageTexts.filter((pageText) => pageText.includes('Farmer full name')).length >= 2, 'table header must repeat on later pages');
-  for (const farmer of [...bankFarmers, ...ownerRoutedFarmers]) {
-    if (farmer.accountNumber) {
-      assert.equal(pdfText.split(farmer.farmerName).length - 1, 1, `expected exactly one bank farmer row for ${farmer.farmerName}`);
-    } else {
-      assert.equal(pdfText.includes(farmer.farmerName), false, `no-account farmer name leaked into PDF: ${farmer.farmerName}`);
-      assert.equal(pdfText.includes(farmer.nationalId), false, `no-account farmer ID leaked into PDF: ${farmer.nationalId}`);
-      assert.equal(pdfText.includes(farmer.phone), false, `no-account farmer phone leaked into PDF: ${farmer.phone}`);
+  for (const farmers of [bankFarmers, ownerRoutedFarmers]) {
+    let previousIndex = -1;
+    for (const farmer of farmers) {
+      const currentIndex = pdfText.indexOf(farmer.farmerName);
+      assert.ok(currentIndex > previousIndex, `expected ${farmer.farmerName} after the prior alphabetical row`);
+      assert.equal(pdfText.split(farmer.farmerName).length - 1, 1, `expected exactly one row for ${farmer.farmerName}`);
+      previousIndex = currentIndex;
     }
   }
-  assert.equal(pdfText.includes('OWNER-FARMER-001'), false);
-  assert.equal(pdfText.includes('NO-ID-0001'), false);
+  assert.ok(pdfText.includes('OWNER-FARMER-001'));
+  assert.ok(pdfText.includes('NO-ID-0001'));
+  assert.ok(pdfText.includes('93.5'));
+  assert.ok(pdfText.includes('93.75'));
+  assert.ok(pdfText.includes('139.5'));
+  assert.ok(pdfText.includes('5,305'));
+  assert.ok(pdfText.includes('807.25'));
+  assert.ok(pdfText.includes('5,620.5'));
+  assert.equal(/\b(?:93\.5|93\.75|139\.5|5,305) L\b/.test(pdfText), false);
+  assert.ok(/\b1\s+BANK-FARMER-001\b/.test(pdfText));
+  assert.ok(/\b64\s+BANK-FARMER-064\b/.test(pdfText));
+  assert.ok(/\b1\s+OWNER-FARMER-001\b/.test(pdfText));
+  assert.ok(/\b24\s+OWNER-FARMER-024\b/.test(pdfText));
   assert.ok(pdfText.includes('RW-OWNER-001'));
   assert.ok(pdfText.includes('Aggregate payable for farmers without accounts'));
   assert.ok(pdfText.includes('72,000.00 RWF'));
@@ -403,12 +437,18 @@ test('Collector PDF shows only account farmers, keeps the owner aggregate, and r
   assert.ok(pdfText.includes('72,000.00 RWF'));
   assert.ok(pdfText.includes('300,000.00 RWF'));
   assert.ok(pdfText.includes('No Ejoheza amount is recorded in this report'));
-  assert.ok(pdfText.includes('750.00 L'));
-  assert.ok(pdfText.includes('832.00 L'));
+  assert.ok(pdfText.includes('750'));
+  assert.ok(pdfText.includes('832'));
   const rosterSource = fs.readFileSync(path.join(__dirname, '..', 'components', 'views', 'collector-ukwezi-payment-roster.tsx'), 'utf8');
   const workspaceSource = fs.readFileSync(path.join(__dirname, '..', 'app', 'workspace.tsx'), 'utf8');
   assert.match(rosterSource, /renderTable\(filteredOwnerRows,\s*false/);
+  assert.match(rosterSource, /\[\.\.\.accountRows\]\.sort\(compareFarmerNames\)/);
+  assert.match(rosterSource, /\[\.\.\.ownerRows\]\.sort\(compareFarmerNames\)/);
+  assert.match(rosterSource, /formatMilkVolume/);
   assert.match(workspaceSource, /ownerRows=\{noAccountPaymentRows\}/);
+  assert.match(workspaceSource, /params\.set\('sortBy', 'name'\)/);
+  assert.match(workspaceSource, /params\.set\('sortDirection', 'asc'\)/);
+  assert.match(workspaceSource, /ukweziLiters = formatMilkVolume/);
   await parsed.destroy();
 });
 
