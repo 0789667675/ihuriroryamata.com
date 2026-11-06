@@ -832,7 +832,7 @@ button:active, .btn-primary:active, .filter-chip:active {
 .ukwezi-debt-mobile dl > div { display: flex; justify-content: space-between; gap: 12px; }
 .ukwezi-debt-mobile dt, .ukwezi-debt-mobile dd { min-width: 0; margin: 0; overflow-wrap: anywhere; }
 .ukwezi-debt-mobile dd { text-align: right; font-variant-numeric: tabular-nums; }
-.ukwezi-payment-group { padding-top: 16px; border-top: 1px solid var(--line); }
+.ukwezi-payment-group { container-type: inline-size; padding-top: 16px; border-top: 1px solid var(--line); }
 .ukwezi-payment-group h3, .ukwezi-owner-payment h3 { margin: 0 0 10px; color: var(--ink); font-size: 1rem; }
 .ukwezi-owner-payment-row { display: grid; grid-template-columns: minmax(180px, 1fr) minmax(150px, 1fr) minmax(180px, auto); gap: 12px; align-items: center; padding: 12px; border: 1px solid var(--blue-line); border-radius: var(--radius-md); background: var(--blue-pale); }
 .ukwezi-owner-payment-row strong { color: var(--blue-pressed); font-variant-numeric: tabular-nums; text-align: right; }
@@ -5843,6 +5843,12 @@ input[type="submit"] {
 @media (max-width: 380px) {
   .ukwezi-summary-grid { grid-template-columns: minmax(0, 1fr); }
   .ukwezi-payment-reconciliation { grid-template-columns: minmax(0, 1fr); }
+}
+
+@container (max-width: 1841px) {
+  .ukwezi-payment-desktop { display: none; }
+  .ukwezi-payment-mobile { display: grid; gap: 8px; }
+  .ukwezi-payment-scroll-note { display: none; }
 }
 
 @media (orientation: landscape) and (max-height: 500px) and (max-width: 980px) {
