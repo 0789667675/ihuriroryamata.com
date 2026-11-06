@@ -36,7 +36,7 @@ import { DashboardView } from '@/components/views/dashboard-view';
 import { FarmersView } from '@/components/views/farmers-view';
 import { FarmerDeletionDialog } from '@/components/views/farmer-deletion-dialog';
 import { MilkRecordsView } from '@/components/views/milk-records-view';
-import { DeductionView, type DeductionConfiguration, type DeductionHistoryItem, type FarmerPeriodLedgerRow, type FarmerPeriodLedgerSummary } from '@/components/views/deductions-view';
+import { DeductionView, type DeductionBatchPreview, type DeductionBatchResult, type DeductionConfiguration, type DeductionHistoryItem, type FarmerPeriodLedgerRow, type FarmerPeriodLedgerSummary } from '@/components/views/deductions-view';
 import { SettlementBatchProgress, type SettlementBatchRecord, type SettlementBatchState } from '@/components/views/settlement-batch-progress';
 import { FarmerSettlementHistory, type SettlementHistoryRecord } from '@/components/views/farmer-settlement-history';
 import { CollectorUkweziPaymentRoster } from '@/components/views/collector-ukwezi-payment-roster';
@@ -88,7 +88,7 @@ const checkSessionExpiry = () => {
 type User = { id: number; name: string; email: string; role: string; accountType: string; language?: 'rw' | 'en'; emailVerified?: boolean };
 type AccountProfile = { id: number; name: string; email: string; phone: string | null; nationalId: string | null; accountNumber: string | null; profilePicture: string | null; role: string; accountType: string; accountStatus: string; emailVerified: boolean; language?: 'rw' | 'en' };
 type Farmer = { id: number; name: string; location: string | null; phone: string | null; nationalId: string | null; accountNumber: string | null; collectionCenter: string | null; cowType: string | null; collectorUserId?: number | null; farmerNumber?: number | null };
-type FarmerDeletionImpact = { farmer: { name: string; farmerNumber?: number | null }; counts: Record<string, number>; affectedPeriods: Array<{ start: string; end: string }>; settledPaymentEvidence: { settlements: unknown[]; farmerPayments: Array<{ count: number; amount: number }>; debtRepayments: unknown[]; igipandeRecoveries: unknown[]; deductionBatchItems: Array<{ recovered_amount?: number }> } };
+type FarmerDeletionImpact = { farmer: { name: string; farmerNumber?: number | null; phone?: string | null; nationalId?: string | null; accountNumber?: string | null; collectionCenter?: string | null }; counts: Record<string, number>; affectedPeriods: Array<{ start: string; end: string }>; settledPaymentEvidence: { settlements: unknown[]; farmerPayments: Array<{ count: number; amount: number }>; debtRepayments: unknown[]; igipandeRecoveries: unknown[]; deductionBatchItems: Array<{ recovered_amount?: number }> } };
 type Center = { id: number; name: string; owner_user_id?: number; pricePerLiter: number; transportRatePerLiter: number; morning_start: string; morning_end: string; evening_start: string; evening_end: string; tank_capacity_liters?: number | null; tankCapacityLiters?: number | null };
 type Page<T> = { data: T[]; nextCursor: string | null; hasMore: boolean; pageSize: number };
 type DailyRow = { farmerId: number; farmerName: string; farmerNumber?: number | null; phone?: string; nationalId?: string; collectionCenter?: string | null; collectorUserId?: number | null; collectorName?: string | null; recordId?: number; volumeMorning: number; volumeEvening: number; totalVolume: number; volumeLiters?: number; amount: number; status?: string; delivered?: boolean; deliveryStatus?: 'delivered' | 'missing'; abacundaCount?: number; presentCount?: number };
@@ -651,6 +651,7 @@ export default function Workspace() {
   const [farmerDeletionConfirmation, setFarmerDeletionConfirmation] = useState('');
   const [farmerDeletionError, setFarmerDeletionError] = useState('');
   const [farmerDeletionBusy, setFarmerDeletionBusy] = useState(false);
+  const farmerDeletionRequestRef = useRef(false);
   const [farmerBatchOpen, setFarmerBatchOpen] = useState(false);
   const [farmerBatchRows, setFarmerBatchRows] = useState<Array<{ name: string; collectionCenterId: string; phone: string; nationalId: string; accountNumber: string; cowType: string; collectorUserId: string }>>([
     { name: '', collectionCenterId: '', phone: '', nationalId: '', accountNumber: '', cowType: '', collectorUserId: '' },
@@ -1762,38 +1763,86 @@ const visibleTabs = (isAdmin
     return result;
   };
 
-  const applyConfiguredDeductionBatch = async ({ configurationId, farmerIds, periodStart, periodEnd }: {
+  const previewConfiguredDeductionBatch = async ({ configurationId, farmerIds = [], periodStart, periodEnd, applyToAll = false }: {
     configurationId: number;
-    farmerIds: number[];
+    farmerIds?: number[];
     periodStart: string;
     periodEnd: string;
+    applyToAll?: boolean;
+  }) => api<DeductionBatchPreview>('/api/deductions/batch/preview', json('POST', {
+    configurationId,
+    ...(applyToAll ? { applyToAll: true } : { farmerIds }),
+    periodStart,
+    periodEnd,
+  }));
+
+  const applyConfiguredDeductionBatch = async ({ configurationId, farmerIds = [], periodStart, periodEnd, applyToAll = false }: {
+    configurationId: number;
+    farmerIds?: number[];
+    periodStart: string;
+    periodEnd: string;
+    applyToAll?: boolean;
   }) => {
-    const response = {
+    const response: DeductionBatchResult = {
       succeeded: 0,
       duplicates: 0,
-      succeededFarmerIds: [] as number[],
-      duplicateFarmerIds: [] as number[],
-      failures: [] as Array<{ farmerId: number; reason: string }>,
+      skipped: 0,
+      failed: 0,
+      succeededFarmers: [],
+      duplicateFarmers: [],
+      skippedFarmers: [],
+      failures: [],
+      totalConfigured: 0,
+      totalRecovered: 0,
+      totalOutstanding: 0,
     };
     const requestId = globalThis.crypto?.randomUUID?.() || `${user?.id}-${Date.now()}-${Math.random().toString(36).slice(2)}`;
-    for (let offset = 0; offset < farmerIds.length; offset += 100) {
-      const chunk = farmerIds.slice(offset, offset + 100);
-      const result = await api<{
-        succeeded: Array<{ farmerId: number }>;
-        duplicates: Array<{ farmerId: number }>;
-        failed: Array<{ farmerId: number; reason: string }>;
-      }>('/api/deductions/batch', json('POST', {
-        configurationId,
-        farmerIds: chunk,
-        periodStart,
-        periodEnd,
-        requestKey: `${requestId}-${offset / 100}`,
-      }));
-      response.succeeded += result.succeeded.length;
-      response.duplicates += result.duplicates.length;
-      response.succeededFarmerIds.push(...result.succeeded.map((row) => row.farmerId));
-      response.duplicateFarmerIds.push(...result.duplicates.map((row) => row.farmerId));
-      response.failures.push(...result.failed);
+    const chunkSize = 5000;
+    const chunks: number[][] = applyToAll
+      ? [[]]
+      : Array.from({ length: Math.ceil(farmerIds.length / chunkSize) }, (_, index) => farmerIds.slice(index * chunkSize, (index + 1) * chunkSize));
+    for (let index = 0; index < chunks.length; index += 1) {
+      const chunk = chunks[index];
+      try {
+        const result = await api<{
+          succeeded: Array<{ farmerId: number; farmerName?: string | null; recoveredAmount?: number; outstandingAmount?: number }>;
+          duplicates: Array<{ farmerId: number; farmerName?: string | null }>;
+          skipped?: Array<{ farmerId: number; farmerName?: string | null }>;
+          failed: Array<{ farmerId: number; reason: string }>;
+          summary?: { totalConfigured?: number; totalRecovered?: number; totalOutstanding?: number };
+        }>('/api/deductions/batch', json('POST', {
+          configurationId,
+          ...(applyToAll ? { applyToAll: true } : { farmerIds: chunk }),
+          periodStart,
+          periodEnd,
+          requestKey: `${requestId}-${index}`,
+        }));
+        response.succeeded += result.succeeded.length;
+        response.duplicates += result.duplicates.length;
+        response.skipped += result.skipped?.length ?? result.duplicates.length;
+        response.failed += result.failed.length;
+        response.succeededFarmers.push(...result.succeeded.map((row) => ({
+          id: row.farmerId,
+          name: row.farmerName || `Farmer #${row.farmerId}`,
+        })));
+        response.duplicateFarmers.push(...result.duplicates.map((row) => ({
+          id: row.farmerId,
+          name: row.farmerName || `Farmer #${row.farmerId}`,
+        })));
+        response.skippedFarmers.push(...(result.skipped || result.duplicates).map((row) => ({
+          id: row.farmerId,
+          name: row.farmerName || `Farmer #${row.farmerId}`,
+        })));
+        response.failures.push(...result.failed);
+        response.totalConfigured += Number(result.summary?.totalConfigured || 0);
+        response.totalRecovered += Number(result.summary?.totalRecovered || 0);
+        response.totalOutstanding += Number(result.summary?.totalOutstanding || 0);
+      } catch (error) {
+        if (applyToAll) throw error;
+        const reason = error instanceof Error ? error.message : 'Failed to apply deduction batch.';
+        response.failed += chunk.length;
+        response.failures.push(...chunk.map((farmerId) => ({ farmerId, reason })));
+      }
     }
     await loadDeductionLedger(null, false, { periodStart, periodEnd });
     setNotice(publicLanguage.t('deductionBatchSaved').replace('{count}', String(response.succeeded)));
@@ -2952,6 +3001,8 @@ const visibleTabs = (isAdmin
   };
 
   const deleteFarmer = async (farmer: Farmer) => {
+    if (farmerDeletionRequestRef.current) return;
+    farmerDeletionRequestRef.current = true;
     setFarmerDeletionTarget(farmer);
     setFarmerDeletionImpact(null);
     setFarmerDeletionReason('');
@@ -2965,11 +3016,13 @@ const visibleTabs = (isAdmin
       setFarmerDeletionError(reason instanceof Error ? reason.message : 'Failed to inspect farmer records.');
     } finally {
       setFarmerDeletionLoading(false);
+      farmerDeletionRequestRef.current = false;
     }
   };
 
   const confirmFarmerDeletion = async () => {
-    if (!farmerDeletionTarget || !farmerDeletionImpact || farmerDeletionBusy) return;
+    if (!farmerDeletionTarget || !farmerDeletionImpact || farmerDeletionRequestRef.current) return;
+    farmerDeletionRequestRef.current = true;
     setFarmerDeletionBusy(true);
     setFarmerDeletionError('');
     try {
@@ -2980,14 +3033,13 @@ const visibleTabs = (isAdmin
       const deletedName = farmerDeletionTarget.name;
       setFarmerDeletionTarget(null);
       setFarmerDeletionImpact(null);
-      await Promise.all([loadFarmers(), loadDaily(), loadReport('current-half')]);
-      if (tab === 'ukwezi') await loadUkwezi();
-      if (tab === 'settlements' && isCollector) await loadSettlementData();
-      setNotice(publicLanguage.language === 'en' ? `${deletedName} was permanently deleted.` : `${deletedName} yasibwe burundu.`);
+      await loadFarmers();
+      setNotice(publicLanguage.language === 'en' ? `${deletedName} was archived. Its accounting history was preserved.` : `${deletedName} yakuwe mu bakora; amateka y’ibaruramari yarabitswe.`);
     } catch (reason) {
       setFarmerDeletionError(reason instanceof Error ? reason.message : 'Failed to delete farmer.');
     } finally {
       setFarmerDeletionBusy(false);
+      farmerDeletionRequestRef.current = false;
     }
   };
 
@@ -4109,6 +4161,7 @@ const visibleTabs = (isAdmin
           });
         }}><Plus size={14} aria-hidden="true" />{publicLanguage.language === 'en' ? 'Add Deduction' : 'Ongera Ikurwaho'}</button> : null}
         <button type="button" className="button button-secondary small-button" disabled={!matchingFarmerObj} onClick={() => { if (matchingFarmerObj) { setFarmerHistoryOpen(false); editFarmerStart(matchingFarmerObj as Farmer); } }}><Edit3 size={14} aria-hidden="true" />{publicLanguage.language === 'en' ? 'Edit Details' : 'Hindura Amakuru'}</button>
+        <button type="button" className="button button-danger small-button" disabled={!matchingFarmerObj} onClick={() => { if (matchingFarmerObj) { setFarmerHistoryOpen(false); void deleteFarmer(matchingFarmerObj as Farmer); } }}><Trash2 size={14} aria-hidden="true" />{publicLanguage.language === 'en' ? 'Archive farmer' : 'Kuraho mu bakora'}</button>
         <button type="button" className="button button-primary small-button" disabled={!farmerId} onClick={() => { if (!farmerId) return; setFarmerHistoryOpen(false); openIfishiForFarmer(farmerId, farmerName, historyFarmer || undefined); }}><BookOpen size={14} aria-hidden="true" />{publicLanguage.t('navIfishi')}</button>
       </div>
       <div className="inspector-mini-kpi">
@@ -4849,6 +4902,7 @@ const visibleTabs = (isAdmin
         configurationsLoading={deductionConfigurationsLoading}
         onLoadConfigurations={loadDeductionConfigurations}
         onSaveConfiguration={saveDeductionConfiguration}
+        onPreviewConfiguredBatch={previewConfiguredDeductionBatch}
         onApplyConfiguredBatch={applyConfiguredDeductionBatch}
         onInspectFarmer={(group) => { void openDeductionInspector(group); }}
         inspectorOpen={deductionInspectorOpen}

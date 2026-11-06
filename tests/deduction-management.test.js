@@ -114,6 +114,69 @@ test('manual batch validates farmer IDs and carries the selected configuration a
   await assert.rejects(() => Deductions.applyDeductionBatch({ ownerUserId: 42, input: { configurationId: 8, farmerIds: [4], periodStart: '2026-11-16', periodEnd: '2026-11-30' }, repository: {} }), /idempotency/i);
 });
 
+test('applyToAll batch skips explicit farmer IDs and sends applyToAll flag to repository', async () => {
+  let received;
+  await Deductions.applyDeductionBatch({
+    ownerUserId: 42,
+    actorId: 42,
+    input: { configurationId: 8, applyToAll: true, farmerIds: [], periodStart: '2026-11-16', periodEnd: '2026-11-30', requestKey: 'batch-all-123' },
+    repository: { applyDeductionBatch: async (input) => { received = input; return input; } },
+  });
+  assert.equal(received.applyToAll, true);
+  assert.deepEqual(received.farmerIds, []);
+  assert.equal(received.requestKey, 'batch-all-123');
+});
+
+test('previewDeductionBatch carries configuration, farmer IDs, applyToAll, and period to the repository', async () => {
+  let received;
+  await Deductions.previewDeductionBatch({
+    ownerUserId: 42,
+    input: { configurationId: 8, farmerIds: [1, 2, 3], periodStart: '2026-11-16', periodEnd: '2026-11-30' },
+    repository: { previewDeductionBatch: async (input) => { received = input; return { summary: { requested: 3, toApply: 3, totalConfigured: 450, totalRecovered: 300, totalOutstanding: 150 } }; } },
+  });
+  assert.equal(received.configurationId, 8);
+  assert.deepEqual(received.farmerIds, [1, 2, 3]);
+  assert.equal(received.periodStart, '2026-11-16');
+  assert.equal(received.periodEnd, '2026-11-30');
+  assert.equal(received.applyToAll, false);
+});
+
+test('previewDeductionBatch with applyToAll sends applyToAll flag and no farmer IDs', async () => {
+  let received;
+  await Deductions.previewDeductionBatch({
+    ownerUserId: 42,
+    input: { configurationId: 8, applyToAll: true, farmerIds: [], periodStart: '2026-11-16', periodEnd: '2026-11-30' },
+    repository: { previewDeductionBatch: async (input) => { received = input; return { summary: { requested: 50, toApply: 50, totalConfigured: 7500, totalRecovered: 5000, totalOutstanding: 2500 } }; } },
+  });
+  assert.equal(received.applyToAll, true);
+  assert.deepEqual(received.farmerIds, []);
+});
+
+test('batch input rejects more than 5000 explicit farmers', async () => {
+  const manyIds = Array.from({ length: 5001 }, (_, i) => i + 1);
+  await assert.rejects(() => Deductions.applyDeductionBatch({
+    ownerUserId: 42, input: { configurationId: 8, farmerIds: manyIds, periodStart: '2026-11-16', periodEnd: '2026-11-30', requestKey: 'batch-many' },
+    repository: { applyDeductionBatch: async () => ({}) },
+  }), /5000/);
+});
+
+test('batch input accepts up to 5000 explicit farmers', async () => {
+  const manyIds = Array.from({ length: 5000 }, (_, i) => i + 1);
+  let received;
+  await Deductions.applyDeductionBatch({
+    ownerUserId: 42, input: { configurationId: 8, farmerIds: manyIds, periodStart: '2026-11-16', periodEnd: '2026-11-30', requestKey: 'batch-max' },
+    repository: { applyDeductionBatch: async (input) => { received = input; return { succeeded: [], duplicates: [], skipped: [], failed: [], summary: {} }; } },
+  });
+  assert.deepEqual(received.farmerIds, manyIds);
+});
+
+test('batch input requires requestKey for apply operations', async () => {
+  await assert.rejects(() => Deductions.applyDeductionBatch({
+    ownerUserId: 42, input: { configurationId: 8, farmerIds: [1], periodStart: '2026-11-16', periodEnd: '2026-11-30' },
+    repository: { applyDeductionBatch: async () => ({}) },
+  }), /idempotency/i);
+});
+
 test('deduction configurations are manual-only and batch rows are unique per farmer, configuration, and period', () => {
   const migration = fs.readFileSync(path.join(__dirname, '../supabase/migrations/031_deduction_period_batch_management.sql'), 'utf8');
   const repository = fs.readFileSync(path.join(__dirname, '../lib/repositories/deductionRepository.js'), 'utf8');

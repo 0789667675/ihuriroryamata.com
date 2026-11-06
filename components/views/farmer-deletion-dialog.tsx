@@ -4,7 +4,14 @@ import { AlertTriangle, Trash2, X } from 'lucide-react';
 import { Modal } from '@/components/ui/modal';
 
 type DeletionImpact = {
-  farmer: { name: string; farmerNumber?: number | null };
+  farmer: {
+    name: string;
+    farmerNumber?: number | null;
+    phone?: string | null;
+    nationalId?: string | null;
+    accountNumber?: string | null;
+    collectionCenter?: string | null;
+  };
   counts: Record<string, number>;
   affectedPeriods: Array<{ start: string; end: string }>;
   settledPaymentEvidence: { settlements: unknown[]; farmerPayments: Array<{ count: number; amount: number }>; debtRepayments: unknown[]; igipandeRecoveries: unknown[]; deductionBatchItems: Array<{ recovered_amount?: number }> };
@@ -27,9 +34,13 @@ type Props = {
 
 const labels = {
   rw: {
-    title: 'Gusiba burundu umworozi',
+    title: 'Kuraho umworozi mu bakora',
     loading: 'Turimo kureba amakuru yose azagerwaho…',
-    records: 'Amakuru azakurwaho mu ibaruramari rikora',
+    records: 'Umworozi azavanwa mu rutonde rukora. Amata, Ukwezi, ubwishyu, ibyakuweho, imyenda n’amateka y’ubugenzuzi bizagumaho; nta mateka y’ibaruramari azasibangana.',
+    phone: 'Telefone',
+    nationalId: 'Indangamuntu',
+    accountNumber: 'Konti ya banki',
+    center: 'Ikigo',
     milk: 'Inyandiko z’amata',
     losses: 'Ibyatakaye mu mata',
     corrections: 'Inyandiko z’amata zahinduwe',
@@ -42,17 +53,22 @@ const labels = {
     batches: 'Ibyakuweho mu byiciro',
     notifications: 'Imenyesha',
     periods: 'Ibihe bya Ukwezi bizongera kubarwa',
-    paid: 'Amafaranga yishyuwe azabikwa mu bubiko bw’ubugenzuzi kugira ngo yemezwe mu mateka.',
-    reason: 'Impamvu yo gusiba',
+    paid: 'Ibimenyetso by’ubwishyu bizagumana n’amateka y’uyu mworozi wavanywe mu bakora.',
+    reason: 'Impamvu yo gukura mu bakora',
     typeName: 'Andika izina ry’umworozi kugira ngo wemeze',
-    confirm: 'Siba burundu',
+    confirm: 'Kuraho mu bakora',
+    confirming: 'Birimo kubikwa…',
     cancel: 'Kureka',
-    noRecords: 'Nta mateka y’ubucuruzi ahujwe n’uyu mworozi.',
+    noRecords: 'Nta bihe by’ibaruramari bizongera kubarwa.',
   },
   en: {
-    title: 'Permanently delete farmer',
+    title: 'Archive farmer',
     loading: 'Checking all related records…',
-    records: 'Records removed from active accounting',
+    records: 'The farmer will leave the active directory. Milk, Ukwezi, payments, deductions, debts, and audit history will be retained; no accounting history will be deleted.',
+    phone: 'Phone',
+    nationalId: 'National ID',
+    accountNumber: 'Bank account',
+    center: 'Collection center',
     milk: 'Milk records',
     losses: 'Milk losses',
     corrections: 'Milk corrections',
@@ -65,10 +81,11 @@ const labels = {
     batches: 'Batched deductions',
     notifications: 'Notifications',
     periods: 'Ukwezi periods to recalculate',
-    paid: 'Evidence of actual payments will be preserved in the administrative archive.',
+    paid: 'Evidence of actual payments will remain linked to this archived farmer.',
     reason: 'Reason for deletion',
     typeName: 'Type the farmer name to confirm',
-    confirm: 'Delete permanently',
+    confirm: 'Archive farmer',
+    confirming: 'Archiving…',
     cancel: 'Cancel',
     noRecords: 'No linked business history was found for this farmer.',
   },
@@ -115,7 +132,7 @@ export function FarmerDeletionDialog({
     && confirmationName.trim() === impact.farmer.name && !busy && !loading);
 
   return (
-    <Modal ariaLabel={copy.title} className="modal-panel-wide" onClose={onClose} dismissible={!busy}>
+    <Modal ariaLabel={copy.title} className="farmer-deletion-modal" onClose={onClose} dismissible={!busy}>
       <div className="panel-heading">
         <div>
           <span className="eyebrow">{impact?.farmer.farmerNumber ? `#${impact.farmer.farmerNumber}` : 'Aborozi'}</span>
@@ -128,6 +145,12 @@ export function FarmerDeletionDialog({
           <AlertTriangle size={18} aria-hidden="true" />
           <span>{copy.records}</span>
         </section>
+        <dl className="farmer-deletion-impact farmer-deletion-identity">
+          <div><dt>{copy.phone}</dt><dd>{impact.farmer.phone || '—'}</dd></div>
+          <div><dt>{copy.nationalId}</dt><dd>{impact.farmer.nationalId || '—'}</dd></div>
+          <div><dt>{copy.accountNumber}</dt><dd>{impact.farmer.accountNumber || '—'}</dd></div>
+          <div><dt>{copy.center}</dt><dd>{impact.farmer.collectionCenter || '—'}</dd></div>
+        </dl>
         <dl className="farmer-deletion-impact">
           {rows.map(([key, label]) => <div key={key}><dt>{copy[label]}</dt><dd>{Number(impact.counts[key] || 0)}</dd></div>)}
         </dl>
@@ -142,7 +165,7 @@ export function FarmerDeletionDialog({
           {error ? <p className="form-error" role="alert">{error}</p> : null}
           <div className="form-actions">
             <button type="button" className="button button-secondary" onClick={onClose} disabled={busy}>{copy.cancel}</button>
-            <button type="submit" className="button button-danger" disabled={!canDelete} aria-busy={busy}><Trash2 size={16} aria-hidden="true" />{copy.confirm}</button>
+            <button type="submit" className="button button-danger" disabled={!canDelete} aria-busy={busy}><Trash2 size={16} aria-hidden="true" />{busy ? copy.confirming : copy.confirm}</button>
           </div>
         </form>
       </>}

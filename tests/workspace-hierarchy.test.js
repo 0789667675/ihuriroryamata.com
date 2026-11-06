@@ -284,8 +284,11 @@ test('Collector Ukwezi farmer search filters both payment lists and debt rows wi
 
   assert.match(roster, /filterUkweziPaymentRows\(\[\.\.\.accountRows\]\.sort\(compareFarmerNames\), searchQuery\)/);
   assert.match(roster, /filterUkweziPaymentRows\(\[\.\.\.ownerRows\]\.sort\(compareFarmerNames\), searchQuery\)/);
-  assert.match(roster, /rows: filteredAccountRows[\s\S]*rows: filteredOwnerRows/);
-  assert.match(roster, /total\(accountRows, 'payable'\)/);
+  assert.match(roster, /paginateUkweziPaymentRows\(filteredAccountRows, accountPage, accountPageSize\)/);
+  assert.match(roster, /paginateUkweziPaymentRows\(filteredOwnerRows, ownerPage, ownerPageSize\)/);
+  assert.match(roster, /rows: accountPagination\.rows[\s\S]*rows: ownerPagination\.rows/);
+  assert.match(roster, /accountTotals = useMemo\(\(\) => getPaymentTotals\(accountRows\)/);
+  assert.match(roster, /formatMoney\(accountTotals\.payable, language\)/);
   assert.match(roster, /ukweziSearchResults/);
   assert.match(search, /row\.accountNumber/);
   assert.match(search, /row\.nationalId/);

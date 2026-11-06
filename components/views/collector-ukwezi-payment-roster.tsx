@@ -1,5 +1,5 @@
-import { useState } from 'react';
-import { filterUkweziPaymentRows } from '@/lib/utils/ukwezi-payment-search.js';
+import { useMemo, useState } from 'react';
+import { filterUkweziPaymentRows, paginateUkweziPaymentRows } from '@/lib/utils/ukwezi-payment-search.js';
 import { formatMilkVolume } from '@/lib/utils/milk-volume-format.js';
 
 type PaymentRow = {
@@ -38,12 +38,52 @@ type Props = {
   t: (key: string) => string;
 };
 
+type PageSize = 25 | 50 | 100;
+type PaymentTotals = {
+  validLiters: number;
+  grossAmount: number | null;
+  transportAmount: number | null;
+  otherDeductions: number | null;
+  ejohezaAmount: number | null;
+  totalDeductions: number | null;
+  payable: number | null;
+};
+type PaymentPage = {
+  rows: PaymentRow[];
+  currentPage: number;
+  totalPages: number;
+  pageSize: number;
+  totalRows: number;
+  startIndex: number;
+  start: number;
+  end: number;
+};
+
 const formatMoney = (value: number | null, language: string) => value === null
   ? '—'
   : new Intl.NumberFormat(language === 'rw' ? 'rw-RW' : 'en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(value);
 const formatVolume = formatMilkVolume;
 const compareFarmerNames = (left: PaymentRow, right: PaymentRow) => left.farmerName.trim()
   .localeCompare(right.farmerName.trim(), 'en', { sensitivity: 'base' });
+const sumPaymentField = (rows: PaymentRow[], field: keyof PaymentRow) => rows.every((row) => row[field] !== null)
+  ? rows.reduce((sum, row) => sum + Number(row[field] || 0), 0)
+  : null;
+const getPaymentTotals = (rows: PaymentRow[]): PaymentTotals => ({
+  validLiters: sumPaymentField(rows, 'validLiters') || 0,
+  grossAmount: sumPaymentField(rows, 'grossAmount'),
+  transportAmount: sumPaymentField(rows, 'transportAmount'),
+  otherDeductions: sumPaymentField(rows, 'otherDeductions'),
+  ejohezaAmount: sumPaymentField(rows, 'ejohezaAmount'),
+  totalDeductions: sumPaymentField(rows, 'totalDeductions'),
+  payable: sumPaymentField(rows, 'payable'),
+});
+const columnClass = (key: string) => key === 'number'
+  ? 'ukwezi-payment-index'
+  : key === 'name'
+    ? 'ukwezi-payment-name'
+    : ['nationalId', 'phone', 'accountNumber'].includes(key)
+      ? 'ukwezi-payment-nowrap'
+      : 'ukwezi-payment-numeric';
 
 export function CollectorUkweziPaymentRoster({
   accountRows,
@@ -61,24 +101,38 @@ export function CollectorUkweziPaymentRoster({
   t,
 }: Props) {
   const [searchQuery, setSearchQuery] = useState('');
-  const filteredAccountRows = filterUkweziPaymentRows([...accountRows].sort(compareFarmerNames), searchQuery);
-  const filteredOwnerRows = filterUkweziPaymentRows([...ownerRows].sort(compareFarmerNames), searchQuery);
+  const [accountPage, setAccountPage] = useState(1);
+  const [ownerPage, setOwnerPage] = useState(1);
+  const [accountPageSize, setAccountPageSize] = useState<PageSize>(25);
+  const [ownerPageSize, setOwnerPageSize] = useState<PageSize>(25);
+  const filteredAccountRows = useMemo(
+    () => filterUkweziPaymentRows([...accountRows].sort(compareFarmerNames), searchQuery),
+    [accountRows, searchQuery],
+  );
+  const filteredOwnerRows = useMemo(
+    () => filterUkweziPaymentRows([...ownerRows].sort(compareFarmerNames), searchQuery),
+    [ownerRows, searchQuery],
+  );
+  const accountPagination = paginateUkweziPaymentRows(filteredAccountRows, accountPage, accountPageSize);
+  const ownerPagination = paginateUkweziPaymentRows(filteredOwnerRows, ownerPage, ownerPageSize);
+  const accountTotals = useMemo(() => getPaymentTotals(accountRows), [accountRows]);
+  const ownerTotals = useMemo(() => getPaymentTotals(ownerRows), [ownerRows]);
   const matchingFarmerCount = filteredAccountRows.length + filteredOwnerRows.length;
   const totalFarmerCount = accountRows.length + ownerRows.length;
   const columns = [
-    { key: 'number', label: t('ukweziColNumber'), width: 40 },
-    { key: 'name', label: t('ukweziColFarmerName'), width: 210 },
-    { key: 'nationalId', label: t('ukweziColNationalId'), width: 130 },
-    { key: 'phone', label: t('ukweziColPhone'), width: 120 },
-    { key: 'accountNumber', label: t('ukweziColAccountNumber'), width: 180 },
-    { key: 'liters', label: t('ukweziColMilkLiters'), width: 95 },
-    { key: 'price', label: t('ukweziColPricePerLiter'), width: 105 },
-    { key: 'gross', label: t('ukweziColGrossAmount'), width: 125 },
-    { key: 'transport', label: t('ukweziColTransport'), width: 115 },
-    { key: 'otherDeductions', label: t('ukweziColIgipandeOther'), width: 140 },
-    { key: 'ejoheza', label: t('ukweziColEjoheza'), width: 110 },
-    { key: 'totalDeductions', label: t('ukweziColTotalDeductions'), width: 145 },
-    { key: 'payable', label: t('ukweziColFarmerPaid'), width: 155 },
+    { key: 'number', label: t('ukweziColNumber'), width: 54 },
+    { key: 'name', label: t('ukweziColFarmerName'), width: 260 },
+    { key: 'nationalId', label: t('ukweziColNationalId'), width: 160 },
+    { key: 'phone', label: t('ukweziColPhone'), width: 135 },
+    { key: 'accountNumber', label: t('ukweziColAccountNumber'), width: 200 },
+    { key: 'liters', label: t('ukweziColMilkLiters'), width: 96 },
+    { key: 'price', label: t('ukweziColPricePerLiter'), width: 112 },
+    { key: 'gross', label: t('ukweziColGrossAmount'), width: 130 },
+    { key: 'transport', label: t('ukweziColTransport'), width: 130 },
+    { key: 'otherDeductions', label: t('ukweziColIgipandeOther'), width: 145 },
+    { key: 'ejoheza', label: t('ukweziColEjoheza'), width: 120 },
+    { key: 'totalDeductions', label: t('ukweziColTotalDeductions'), width: 150 },
+    { key: 'payable', label: t('ukweziColFarmerPaid'), width: 150 },
   ];
   const cellValues = (row: PaymentRow, index: number) => [
     String(index + 1), row.farmerName, row.nationalId || '—', row.phone || '—', row.accountNumber || '—',
@@ -91,36 +145,45 @@ export function CollectorUkweziPaymentRoster({
     row.totalDeductions === null ? '—' : `${formatMoney(row.totalDeductions, language)} RWF`,
     row.payable === null ? '—' : `${formatMoney(row.payable, language)} RWF`,
   ];
-  const total = (rows: PaymentRow[], field: keyof PaymentRow) => rows.every((row) => row[field] !== null)
-    ? rows.reduce((sum, row) => sum + Number(row[field] || 0), 0)
-    : null;
-  const renderTable = (rows: PaymentRow[], includeAccount: boolean, label: string) => (
+  const renderTable = (
+    rows: PaymentRow[],
+    includeAccount: boolean,
+    label: string,
+    pagination: PaymentPage,
+    totals: PaymentTotals,
+    setPage: (page: number) => void,
+    pageSize: PageSize,
+    setPageSize: (pageSize: PageSize) => void,
+  ) => (
     <section className="ukwezi-payment-group" aria-label={label}>
-      <h3>{label}</h3>
+      <header className="ukwezi-payment-group-heading">
+        <h3>{label}</h3>
+        <span>{language === 'rw' ? `Aborozi ${pagination.start}–${pagination.end} muri ${pagination.totalRows}` : `Farmers ${pagination.start}–${pagination.end} of ${pagination.totalRows}`}</span>
+      </header>
       {!includeAccount ? <p>{t('unaccountedFarmersNotice')}</p> : null}
       {rows.length ? <>
         <p className="ukwezi-payment-scroll-note">{t('ukweziHorizontalScroll')}</p>
         <div className="table-scroll ukwezi-settlement-table ukwezi-payment-desktop">
           <table>
             <colgroup>{columns.map((column) => <col key={column.key} style={{ width: `${column.width}px` }} />)}</colgroup>
-            <thead><tr>{columns.map((column, index) => <th key={column.key} className={index === 0 ? 'ukwezi-payment-index' : index === 1 ? 'ukwezi-payment-name' : undefined} scope="col">{column.label}</th>)}</tr></thead>
-            <tbody>{rows.map((row, rowIndex) => <tr key={row.farmerId}>{cellValues(row, rowIndex).map((value, index) => <td key={columns[index].key} className={index === 0 ? 'ukwezi-payment-index' : index === 1 ? 'ukwezi-payment-name' : undefined}>{value}</td>)}</tr>)}</tbody>
+            <thead><tr>{columns.map((column) => <th key={column.key} className={columnClass(column.key)} scope="col">{column.label}</th>)}</tr></thead>
+            <tbody>{pagination.rows.map((row, rowIndex) => <tr key={row.farmerId}>{cellValues(row, pagination.startIndex + rowIndex).map((value, index) => <td key={columns[index].key} className={columnClass(columns[index].key)}>{value}</td>)}</tr>)}</tbody>
             <tfoot><tr>
               <th colSpan={5}>{t('grandTotal')}</th>
-              <td>{formatVolume(total(rows, 'validLiters') || 0)}</td>
-              <td>{total(rows, 'grossAmount') === null || !(total(rows, 'validLiters') || 0) ? '—' : `${formatMoney(Number(total(rows, 'grossAmount')) / Number(total(rows, 'validLiters')), language)} RWF/L`}</td>
-              <td>{formatMoney(total(rows, 'grossAmount'), language)} RWF</td>
-              <td>{formatMoney(total(rows, 'transportAmount'), language)} RWF</td>
-              <td>{formatMoney(total(rows, 'otherDeductions'), language)} RWF</td>
-              <td>{formatMoney(total(rows, 'ejohezaAmount'), language)} RWF</td>
-              <td>{formatMoney(total(rows, 'totalDeductions'), language)} RWF</td>
-              <td>{formatMoney(total(rows, 'payable'), language)} RWF</td>
+              <td>{formatVolume(totals.validLiters)}</td>
+              <td>{totals.grossAmount === null || !totals.validLiters ? '—' : `${formatMoney(totals.grossAmount / totals.validLiters, language)} RWF/L`}</td>
+              <td>{formatMoney(totals.grossAmount, language)} RWF</td>
+              <td>{formatMoney(totals.transportAmount, language)} RWF</td>
+              <td>{formatMoney(totals.otherDeductions, language)} RWF</td>
+              <td>{formatMoney(totals.ejohezaAmount, language)} RWF</td>
+              <td>{formatMoney(totals.totalDeductions, language)} RWF</td>
+              <td>{formatMoney(totals.payable, language)} RWF</td>
             </tr></tfoot>
           </table>
         </div>
         <div className="ukwezi-mobile-list ukwezi-payment-mobile">
-          {rows.map((row, index) => <article className="ukwezi-mobile-card" key={`mobile-${row.farmerId}`}>
-            <header><b>{index + 1}. {row.farmerName}</b><strong>{row.payable === null ? '—' : `${formatMoney(row.payable, language)} RWF`}</strong></header>
+          {pagination.rows.map((row, index) => <article className="ukwezi-mobile-card" key={`mobile-${row.farmerId}`}>
+            <header><b>{pagination.startIndex + index + 1}. {row.farmerName}</b><strong>{row.payable === null ? '—' : `${formatMoney(row.payable, language)} RWF`}</strong></header>
             <dl>
               {columns.slice(2).map((column, valueIndex) => <div key={column.key}><dt>{column.label}</dt><dd>{cellValues(row, index)[valueIndex + 2]}</dd></div>)}
             </dl>
@@ -128,16 +191,36 @@ export function CollectorUkweziPaymentRoster({
           <section className="ukwezi-payment-mobile-total" aria-label={`${label} ${t('grandTotal')}`}>
             <b>{t('grandTotal')}</b>
             <dl>
-              <div><dt>{t('ukweziColMilkLiters')}</dt><dd>{formatVolume(total(rows, 'validLiters') || 0)}</dd></div>
-              <div><dt>{t('ukweziColGrossAmount')}</dt><dd>{formatMoney(total(rows, 'grossAmount'), language)} RWF</dd></div>
-              <div><dt>{t('ukweziColTransport')}</dt><dd>{formatMoney(total(rows, 'transportAmount'), language)} RWF</dd></div>
-              <div><dt>{t('ukweziColIgipandeOther')}</dt><dd>{formatMoney(total(rows, 'otherDeductions'), language)} RWF</dd></div>
-              <div><dt>{t('ukweziColEjoheza')}</dt><dd>{formatMoney(total(rows, 'ejohezaAmount'), language)} RWF</dd></div>
-              <div><dt>{t('ukweziColTotalDeductions')}</dt><dd>{formatMoney(total(rows, 'totalDeductions'), language)} RWF</dd></div>
-              <div><dt>{t('ukweziPaymentAmount')}</dt><dd>{formatMoney(total(rows, 'payable'), language)} RWF</dd></div>
+              <div><dt>{t('ukweziColMilkLiters')}</dt><dd>{formatVolume(totals.validLiters)}</dd></div>
+              <div><dt>{t('ukweziColGrossAmount')}</dt><dd>{formatMoney(totals.grossAmount, language)} RWF</dd></div>
+              <div><dt>{t('ukweziColTransport')}</dt><dd>{formatMoney(totals.transportAmount, language)} RWF</dd></div>
+              <div><dt>{t('ukweziColIgipandeOther')}</dt><dd>{formatMoney(totals.otherDeductions, language)} RWF</dd></div>
+              <div><dt>{t('ukweziColEjoheza')}</dt><dd>{formatMoney(totals.ejohezaAmount, language)} RWF</dd></div>
+              <div><dt>{t('ukweziColTotalDeductions')}</dt><dd>{formatMoney(totals.totalDeductions, language)} RWF</dd></div>
+              <div><dt>{t('ukweziPaymentAmount')}</dt><dd>{formatMoney(totals.payable, language)} RWF</dd></div>
             </dl>
           </section>
         </div>
+        <nav className="ukwezi-payment-pagination" aria-label={`${label} pagination`}>
+          <label>
+            <span>{language === 'rw' ? 'Aborozi kuri paji' : 'Farmers per page'}</span>
+            <select value={pageSize} onChange={(event) => {
+              setPageSize(Number(event.target.value) as PageSize);
+              setPage(1);
+            }}>
+              {[25, 50, 100].map((size) => <option key={size} value={size}>{size}</option>)}
+            </select>
+          </label>
+          <div className="ukwezi-payment-pagination-controls">
+            <button type="button" className="button button-secondary" disabled={pagination.currentPage <= 1} onClick={() => setPage(pagination.currentPage - 1)}>
+              {language === 'rw' ? 'Banza' : 'Previous'}
+            </button>
+            <span>{language === 'rw' ? `Paji ${pagination.currentPage} muri ${pagination.totalPages}` : `Page ${pagination.currentPage} of ${pagination.totalPages}`}</span>
+            <button type="button" className="button button-secondary" disabled={pagination.currentPage >= pagination.totalPages} onClick={() => setPage(pagination.currentPage + 1)}>
+              {language === 'rw' ? 'Ibikurikira' : 'Next'}
+            </button>
+          </div>
+        </nav>
       </> : <p className="muted-note" role={searchQuery.trim() ? 'status' : undefined}>
         {searchQuery.trim() ? t('ukweziSearchNoResults') : '—'}
       </p>}
@@ -153,7 +236,11 @@ export function CollectorUkweziPaymentRoster({
         <input
           type="search"
           value={searchQuery}
-          onChange={(event) => setSearchQuery(event.target.value)}
+          onChange={(event) => {
+            setSearchQuery(event.target.value);
+            setAccountPage(1);
+            setOwnerPage(1);
+          }}
           placeholder={t('ukweziSearchPlaceholder')}
           aria-label={t('ukweziSearchPlaceholder')}
         />
@@ -161,10 +248,10 @@ export function CollectorUkweziPaymentRoster({
       <p className="ukwezi-payment-search-count" aria-live="polite">
         {t('ukweziSearchResults').replace('{matching}', String(matchingFarmerCount)).replace('{total}', String(totalFarmerCount))}
       </p>
-      {renderTable(filteredAccountRows, true, t('accountRoutedLabel'))}
-      {renderTable(filteredOwnerRows, false, t('ownerListRoutedLabel'))}
+      {renderTable(filteredAccountRows, true, t('accountRoutedLabel'), accountPagination, accountTotals, setAccountPage, accountPageSize, setAccountPageSize)}
+      {renderTable(filteredOwnerRows, false, t('ownerListRoutedLabel'), ownerPagination, ownerTotals, setOwnerPage, ownerPageSize, setOwnerPageSize)}
       <section className="ukwezi-payment-reconciliation" aria-label={t('ukweziVerificationDifference')}>
-        <div><span>{t('accountRoutedLabel')}</span><strong>{formatMoney(total(accountRows, 'payable'), language)} RWF</strong></div>
+        <div><span>{t('accountRoutedLabel')}</span><strong>{formatMoney(accountTotals.payable, language)} RWF</strong></div>
         <div><span>{t('ukweziOwnerAccount')}</span><strong>{formatMoney(ownerAmount, language)} RWF</strong></div>
         <div className="ukwezi-payment-distributed"><span>{t('ukweziTotalDistributed')}</span><strong>{formatMoney(totalDistributed, language)} RWF</strong></div>
         <div><span>{t('ukweziFarmerSignedNet')}</span><strong>{formatMoney(signedFarmerNetBalance, language)} RWF</strong></div>
@@ -174,7 +261,7 @@ export function CollectorUkweziPaymentRoster({
         <section className="ukwezi-debt-recovery" aria-label={t('ukweziDebtRecoveryTitle')}>
           <h3>{t('ukweziDebtRecoveryTitle')}</h3>
           <p>{t('ukweziDebtRecoveryNote')}</p>
-          {[{ rows: filteredAccountRows, label: t('accountRoutedLabel') }, { rows: filteredOwnerRows, label: t('ownerListRoutedLabel') }].map(({ rows, label }) => {
+          {[{ rows: accountPagination.rows, label: t('accountRoutedLabel') }, { rows: ownerPagination.rows, label: t('ownerListRoutedLabel') }].map(({ rows, label }) => {
             const debtRows = rows.filter((row) => row.openingDebt !== null || row.debtRecovered !== null || row.closingDebt !== null);
             return debtRows.length ? <div className="ukwezi-debt-group" key={label}>
               <h4>{label}</h4>

@@ -1,4 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
+import { writeFile } from 'node:fs/promises';
 import { getAccountingDate, getCurrentAccountingPeriod } from '../../lib/utils/accounting-period.js';
 
 const collector = {
@@ -122,7 +123,10 @@ async function mockWorkspaceApis(page: Page, user = collector, milkFixture: Milk
   page.on('console', (message) => {
     if (message.type() === 'error') console.error('Browser console error:', message.text());
   });
-  await page.addInitScript(() => localStorage.setItem('milkSystem.language', 'en'));
+  await page.addInitScript(() => {
+    localStorage.setItem('milkSystem.language', 'en');
+    localStorage.setItem('lastMeaningfulActivity', String(Date.now()));
+  });
   await page.route('**/*', async (route) => {
     const url = new URL(route.request().url());
     if (url.origin !== new URL(browserTestBaseURL).origin) {
@@ -462,7 +466,7 @@ test('daily notebook Save All records realistic request size and edit-render tim
   })}`);
 });
 
-test('daily notebook drafts, scrolling, inputs, and Save All remain usable after rotation', async ({ page }) => {
+test('daily notebook drafts, scrolling, inputs, and Save All remain usable after rotation', async ({ page }, testInfo) => {
   const farmers = [
     { id: 995001, name: 'Rotation Test Farmer One' },
     { id: 995002, name: 'Rotation Test Farmer Two' },
@@ -472,17 +476,18 @@ test('daily notebook drafts, scrolling, inputs, and Save All remain usable after
   const firstCell = page.locator('.matrix-cell-input').first();
   await firstCell.fill('3.25');
   const viewports = [
-    { name: 'small phone portrait', width: 320, height: 568 },
+    { name: 'small phone portrait', width: 360, height: 800 },
     { name: 'large phone portrait', width: 430, height: 932 },
-    { name: 'small phone landscape', width: 568, height: 320 },
-    { name: 'large phone landscape', width: 844, height: 390 },
+    { name: 'small phone landscape', width: 800, height: 360 },
+    { name: 'large phone landscape', width: 932, height: 430 },
     { name: 'tablet portrait', width: 768, height: 1024 },
     { name: 'tablet landscape', width: 1024, height: 768 },
-    { name: 'desktop', width: 1440, height: 900 },
+    { name: 'desktop', width: 1366, height: 768 },
   ];
 
   for (const viewport of viewports) {
     await page.setViewportSize({ width: viewport.width, height: viewport.height });
+    await page.evaluate(() => new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
     await expect(firstCell, viewport.name).toHaveValue('3.25');
     const scrollport = page.locator('.matrix-table-scroll');
     const scrollPosition = await scrollport.evaluate((element) => {
@@ -491,8 +496,97 @@ test('daily notebook drafts, scrolling, inputs, and Save All remain usable after
     });
     expect(scrollPosition, `${viewport.name} can reach the last notebook columns`).toBeGreaterThan(0);
     await expect(page.getByRole('button', { name: /Save All 15 Days/ })).toBeVisible();
+    if (viewport.width <= 780 || (viewport.width <= 980 && viewport.height <= 500)) {
+      await expect(page.locator('.sidebar'), `${viewport.name} keeps the sidebar out of the workspace`).toBeHidden();
+      await expect(page.locator('.mobile-nav'), `${viewport.name} keeps navigation available`).toBeVisible();
+    } else {
+      await expect(page.locator('.sidebar'), `${viewport.name} keeps desktop navigation available`).toBeVisible();
+      await expect(page.locator('.mobile-nav'), `${viewport.name} avoids overlapping navigation`).toBeHidden();
+    }
     await scrollport.evaluate((element) => { element.scrollLeft = 0; });
   }
+
+  const cdp = await page.context().newCDPSession(page);
+  await page.evaluate(() => {
+    (window as Window & { __orientationChanges?: number }).__orientationChanges = 0;
+    window.addEventListener('orientationchange', () => {
+      const state = window as Window & { __orientationChanges?: number };
+      state.__orientationChanges = (state.__orientationChanges || 0) + 1;
+    });
+  });
+  const setOrientation = (width: number, height: number, type: 'portraitPrimary' | 'landscapePrimary', angle: 0 | 90) => cdp.send('Emulation.setDeviceMetricsOverride', {
+    width,
+    height,
+    deviceScaleFactor: 1,
+    mobile: true,
+    screenOrientation: { type, angle },
+  });
+  const captureOrientation = async (fileName: string, width: number, height: number) => {
+    const { data } = await cdp.send('Page.captureScreenshot', { format: 'png', fromSurface: true, captureBeyondViewport: false });
+    const image = Buffer.from(data, 'base64');
+    expect(image.readUInt32BE(16)).toBe(width);
+    expect(image.readUInt32BE(20)).toBe(height);
+    await writeFile(testInfo.outputPath(fileName), image);
+  };
+
+  await setOrientation(430, 932, 'portraitPrimary', 0);
+  await expect.poll(() => page.evaluate(() => window.innerWidth)).toBe(430);
+  await expect(page.locator('.sidebar')).toBeHidden();
+  await expect(page.locator('.mobile-nav')).toBeVisible();
+  await expect(firstCell).toHaveValue('3.25');
+  await page.evaluate(() => window.scrollTo(0, 0));
+  await captureOrientation('milk-notebook-portrait.png', 430, 932);
+  await setOrientation(932, 430, 'landscapePrimary', 90);
+  await expect.poll(() => page.evaluate(() => window.innerWidth)).toBe(932);
+  await expect.poll(() => page.evaluate(() => screen.orientation.type)).toBe('landscape-primary');
+  await expect.poll(() => page.evaluate(() => (window as Window & { __orientationChanges?: number }).__orientationChanges || 0)).toBeGreaterThan(0);
+  await expect(page.locator('.sidebar')).toBeHidden();
+  await expect(page.locator('.mobile-nav')).toBeVisible();
+  await expect(firstCell).toHaveValue('3.25');
+  const mobileMoreTrigger = page.locator('.mobile-more-trigger');
+  await mobileMoreTrigger.click();
+  await expect(page.locator('.mobile-more-menu')).toBeVisible();
+  await mobileMoreTrigger.click();
+  const saveButton = page.getByRole('button', { name: /Save All 15 Days/ });
+  await saveButton.scrollIntoViewIfNeeded();
+  await expect(saveButton).toBeInViewport();
+  await page.evaluate(() => window.scrollTo(0, 0));
+  await captureOrientation('milk-notebook-landscape.png', 932, 430);
+
+  await page.getByRole('button', { name: 'Scan notebook', exact: true }).click();
+  const importDialog = page.getByRole('dialog');
+  const assertImportDialogFits = async (width: number, height: number) => {
+    await expect(importDialog).toBeVisible();
+    const geometry = await importDialog.evaluate((element) => {
+      const bounds = element.getBoundingClientRect();
+      return { left: bounds.left, top: bounds.top, right: bounds.right, bottom: bounds.bottom, viewportWidth: innerWidth, viewportHeight: innerHeight };
+    });
+    expect(geometry.left).toBeGreaterThanOrEqual(0);
+    expect(geometry.top).toBeGreaterThanOrEqual(0);
+    expect(geometry.right).toBeLessThanOrEqual(width + 1);
+    expect(geometry.bottom).toBeLessThanOrEqual(height + 1);
+    const closeButton = importDialog.getByRole('button', { name: 'Close' });
+    const closeBounds = await closeButton.boundingBox();
+    expect(closeBounds).not.toBeNull();
+    expect(closeBounds!.y + closeBounds!.height).toBeLessThanOrEqual(height + 1);
+  };
+  await assertImportDialogFits(932, 430);
+  await setOrientation(430, 932, 'portraitPrimary', 0);
+  await expect.poll(() => page.evaluate(() => screen.orientation.type)).toBe('portrait-primary');
+  await assertImportDialogFits(430, 932);
+  await setOrientation(932, 430, 'landscapePrimary', 90);
+  await expect.poll(() => page.evaluate(() => screen.orientation.type)).toBe('landscape-primary');
+  await assertImportDialogFits(932, 430);
+  await importDialog.getByRole('button', { name: 'Close' }).click();
+
+  await setOrientation(430, 932, 'portraitPrimary', 0);
+  await expect(page.locator('.mobile-nav')).toBeVisible();
+  await expect.poll(() => page.evaluate(() => screen.orientation.type)).toBe('portrait-primary');
+  await expect(firstCell).toHaveValue('3.25');
+  await setOrientation(932, 430, 'landscapePrimary', 90);
+  await expect(page.locator('.mobile-nav')).toBeVisible();
+  await expect.poll(() => page.evaluate(() => screen.orientation.type)).toBe('landscape-primary');
+  await expect(firstCell).toHaveValue('3.25');
 
   await expect(page.getByRole('status')).toContainText('1 unsaved value(s)');
   const savedDraftKeys = await page.evaluate(() => Object.keys(localStorage).filter((key) => key.startsWith('milk-matrix-draft:')));
@@ -501,7 +595,6 @@ test('daily notebook drafts, scrolling, inputs, and Save All remain usable after
   await expect(page.getByRole('button', { name: 'Restore unsaved entries' })).toBeVisible();
   await page.getByRole('button', { name: 'Restore unsaved entries' }).click();
   await expect(firstCell).toHaveValue('3.25');
-  const saveButton = page.getByRole('button', { name: /Save All 15 Days/ });
   await saveButton.scrollIntoViewIfNeeded();
   await expect(saveButton).toBeInViewport();
   await saveButton.click();

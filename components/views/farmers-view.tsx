@@ -270,7 +270,7 @@ export function FarmersView({
               <button type="button" className="icon-button" title={t('viewFarmerHistory')} aria-label={`${t('viewFarmerHistory')}: ${farmer.name}`} onClick={() => onOpenHistory(farmer)}><History size={16} aria-hidden="true" /></button>
               <button type="button" className="icon-button" title={t('navIfishi')} aria-label={`${t('navIfishi')}: ${farmer.name}`} onClick={() => onOpenIfishi(farmer)}><BookOpen size={16} aria-hidden="true" /></button>
               <button type="button" className="icon-button" title={t('edit')} aria-label={`${t('edit')}: ${farmer.name}`} onClick={() => onEdit(farmer)}><Edit3 size={16} aria-hidden="true" /></button>
-              <button type="button" className="icon-button danger-text" title={language === 'en' ? 'Permanently delete' : 'Siba burundu'} aria-label={`${language === 'en' ? 'Permanently delete' : 'Siba burundu'}: ${farmer.name}`} onClick={() => onDelete(farmer)}><Trash2 size={16} aria-hidden="true" /></button>
+              <button type="button" className="icon-button danger-text" title={language === 'en' ? 'Archive farmer' : 'Kuraho mu bakora'} aria-label={`${language === 'en' ? 'Archive farmer' : 'Kuraho mu bakora'}: ${farmer.name}`} onClick={() => onDelete(farmer)}><Trash2 size={16} aria-hidden="true" /></button>
             </div></td>
           </tr>)}</tbody></table></div>
 
@@ -281,7 +281,7 @@ export function FarmersView({
               <button type="button" className="button button-secondary small-button" aria-label={`${t('viewFarmerHistory')}: ${farmer.name}`} onClick={() => onOpenHistory(farmer)}><History size={14} aria-hidden="true" />{t('viewFarmerHistory')}</button>
               <button type="button" className="button button-secondary small-button" aria-label={`${t('navIfishi')}: ${farmer.name}`} onClick={() => onOpenIfishi(farmer)}><BookOpen size={14} aria-hidden="true" />{t('navIfishi')}</button>
               <button type="button" className="button button-secondary small-button" aria-label={`${t('edit')}: ${farmer.name}`} onClick={() => onEdit(farmer)}><Edit3 size={14} aria-hidden="true" />{t('edit')}</button>
-              <button type="button" className="button button-secondary small-button danger-text" aria-label={`${language === 'en' ? 'Permanently delete' : 'Siba burundu'}: ${farmer.name}`} onClick={() => onDelete(farmer)}><Trash2 size={14} aria-hidden="true" />{language === 'en' ? 'Permanently delete' : 'Siba burundu'}</button>
+              <button type="button" className="button button-secondary small-button danger-text" aria-label={`${language === 'en' ? 'Archive farmer' : 'Kuraho mu bakora'}: ${farmer.name}`} onClick={() => onDelete(farmer)}><Trash2 size={14} aria-hidden="true" />{language === 'en' ? 'Archive farmer' : 'Kuraho mu bakora'}</button>
             </footer>
           </article>)}</div>
         </> : error ? <div className="farmers-empty-state" role="alert"><Users size={20} aria-hidden="true" /><div><b>{t('farmersLoadErrorTitle')}</b><p>{error}</p></div><button type="button" className="button button-secondary small-button" onClick={onRetry}>{t('tryAgain')}</button></div>

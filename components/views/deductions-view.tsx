@@ -59,6 +59,52 @@ export type DeductionConfiguration = {
   isActive: boolean;
 };
 
+export type DeductionBatchPreviewFarmer = {
+  farmerId: number;
+  farmerName: string | null;
+  farmerNumber: number | null;
+  alreadyApplied: boolean;
+  status: string;
+  chargeAmount: number;
+  recoveredAmount: number;
+  outstandingAmount: number;
+  availableEarnings: number | null;
+  reason: string | null;
+};
+
+export type DeductionBatchPreview = {
+  configuration: DeductionConfiguration;
+  periodStart: string;
+  periodEnd: string;
+  farmers: DeductionBatchPreviewFarmer[];
+  failures: Array<{ farmerId: number; reason: string }>;
+  summary: {
+    requested: number;
+    eligible: number;
+    toApply: number;
+    alreadyApplied: number;
+    skipped: number;
+    failed: number;
+    totalConfigured: number;
+    totalRecovered: number;
+    totalOutstanding: number;
+  };
+};
+
+export type DeductionBatchResult = {
+  succeeded: number;
+  duplicates: number;
+  skipped: number;
+  failed: number;
+  succeededFarmers: Array<{ id: number; name: string }>;
+  duplicateFarmers: Array<{ id: number; name: string }>;
+  skippedFarmers: Array<{ id: number; name: string }>;
+  failures: Array<{ farmerId: number; reason: string }>;
+  totalConfigured: number;
+  totalRecovered: number;
+  totalOutstanding: number;
+};
+
 type FarmerOption = {
   id: number;
   name: string;
@@ -85,7 +131,8 @@ type Props = {
   configurationsLoading: boolean;
   onLoadConfigurations: () => Promise<void>;
   onSaveConfiguration: (input: Omit<DeductionConfiguration, 'id' | 'executionMode'>, id?: number) => Promise<DeductionConfiguration>;
-  onApplyConfiguredBatch: (input: { configurationId: number; farmerIds: number[]; periodStart: string; periodEnd: string }) => Promise<{ succeeded: number; duplicates: number; succeededFarmerIds: number[]; duplicateFarmerIds: number[]; failures: Array<{ farmerId: number; reason: string }> }>;
+  onPreviewConfiguredBatch: (input: { configurationId: number; farmerIds?: number[]; periodStart: string; periodEnd: string; applyToAll?: boolean }) => Promise<DeductionBatchPreview>;
+  onApplyConfiguredBatch: (input: { configurationId: number; farmerIds?: number[]; periodStart: string; periodEnd: string; applyToAll?: boolean }) => Promise<DeductionBatchResult>;
   onInspectFarmer: (farmer: { farmerId: number; farmerName: string | null }) => void;
   inspectorOpen: boolean;
   inspectorFarmerName: string | null;
@@ -141,6 +188,7 @@ export function DeductionView({
   configurationsLoading,
   onLoadConfigurations,
   onSaveConfiguration,
+  onPreviewConfiguredBatch,
   onApplyConfiguredBatch,
   onInspectFarmer,
   inspectorOpen,
@@ -168,6 +216,7 @@ export function DeductionView({
   const [selectedFarmerIds, setSelectedFarmerIds] = useState<number[]>([]);
   const [selectedConfigurationId, setSelectedConfigurationId] = useState('');
   const [batchOpen, setBatchOpen] = useState(false);
+  const [batchMode, setBatchMode] = useState<'selected' | 'all'>('selected');
   const [configurationOpen, setConfigurationOpen] = useState(false);
   const [configurationDraft, setConfigurationDraft] = useState({
     id: 0,
@@ -183,7 +232,10 @@ export function DeductionView({
   });
   const [batchBusy, setBatchBusy] = useState(false);
   const [batchError, setBatchError] = useState('');
-  const [batchResult, setBatchResult] = useState<null | { succeeded: number; duplicates: number; succeededFarmers: Array<{ id: number; name: string }>; duplicateFarmers: Array<{ id: number; name: string }>; failures: Array<{ farmerId: number; reason: string }> }>(null);
+  const [batchPreview, setBatchPreview] = useState<DeductionBatchPreview | null>(null);
+  const [previewLoading, setPreviewLoading] = useState(false);
+  const [batchResult, setBatchResult] = useState<DeductionBatchResult | null>(null);
+  const [retryFailedOnly, setRetryFailedOnly] = useState(false);
   const [allEligibleLoading, setAllEligibleLoading] = useState(false);
   const [createForm, setCreateForm] = useState({ farmerId: '', amount: '', type: 'Other', date: today(), reason: '', notes: '' });
   const [editDraft, setEditDraft] = useState<null | { id: number; farmerId: number; amount: string; type: string; date: string; reason: string; notes: string; status: string }>(null);
@@ -198,7 +250,7 @@ export function DeductionView({
   const isRowSelectable = (row: FarmerPeriodLedgerRow) => row.configuredDeductionCount === 0 && isEligibleForConfiguration(row);
   const eligibleRows = ledgerRows.filter(isRowSelectable);
   const selectedRows = ledgerRows.filter((row) => selectedFarmerIds.includes(row.farmerId));
-  const previewTotal = selectedConfiguration ? selectedConfiguration.amountPerFarmer * selectedFarmerIds.length : 0;
+  const previewTotal = batchPreview?.summary.totalConfigured ?? (selectedConfiguration ? selectedConfiguration.amountPerFarmer * selectedFarmerIds.length : 0);
   const deductionSummary = ledgerSummary ? [
     { label: 'deductionSummaryFarmers', value: String(ledgerSummary.farmersListed) },
     { label: 'deductionSummaryWithDeductions', value: String(ledgerSummary.farmersWithDeductions) },
@@ -220,23 +272,35 @@ export function DeductionView({
     onPeriodChange(range.startDate, range.endDate);
   };
 
-  const toggleFarmer = (farmerId: number) => setSelectedFarmerIds((current) => current.includes(farmerId)
-    ? current.filter((id) => id !== farmerId)
-    : [...current, farmerId]);
+  const toggleFarmer = (farmerId: number) => setSelectedFarmerIds((current) => {
+    const next = current.includes(farmerId)
+      ? current.filter((id) => id !== farmerId)
+      : [...current, farmerId];
+    setBatchMode('selected');
+    setBatchPreview(null);
+    return next;
+  });
 
   const selectVisibleEligible = () => setSelectedFarmerIds((current) => {
     const visibleIds = eligibleRows.map((row) => row.farmerId);
-    return visibleIds.every((id) => current.includes(id))
+    const next = visibleIds.every((id) => current.includes(id))
       ? current.filter((id) => !visibleIds.includes(id))
       : [...new Set([...current, ...visibleIds])];
+    setBatchMode('selected');
+    setBatchPreview(null);
+    return next;
   });
 
   const selectAllEligible = async () => {
     setAllEligibleLoading(true);
     setBatchError('');
+    setBatchMode('all');
+    setBatchPreview(null);
+    setBatchResult(null);
     try {
       const allRows = await onLoadAllEligible();
       setSelectedFarmerIds(allRows.filter(isRowSelectable).map((row) => row.farmerId));
+      await loadBatchPreview({ applyToAll: true });
     } catch (error) {
       setBatchError(error instanceof Error ? error.message : 'Failed to load eligible farmers.');
     } finally {
@@ -244,27 +308,49 @@ export function DeductionView({
     }
   };
 
-  const applyBatch = async () => {
-    if (!selectedConfiguration || !selectedFarmerIds.length || batchBusy) return;
-    setBatchBusy(true);
+  const loadBatchPreview = async ({ applyToAll = false }: { applyToAll?: boolean } = {}) => {
+    if (!selectedConfiguration) return;
+    setPreviewLoading(true);
     setBatchError('');
     try {
-      const selectedNames = new Map(selectedRows.map((row) => [row.farmerId, row.farmerName || `Farmer #${row.farmerId}`]));
-      const result = await onApplyConfiguredBatch({
+      const preview = await onPreviewConfiguredBatch({
         configurationId: selectedConfiguration.id,
-        farmerIds: selectedFarmerIds,
+        ...(applyToAll ? { applyToAll: true } : { farmerIds: selectedFarmerIds }),
         periodStart,
         periodEnd,
       });
-      setBatchResult({
-        succeeded: result.succeeded,
-        duplicates: result.duplicates,
-        succeededFarmers: result.succeededFarmerIds.map((id) => ({ id, name: selectedNames.get(id) || `Farmer #${id}` })),
-        duplicateFarmers: result.duplicateFarmerIds.map((id) => ({ id, name: selectedNames.get(id) || `Farmer #${id}` })),
-        failures: result.failures,
+      setBatchPreview(preview);
+    } catch (error) {
+      setBatchError(error instanceof Error ? error.message : 'Failed to load batch preview.');
+      setBatchPreview(null);
+    } finally {
+      setPreviewLoading(false);
+    }
+  };
+
+  const applyBatch = async () => {
+    if (!selectedConfiguration || batchBusy) return;
+    const farmerIds = retryFailedOnly
+      ? batchResult?.failures.map((f) => f.farmerId).filter(Boolean)
+      : batchMode === 'all'
+        ? []
+        : selectedFarmerIds;
+    if (batchMode === 'selected' && !farmerIds.length) return;
+    setBatchBusy(true);
+    setBatchError('');
+    setBatchPreview(null);
+    try {
+      const result = await onApplyConfiguredBatch({
+        configurationId: selectedConfiguration.id,
+        ...(batchMode === 'all' ? { applyToAll: true } : { farmerIds }),
+        periodStart,
+        periodEnd,
       });
-      setSelectedFarmerIds(result.failures.map((failure) => failure.farmerId));
-      if (!result.failures.length) setBatchOpen(false);
+      setBatchResult(result);
+      if (batchMode === 'selected') {
+        setSelectedFarmerIds(result.failures.map((failure) => failure.farmerId));
+      }
+      if (!result.failures.length && !result.skipped.length) setBatchOpen(false);
     } catch (error) {
       setBatchError(error instanceof Error ? error.message : 'Failed to apply deduction batch.');
     } finally {
@@ -431,14 +517,24 @@ export function DeductionView({
             <button type="button" className="button button-secondary small-button" onClick={() => void selectAllEligible()} disabled={allEligibleLoading}>
               {allEligibleLoading ? t('wait') : t('deductionSelectAllEligible')}
             </button>
+            <div className="batch-mode-toggle" role="group" aria-label={t('deductionBatchMode')}>
+              <button type="button" role="radio" aria-checked={batchMode === 'selected'} className={`batch-mode-button${batchMode === 'selected' ? ' is-active' : ''}`} onClick={() => { setBatchMode('selected'); setBatchPreview(null); setBatchResult(null); }}>
+                {t('deductionBatchModeSelected')}
+              </button>
+              <button type="button" role="radio" aria-checked={batchMode === 'all'} className={`batch-mode-button${batchMode === 'all' ? ' is-active' : ''}`} onClick={() => { setBatchMode('all'); setBatchPreview(null); setBatchResult(null); setSelectedFarmerIds([]); }}>
+                {t('deductionBatchModeAll')}
+              </button>
+            </div>
           </div>
-          <span className="count-label">{t('deductionSelectedCount').replace('{count}', String(selectedFarmerIds.length))}</span>
+          <span className="count-label">{t('deductionSelectedCount').replace('{count}', String(batchMode === 'all' ? batchPreview?.summary.requested ?? selectedFarmerIds.length : selectedFarmerIds.length))}</span>
           <label className="deduction-configuration-select"><span>{t('deductionConfiguration')}</span><select value={selectedConfigurationId} onChange={(event) => {
             const nextId = event.target.value;
             const nextConfiguration = configurations.find((configuration) => String(configuration.id) === nextId);
             setSelectedFarmerIds([]);
             setSelectedConfigurationId(nextId);
             onLedgerConfigurationChange(nextId ? Number(nextId) : null);
+            setBatchPreview(null);
+            setBatchResult(null);
             if (nextConfiguration?.eligibilityMode === 'SELECTED') {
               setSelectedFarmerIds((current) => current.filter((id) => nextConfiguration.eligibleFarmerIds.includes(id)));
             }
@@ -446,12 +542,29 @@ export function DeductionView({
             <option value="">{configurationsLoading ? t('dashboardLoading') : t('deductionSelectConfiguration')}</option>
             {configurations.filter((configuration) => configuration.isActive).map((configuration) => <option key={configuration.id} value={String(configuration.id)}>{configuration.name} · {money(configuration.amountPerFarmer)} RWF</option>)}
           </select></label>
-          <button type="button" className="button button-primary small-button" onClick={() => { setBatchError(''); setBatchResult(null); setBatchOpen(true); }} disabled={!selectedFarmerIds.length || !selectedConfiguration || batchBusy}>
-            {t('deductionPreviewBatch')}
+          <button type="button" className="button button-secondary small-button" onClick={() => { setBatchError(''); setBatchResult(null); void loadBatchPreview(); setBatchOpen(true); }} disabled={!selectedConfiguration || batchBusy || previewLoading}>
+            {previewLoading ? t('wait') : t('deductionPreviewBatch')}
+          </button>
+          <button type="button" className="button button-primary small-button" onClick={() => { setBatchError(''); setBatchResult(null); setBatchOpen(true); }} disabled={!selectedConfiguration || batchBusy || previewLoading}>
+            {t('deductionUniversalApply')}
           </button>
         </div>
         {batchError ? <p className="form-error" role="alert">{batchError}</p> : null}
-        {batchResult ? <div className="workspace-empty" role="status"><b>{t('deductionBatchResults').replace('{succeeded}', String(batchResult.succeeded)).replace('{duplicates}', String(batchResult.duplicates))}</b>{batchResult.succeededFarmers.length ? <p>{t('deductionBatchSucceededList')}: {batchResult.succeededFarmers.map((farmer) => farmer.name).join(', ')}</p> : null}{batchResult.duplicateFarmers.length ? <p>{t('deductionBatchDuplicateList')}: {batchResult.duplicateFarmers.map((farmer) => farmer.name).join(', ')}</p> : null}{batchResult.failures.length ? <ul>{batchResult.failures.map((failure) => <li key={failure.farmerId}>#{failure.farmerId}: {failure.reason}</li>)}</ul> : null}</div> : null}
+        {batchResult ? <div className="workspace-empty" role="status">
+          <b>{t('deductionBatchResults')}</b>
+          <div className="batch-result-stats">
+            <span>{t('deductionBatchStatSucceeded')}: <b>{batchResult.succeeded}</b></span>
+            <span>{t('deductionBatchStatSkipped')}: <b>{batchResult.skipped}</b></span>
+            <span>{t('deductionBatchStatFailed')}: <b>{batchResult.failed}</b></span>
+            <span>{t('deductionBatchStatTotalRecovered')}: <b>{money(batchResult.totalRecovered)} RWF</b></span>
+            <span>{t('deductionBatchStatTotalOutstanding')}: <b>{money(batchResult.totalOutstanding)} RWF</b></span>
+          </div>
+          {batchResult.succeededFarmers.length ? <p>{t('deductionBatchSucceededList')}: {batchResult.succeededFarmers.map((farmer) => farmer.name).join(', ')}</p> : null}
+          {batchResult.skippedFarmers.length ? <p>{t('deductionBatchSkippedList')}: {batchResult.skippedFarmers.map((farmer) => farmer.name).join(', ')}</p> : null}
+          {batchResult.duplicateFarmers.length ? <p>{t('deductionBatchDuplicateList')}: {batchResult.duplicateFarmers.map((farmer) => farmer.name).join(', ')}</p> : null}
+          {batchResult.failures.length ? <ul>{batchResult.failures.map((failure) => <li key={failure.farmerId}>#{failure.farmerId}: {failure.reason}</li>)}</ul> : null}
+          {batchResult.failures.length && batchMode === 'selected' ? <button type="button" className="button button-secondary small-button" onClick={() => { setRetryFailedOnly(true); setBatchOpen(false); setBatchOpen(true); }}>{t('deductionRetryFailed')}</button> : null}
+        </div> : null}
 
         {ledgerLoading && !ledgerRows.length ? <div className="workspace-empty workspace-loading" role="status"><span className="loading-indicator" />{t('dashboardLoading')}</div> : ledgerRows.length ? <>
           <div className="table-scroll deduction-ledger-table-wrap"><table className="deduction-ledger-table"><thead><tr>
@@ -498,32 +611,41 @@ export function DeductionView({
       </section>
 
       {batchOpen ? <Modal ariaLabel={t('deductionPreviewBatch')} onClose={() => setBatchOpen(false)} dismissible={!batchBusy} className="modal-panel-wide">
-        <div className="panel-heading"><div><span className="eyebrow">{t('deductionManualOnly')}</span><h2>{t('deductionPreviewBatch')}</h2></div><button type="button" className="icon-button" onClick={() => setBatchOpen(false)} disabled={batchBusy} aria-label={t('cancel')}><X size={18} aria-hidden="true" /></button></div>
-        {selectedConfiguration ? <>
+        <div className="panel-heading"><div><span className="eyebrow">{t('deductionManualOnly')}</span><h2>{t('deductionPreviewBatch')}</h2></div><button type="button" className="icon-button" onClick={() => setBatchOpen(false)} disabled={batchBusy || previewLoading} aria-label={t('cancel')}><X size={18} aria-hidden="true" /></button></div>
+        {previewLoading ? <div className="workspace-empty workspace-loading" role="status"><span className="loading-indicator" />{t('dashboardLoading')}</div> : null}
+        {!previewLoading && selectedConfiguration && batchPreview ? <>
           <div className="metric-strip report-summary">
             <div><span>{t('deductionPeriod')}</span><b>{formatDate(periodStart)} – {formatDate(periodEnd)}</b></div>
             <div><span>{t('deductionConfiguration')}</span><b>{selectedConfiguration.name}</b></div>
             <div><span>{t('deductionAmountPerFarmer')}</span><b>{money(selectedConfiguration.amountPerFarmer)} RWF</b></div>
-            <div><span>{t('deductionSelectedFarmers')}</span><b>{selectedFarmerIds.length}</b></div>
-            <div><span>{t('deductionBatchTotal')}</span><b>{money(previewTotal)} RWF</b></div>
+            <div><span>{t('deductionSelectedFarmers')}</span><b>{batchPreview.summary.requested}</b></div>
+            <div><span>{t('deductionBatchToApply')}</span><b>{batchPreview.summary.toApply}</b></div>
+            <div><span>{t('deductionBatchTotal')}</span><b>{money(batchPreview.summary.totalConfigured)} RWF</b></div>
+            <div><span>{t('deductionBatchRecoverable')}</span><b>{money(batchPreview.summary.totalRecovered)} RWF</b></div>
+            <div><span>{t('deductionBatchOutstanding')}</span><b>{money(batchPreview.summary.totalOutstanding)} RWF</b></div>
           </div>
           <p className="muted-note">{t('deductionBatchConfirmation')}</p>
-          <div className="deduction-batch-preview-list" role="list" aria-label={t('deductionSelectedFarmers')}>
-            {selectedRows.map((row) => <label key={row.farmerId} role="listitem" className="deduction-batch-preview-row">
-              <input type="checkbox" checked onChange={() => toggleFarmer(row.farmerId)} aria-label={t('deductionExcludeFarmer').replace('{name}', row.farmerName || String(row.farmerId))} />
-              <span>{row.farmerName || `Farmer #${row.farmerId}`} · #{row.farmerNumber ?? row.farmerId}</span>
-              <b>{money(selectedConfiguration.amountPerFarmer)} RWF</b>
+          {batchPreview.summary.alreadyApplied > 0 ? <p className="muted-note">{t('deductionBatchAlreadyAppliedNotice').replace('{count}', String(batchPreview.summary.alreadyApplied))}</p> : null}
+          {batchPreview.summary.failed > 0 ? <p className="form-error" role="alert">{t('deductionBatchPreviewFailures').replace('{count}', String(batchPreview.summary.failed))}</p> : null}
+          <div className="deduction-batch-preview-list" role="list" aria-label={t('deductionPreviewFarmers')}>
+            {batchPreview.farmers.map((farmer) => <label key={farmer.farmerId} role="listitem" className={`deduction-batch-preview-row${farmer.alreadyApplied ? ' deduction-batch-preview-skipped' : ''}`}>
+              <span>{farmer.farmerName || `Farmer #${farmer.farmerId}`} · #{farmer.farmerNumber ?? farmer.farmerId}</span>
+              <span className={`status-pill deduction-status-${farmer.status.toLowerCase().replaceAll('_', '-')}`}>{farmer.status}</span>
+              <b>{money(farmer.recoveredAmount)} RWF</b>{farmer.outstandingAmount > 0 ? <span className="block-muted">· {t('deductionBatchOutstandingShort')}: {money(farmer.outstandingAmount)} RWF</span> : null}
+              {farmer.reason ? <span className="block-muted">({farmer.reason})</span> : null}
             </label>)}
-            {selectedFarmerIds.filter((id) => !selectedRows.some((row) => row.farmerId === id)).map((id) => <label key={id} role="listitem" className="deduction-batch-preview-row">
-              <input type="checkbox" checked onChange={() => toggleFarmer(id)} aria-label={t('deductionExcludeFarmer').replace('{name}', `Farmer #${id}`)} />
-              <span>Farmer #{id}</span>
-              <b>{money(selectedConfiguration.amountPerFarmer)} RWF</b>
+            {batchPreview.failures.map((failure) => <label key={failure.farmerId} role="listitem" className="deduction-batch-preview-row deduction-batch-preview-failed">
+              <span>Farmer #{failure.farmerId}</span>
+              <span className="status-pill deduction-status-failed">{t('deductionStatusFailed')}</span>
+              <b className="text-error">{failure.reason}</b>
             </label>)}
+            {batchPreview.farmers.length === 0 && batchPreview.failures.length === 0 && batchPreview.summary.toApply === 0 ? <p className="muted-note">{t('deductionBatchNoEligible')}</p> : null}
           </div>
         </> : null}
+        {!previewLoading && !selectedConfiguration ? <p className="muted-note">{t('deductionSelectConfiguration')}</p> : null}
+        {!previewLoading && selectedConfiguration && !batchPreview ? <p className="muted-note">{t('deductionBatchPreviewEmpty')}</p> : null}
         {batchError ? <p className="form-error" role="alert">{batchError}</p> : null}
-        {batchResult ? <div className="workspace-empty" role="status"><b>{t('deductionBatchResults').replace('{succeeded}', String(batchResult.succeeded)).replace('{duplicates}', String(batchResult.duplicates))}</b>{batchResult.succeededFarmers.length ? <p>{t('deductionBatchSucceededList')}: {batchResult.succeededFarmers.map((farmer) => farmer.name).join(', ')}</p> : null}{batchResult.duplicateFarmers.length ? <p>{t('deductionBatchDuplicateList')}: {batchResult.duplicateFarmers.map((farmer) => farmer.name).join(', ')}</p> : null}{batchResult.failures.length ? <ul>{batchResult.failures.map((failure) => <li key={failure.farmerId}>#{failure.farmerId}: {failure.reason}</li>)}</ul> : null}</div> : null}
-        <div className="form-actions"><button type="button" className="button button-secondary" onClick={() => setBatchOpen(false)} disabled={batchBusy}>{t('cancel')}</button><button type="button" className="button button-primary" onClick={() => void applyBatch()} disabled={batchBusy || !selectedConfiguration || !selectedFarmerIds.length}>{batchBusy ? t('wait') : t('deductionConfirmBatch')}</button></div>
+        <div className="form-actions"><button type="button" className="button button-secondary" onClick={() => setBatchOpen(false)} disabled={batchBusy || previewLoading}>{t('cancel')}</button><button type="button" className="button button-primary" onClick={() => void applyBatch()} disabled={batchBusy || previewLoading || !selectedConfiguration || !batchPreview || batchPreview.summary.toApply === 0}>{batchBusy || previewLoading ? t('wait') : t('deductionConfirmBatch')}</button></div>
       </Modal> : null}
 
       {configurationOpen ? <Modal ariaLabel={t('deductionConfigure')} onClose={() => setConfigurationOpen(false)} dismissible className="modal-panel-wide">
